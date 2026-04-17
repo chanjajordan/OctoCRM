@@ -1,0 +1,2507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,interactive-widget=resizes-content,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f8fafc">
+<title>OctoCRM — Field Service</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+<!-- Fallback CDNs if cloudflare fails -->
+<script>
+if(typeof html2canvas==='undefined'){document.write('<scr'+'ipt src="https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"><\/scr'+'ipt>')}
+</script>
+<script>
+if(typeof window.jspdf==='undefined'){document.write('<scr'+'ipt src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"><\/scr'+'ipt>')}
+</script>
+<style>
+:root{
+  --bg:#f1f5f9;--bg2:#ffffff;--card:#ffffff;--input:#f8fafc;
+  --bdr:#e2e8f0;--bdr2:#cbd5e1;
+  --t1:#0f172a;--t2:#475569;--t3:#94a3b8;
+  --ac:#2563eb;--ac2:#1d4ed8;--acs:rgba(37,99,235,.08);
+  --ok:#059669;--oks:rgba(5,150,105,.08);
+  --wn:#d97706;--wns:rgba(217,119,6,.08);
+  --er:#dc2626;--ers:rgba(220,38,38,.08);
+  --pu:#7c3aed;--pus:rgba(124,58,237,.08);
+  --tl:#0891b2;--tls:rgba(8,145,178,.08);
+  --wa:#25d366;--was:rgba(37,211,102,.1);
+  --r:12px;--rl:16px;
+  --sh:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.06);
+  --sh2:0 4px 12px rgba(0,0,0,.1);
+  --tr:.15s ease;
+  --fs:16px;--fs-sm:14px;--fs-xs:12px;--fs-lg:18px;--fs-xl:22px;--fs-h:28px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:rgba(37,99,235,.1)}
+html{height:100%;overflow-x:hidden;overscroll-behavior:none}
+body{font-family:'Inter',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--t1);min-height:100vh;min-height:100dvh;overflow-x:hidden;font-size:var(--fs);-webkit-text-size-adjust:100%;text-size-adjust:100%;line-height:1.5}
+button,input,textarea{font-family:inherit;border-radius:0}
+button,input[type="text"],input[type="password"],input[type="email"],input[type="tel"],input[type="date"],input[type="time"],input[type="number"],input[type="search"],input[type="url"],textarea{-webkit-appearance:none;appearance:none}
+input[type="checkbox"],input[type="radio"]{-webkit-appearance:checkbox;appearance:checkbox}
+svg{overflow:visible}
+svg [stroke="currentColor"]{stroke:currentColor}
+svg [fill="currentColor"]{fill:currentColor}
+select{font-family:inherit}
+a,button,input,select,textarea{touch-action:manipulation}
+
+/* ===== LOGIN SCREEN ===== */
+.login-screen{display:flex;align-items:center;justify-content:center;min-height:100vh;min-height:100dvh;padding:24px;padding-top:max(24px,env(safe-area-inset-top,24px));background:linear-gradient(135deg,#eff6ff,#f1f5f9)}
+.login-box{background:#fff;border-radius:20px;box-shadow:var(--sh2);padding:40px 32px;width:100%;max-width:400px;text-align:center}
+.login-box .logo-lg{width:64px;height:64px;background:linear-gradient(135deg,var(--ac),var(--pu));border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;color:#fff;margin:0 auto 16px}
+.login-box h1{font-size:var(--fs-h);font-weight:800;margin-bottom:4px;color:var(--t1)}
+.login-box p{color:var(--t2);font-size:var(--fs-sm);margin-bottom:28px}
+.login-err{background:var(--ers);color:var(--er);padding:10px 14px;border-radius:var(--r);font-size:var(--fs-sm);margin-bottom:16px;display:none}
+
+/* ===== APP LAYOUT ===== */
+.app{display:none;min-height:100vh}
+.app.show{display:flex}
+
+/* ===== SIDEBAR ===== */
+.sb{width:260px;background:var(--bg2);border-right:1px solid var(--bdr);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:200;transition:transform var(--tr);box-shadow:var(--sh);overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain}
+.sb-brand{padding:20px;padding-top:max(20px,env(safe-area-inset-top,20px));border-bottom:1px solid var(--bdr);display:flex;align-items:center;gap:12px}
+.sb-brand .logo{width:38px;height:38px;background:linear-gradient(135deg,var(--ac),var(--pu));border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff}
+.sb-brand h1{font-size:var(--fs-lg);font-weight:800;color:var(--t1)}
+.sb-brand span{font-size:11px;color:var(--t3);display:block;margin-top:1px}
+.ns{padding:20px 16px 8px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;color:var(--t3)}
+.ni{display:flex;align-items:center;gap:12px;padding:12px 16px;margin:2px 8px;border-radius:var(--r);cursor:pointer;transition:all var(--tr);font-size:var(--fs);font-weight:500;color:var(--t2);position:relative;background:none;border:none;width:calc(100% - 16px);text-align:left;font-family:inherit;appearance:none;outline:none;min-height:48px}
+.ni:active{background:var(--acs)}.ni.active{background:var(--acs);color:var(--ac);font-weight:600}
+.ni.active::before{content:'';position:absolute;left:-8px;top:10px;bottom:10px;width:3px;background:var(--ac);border-radius:0 3px 3px 0}
+.ni svg{width:20px;height:20px;flex-shrink:0;stroke:var(--t2);fill:none;stroke-width:2}
+.ni.active svg{stroke:var(--ac)}
+.nb{margin-left:auto;background:var(--ac);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px}
+.nbw{margin-left:auto;background:var(--wn);color:#fff;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px}
+.sb-foot{margin-top:auto;padding:16px;border-top:1px solid var(--bdr)}
+.sb-user{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.sb-user-av{width:36px;height:36px;border-radius:50%;background:var(--acs);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--ac);font-size:var(--fs-sm)}
+.sb-user-info{flex:1}
+.sb-user-name{font-weight:600;font-size:var(--fs-sm);color:var(--t1)}
+.sb-user-role{font-size:var(--fs-xs);color:var(--t3)}
+
+/* ===== MAIN ===== */
+.mn{margin-left:260px;flex:1;min-height:100vh;overflow-x:hidden;max-width:100%}
+.tb{height:auto;min-height:64px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;padding:0 24px;padding-top:env(safe-area-inset-top,0px);background:var(--bg2);position:sticky;top:0;z-index:50;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+.tb-t{font-size:var(--fs-xl);font-weight:700}
+.tb-a{display:flex;gap:8px;align-items:center}
+.ct{padding:24px}
+
+/* ===== BUTTONS ===== */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:10px 20px;border-radius:var(--r);border:1px solid transparent;font-size:var(--fs-sm);font-weight:600;cursor:pointer;transition:all var(--tr);white-space:nowrap;min-height:44px;font-family:inherit}
+.btn svg{width:18px;height:18px}
+.btn-p{background:var(--ac);color:#fff;border-color:var(--ac);box-shadow:0 1px 3px rgba(37,99,235,.3)}.btn-p:active{background:var(--ac2)}
+.btn-s{background:var(--bg2);color:var(--t2);border-color:var(--bdr)}.btn-s:active{background:var(--bg)}
+.btn-d{background:var(--ers);color:var(--er);border-color:transparent}.btn-d:active{background:var(--er);color:#fff}
+.btn-ok{background:var(--ok);color:#fff;box-shadow:0 1px 3px rgba(5,150,105,.3)}.btn-ok:active{opacity:.9}
+.btn-wa{background:var(--wa);color:#fff;box-shadow:0 1px 3px rgba(37,211,102,.3)}.btn-wa:active{opacity:.9}
+.btn-sm{padding:8px 14px;font-size:var(--fs-xs);min-height:38px}
+.btn-i{width:44px;height:44px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:var(--r);border:1px solid var(--bdr);background:var(--bg2);color:var(--t2);cursor:pointer;transition:all var(--tr);-webkit-appearance:none;appearance:none}.btn-i:active{background:var(--bg)}
+.btn-i svg{width:20px;height:20px;flex-shrink:0;stroke:var(--t2);fill:none;stroke-width:2}
+
+/* ===== STATS ===== */
+.sg{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px}
+.sc{background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);padding:20px;box-shadow:var(--sh);transition:all var(--tr)}
+.sc .si{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:12px}.sc .si svg{width:22px;height:22px}
+.sc .sv{font-size:var(--fs-h);font-weight:800;margin-bottom:2px}
+.sc .sl{font-size:var(--fs-sm);color:var(--t2);font-weight:500}
+
+/* ===== TABLE WRAPPER ===== */
+.tw{background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);overflow:hidden;box-shadow:var(--sh);max-width:100%}
+.th{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--bdr);flex-wrap:wrap;gap:10px}
+.th h3{font-size:var(--fs-lg);font-weight:700}
+.sx{position:relative}.sx input{background:var(--input);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 14px 10px 40px;color:var(--t1);font-size:var(--fs);width:260px;transition:border-color var(--tr);min-height:44px}
+.sx input:focus{outline:none;border-color:var(--ac)}.sx input::placeholder{color:var(--t3)}
+.sx svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:18px;height:18px;color:var(--t3)}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;padding:12px 20px;font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--t3);border-bottom:1px solid var(--bdr);background:var(--input)}
+td{padding:14px 20px;font-size:var(--fs-sm);border-bottom:1px solid var(--bdr);vertical-align:middle}
+tr:last-child td{border-bottom:none}tr:hover td{background:rgba(37,99,235,.02)}
+
+/* ===== BADGES ===== */
+.bd{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:8px;font-size:var(--fs-xs);font-weight:600}
+.bd-ok{background:var(--oks);color:var(--ok)}.bd-wn{background:var(--wns);color:var(--wn)}.bd-er{background:var(--ers);color:var(--er)}
+.bd-ac{background:var(--acs);color:var(--ac)}.bd-pu{background:var(--pus);color:var(--pu)}.bd-tl{background:var(--tls);color:var(--tl)}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+/* ===== FORMS ===== */
+.fg{margin-bottom:16px}.fg label{display:block;font-size:var(--fs-sm);font-weight:600;color:var(--t2);margin-bottom:6px}
+.fc{width:100%;background:var(--input);border:1px solid var(--bdr);border-radius:var(--r);padding:12px 16px;color:var(--t1);font-size:var(--fs);transition:border-color var(--tr);line-height:1.5;min-height:48px}
+.fc:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+.fc::placeholder{color:var(--t3)}
+textarea.fc{min-height:100px;resize:vertical}
+select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center;padding-right:40px}
+.fr{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+
+/* ===== MODALS ===== */
+.mo{display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);backdrop-filter:blur(4px);z-index:1000;align-items:center;justify-content:center}.mo.open{display:flex}
+.ml{background:var(--bg2);border:1px solid var(--bdr);border-radius:20px;width:90%;max-width:720px;max-height:88vh;overflow-y:auto;box-shadow:var(--sh2);animation:mIn .2s ease}
+@keyframes mIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.mh{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;padding-top:max(20px,env(safe-area-inset-top,20px));border-bottom:1px solid var(--bdr)}.mh h2{font-size:var(--fs-xl);font-weight:700}
+.mb{padding:24px}.mf{padding:16px 24px;border-top:1px solid var(--bdr);display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+
+/* ===== REPORT CARDS (mobile) ===== */
+.rpt-mobile{display:none}
+.rpt-desktop{display:block}
+.rpt-card{padding:16px 20px;border-bottom:1px solid var(--bdr);overflow:hidden}
+.rpt-card:last-child{border-bottom:none}
+.rpt-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.rpt-card-jobno{font-weight:700;font-size:var(--fs);color:var(--ac)}
+.rpt-card-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:var(--fs-sm);gap:8px}
+.rpt-card-row .rc-label{color:var(--t3);font-weight:500;flex-shrink:0}
+.rpt-card-row .rc-val{color:var(--t1);font-weight:500;text-align:right;overflow:hidden;text-overflow:ellipsis;word-break:break-word;min-width:0}
+.rpt-card-actions{display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid var(--bdr);flex-wrap:wrap}
+
+/* ===== JOB CARDS ===== */
+.jc{background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);padding:20px;margin-bottom:12px;box-shadow:var(--sh)}
+.jc-h{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px}.jc-h h4{font-size:var(--fs-lg);font-weight:700}
+.jc-m{display:flex;flex-wrap:wrap;gap:16px;font-size:var(--fs-sm);color:var(--t2);margin-bottom:12px}
+.jc-d{font-size:var(--fs-sm);color:var(--t2);line-height:1.6;margin-bottom:14px;padding:12px;background:var(--input);border-radius:var(--r);border-left:3px solid var(--bdr)}
+.jc-a{display:flex;gap:8px;flex-wrap:wrap}
+
+/* ===== FILTER CHIPS ===== */
+.fc-chip{padding:8px 16px;border-radius:24px;font-size:var(--fs-sm);font-weight:600;cursor:pointer;border:1px solid var(--bdr);background:var(--bg2);color:var(--t2);transition:all var(--tr);font-family:inherit;appearance:none;outline:none;min-height:40px}
+.fc-chip:active{background:var(--acs)}.fc-chip.active{background:var(--ac);color:#fff;border-color:var(--ac)}
+
+/* ===== SCAN ZONE ===== */
+.sz{border:2px dashed var(--bdr2);border-radius:var(--rl);padding:32px;text-align:center;cursor:pointer;transition:all var(--tr);position:relative;margin-bottom:16px;background:var(--input)}
+.sz:active{border-color:var(--ac);background:var(--acs)}
+.sz input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer}
+
+/* ===== PHOTO ===== */
+.photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:10px;margin-top:12px}
+.photo-thumb{position:relative;border-radius:var(--r);overflow:hidden;aspect-ratio:1;background:var(--input);border:1px solid var(--bdr)}
+.photo-thumb img{width:100%;height:100%;object-fit:cover}
+.photo-thumb .photo-del{position:absolute;top:4px;right:4px;width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;border:none;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.photo-lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:3000;align-items:center;justify-content:center;flex-direction:column}
+.photo-lightbox.open{display:flex}
+.photo-lightbox img{max-width:94%;max-height:75vh;object-fit:contain;border-radius:var(--r)}
+.photo-lightbox .lb-close{position:absolute;top:max(16px,env(safe-area-inset-top,16px));right:max(16px,env(safe-area-inset-right,16px));width:48px;height:48px;border-radius:50%;background:rgba(255,255,255,.15);color:#fff;border:none;font-size:24px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.photo-lightbox .lb-nav{display:flex;gap:16px;margin-top:16px}
+.photo-lightbox .lb-nav button{padding:10px 24px;border-radius:var(--r);border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:#fff;font-size:var(--fs);cursor:pointer;min-height:48px}
+
+/* ===== SIGNATURE ===== */
+.sig-pad{border:2px solid var(--bdr2);border-radius:var(--r);background:#fff;cursor:crosshair;touch-action:none}
+
+/* ===== CALENDAR ===== */
+.cg{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.ch-h{text-align:center;font-size:var(--fs-xs);font-weight:700;color:var(--t3);padding:8px}
+.cd{min-height:72px;background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;padding:6px;font-size:var(--fs-xs);cursor:pointer}
+.cd.today{border-color:var(--ac);background:var(--acs)}
+.cd.om{opacity:.3}
+.cd .dn{font-weight:700;font-size:var(--fs-sm);margin-bottom:2px}
+.ce{font-size:10px;padding:2px 4px;border-radius:4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ===== TOAST ===== */
+.tc-c{position:fixed;top:max(80px,calc(env(safe-area-inset-top,0px) + 70px));right:max(24px,env(safe-area-inset-right,24px));z-index:2000;display:flex;flex-direction:column;gap:8px}
+.ts{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--rl);padding:14px 20px;font-size:var(--fs-sm);display:flex;align-items:center;gap:10px;box-shadow:var(--sh2);animation:tsIn .3s ease;min-width:280px}
+.ts.success{border-left:4px solid var(--ok)}.ts.error{border-left:4px solid var(--er)}.ts.info{border-left:4px solid var(--ac)}
+@keyframes tsIn{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ===== DETAIL PANEL ===== */
+.dp{display:none;position:fixed;right:0;top:0;bottom:0;width:480px;background:var(--bg2);border-left:1px solid var(--bdr);z-index:200;overflow-y:auto;box-shadow:-4px 0 20px rgba(0,0,0,.08);animation:slIn .2s ease}
+.dp.open{display:block}@keyframes slIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+.dp-h{display:flex;align-items:center;justify-content:space-between;padding:20px 24px;padding-top:max(20px,env(safe-area-inset-top,20px));border-bottom:1px solid var(--bdr);position:sticky;top:0;background:var(--bg2);z-index:1}
+.dp-b{padding:24px}
+.ds{margin-bottom:24px}.ds h4{font-size:var(--fs-xs);font-weight:700;text-transform:uppercase;letter-spacing:1px;color:var(--t3);margin-bottom:12px}
+.dr{display:flex;justify-content:space-between;padding:10px 0;font-size:var(--fs-sm);border-bottom:1px solid var(--bdr)}.dr .lb{color:var(--t2)}.dr .vl{font-weight:600}
+
+/* ===== OUTLOOK CARD ===== */
+.oc{background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);padding:24px;margin-bottom:16px;box-shadow:var(--sh)}
+.oc h3{font-size:var(--fs-lg);font-weight:700;margin-bottom:8px}.oc p{font-size:var(--fs-sm);color:var(--t2);margin-bottom:16px}
+
+/* ===== SCAN ENHANCEMENT ===== */
+.scan-enhance{background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);padding:20px;margin-bottom:16px}
+.scan-enhance h4{font-size:var(--fs);font-weight:700;margin-bottom:12px}
+.scan-slider{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.scan-slider label{font-size:var(--fs-sm);color:var(--t2);min-width:80px;font-weight:500}
+.scan-slider input[type="range"]{flex:1;height:6px;-webkit-appearance:none;appearance:none;background:var(--bdr);border-radius:3px;outline:none}
+.scan-slider input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:var(--ac);cursor:pointer;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.scan-slider .sv-val{font-size:var(--fs-sm);font-weight:600;color:var(--t1);min-width:40px;text-align:right}
+
+/* ===== MOBILE ===== */
+.mob-nav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:150;background:var(--bg2);border-top:1px solid var(--bdr);padding:6px 0;padding-bottom:max(6px,env(safe-area-inset-bottom,6px));box-shadow:0 -2px 8px rgba(0,0,0,.06)}
+.mob-nav-inner{display:flex;justify-content:space-around;align-items:center;max-width:500px;margin:0 auto}
+.mob-tab{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:8px 6px;border-radius:var(--r);cursor:pointer;color:var(--t3);font-size:11px;font-weight:600;background:none;border:none;font-family:inherit;min-width:56px;min-height:52px;appearance:none;outline:none}
+.mob-tab:active{color:var(--ac);background:var(--acs)}.mob-tab.active{color:var(--ac)}
+.mob-tab svg{width:24px;height:24px;pointer-events:none;stroke:currentColor;fill:none;stroke-width:2}
+.sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.3);z-index:199}.sb-overlay.show{display:block}
+.pg{display:none}.pg.active{display:block}
+.es{text-align:center;padding:48px 20px;color:var(--t3)}.es p{font-size:var(--fs)}
+.tl{position:relative;padding-left:28px}.tl::before{content:'';position:absolute;left:8px;top:4px;bottom:4px;width:2px;background:var(--bdr)}
+.ti{position:relative;padding-bottom:20px}.ti::before{content:'';position:absolute;left:-24px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--ac);border:2px solid var(--bg2)}
+.ti .td{font-size:var(--fs-xs);color:var(--t3);margin-bottom:4px}.ti .tc{font-size:var(--fs-sm);color:var(--t2);line-height:1.5}
+
+/* ===== RESPONSIVE ===== */
+@media(max-width:768px){
+  .sb{transform:translateX(-100%);width:300px;z-index:200}
+  .sb.mopen{transform:translateX(0)}
+  .mn{margin-left:0;padding-bottom:80px;overflow-x:hidden;width:100%}
+  .tb{min-height:60px;padding:0 16px;padding-top:env(safe-area-inset-top,0px);padding-left:max(16px,env(safe-area-inset-left,16px));padding-right:max(16px,env(safe-area-inset-right,16px))}.tb-t{font-size:var(--fs-lg)}
+  .tb-a{gap:6px}.tb-a .btn{padding:8px 12px;font-size:var(--fs-xs)}
+  .ct{padding:16px 12px;overflow-x:hidden}
+  .mob-nav{display:block}
+  #menuBtn{display:flex!important}
+  .sg{grid-template-columns:1fr 1fr;gap:8px}
+  .sc{padding:14px}.sc .sv{font-size:var(--fs-xl)}.sc .si{width:36px;height:36px;margin-bottom:8px}
+  .tw-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{min-width:600px}
+  .fr{grid-template-columns:1fr}
+  .rpt-mobile{display:block}.rpt-desktop{display:none}
+  .ml{width:100%;max-width:100%;max-height:100dvh;border-radius:16px 16px 0 0}
+  .mo.open{align-items:flex-end}
+  .dp{width:100%}
+  .sx input{width:100%;min-width:0}
+  .th{flex-direction:column;align-items:stretch;gap:8px}
+  .cd{min-height:48px;padding:4px}.cd .dn{font-size:var(--fs-xs)}
+  .tc-c{top:auto;bottom:80px;right:12px;left:12px}
+  .ts{min-width:auto}
+  .comp-card{min-width:0!important;flex:1 1 100%!important}
+  .photo-grid{grid-template-columns:repeat(auto-fill,minmax(80px,1fr))}
+}
+@media(max-width:380px){
+  .sg{grid-template-columns:1fr}
+  .mob-tab{min-width:48px;font-size:10px}
+}
+</style>
+</head>
+<body>
+
+<!-- ===== LOGIN ===== -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-box">
+    <div class="logo-lg">⚙</div>
+    <h1>OctoCRM</h1>
+    <p>Field Service Management — Sign in to continue</p>
+    <div class="login-err" id="loginErr"></div>
+    <div class="fg"><label style="text-align:left">Username</label><input class="fc" id="loginUser" placeholder="Enter username" autocomplete="username"></div>
+    <div class="fg"><label style="text-align:left">Password</label><input class="fc" type="password" id="loginPass" placeholder="Enter password" autocomplete="current-password"></div>
+    <button class="btn btn-p" style="width:100%;margin-top:8px;font-size:var(--fs);padding:14px" onclick="doLogin()">Sign In</button>
+    <p style="margin-top:20px;font-size:var(--fs-xs);color:var(--t3)">Default: admin / admin123</p>
+    <p style="margin-top:12px"><button onclick="resetAllData()" style="background:none;border:none;color:var(--er);font-size:12px;cursor:pointer;text-decoration:underline;font-family:inherit">⚠ Reset all data & start fresh</button></p>
+  </div>
+</div>
+
+<!-- ===== APP ===== -->
+<div class="app" id="appMain">
+<div class="sb-overlay" id="sbOverlay"></div>
+<nav class="mob-nav">
+  <div class="mob-nav-inner">
+    <button class="mob-tab active" data-mp="dashboard" onclick="mobNav('dashboard')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Home</button>
+    <button class="mob-tab" data-mp="jobs" onclick="mobNav('jobs')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>Jobs</button>
+    <button class="mob-tab" data-mp="create-report" onclick="mobNav('create-report')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Report</button>
+    <button class="mob-tab" data-mp="scan" onclick="mobNav('scan')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>Scan</button>
+    <button class="mob-tab" onclick="toggleSidebar()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>More</button>
+  </div>
+</nav>
+<aside class="sb" id="sidebar">
+  <div class="sb-brand"><div class="logo">⚙</div><div><h1>OctoCRM</h1><span>Field Service v4</span></div></div>
+  <div class="ns">Main</div>
+  <button class="ni active" data-page="dashboard" onclick="showPage('dashboard')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>Dashboard</button>
+  <button class="ni" data-page="jobs" onclick="showPage('jobs')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>Jobs<span class="nbw" id="jobCt">0</span></button>
+  <button class="ni" data-page="reports" onclick="showPage('reports')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>Reports<span class="nb" id="repCt">0</span></button>
+  <button class="ni" data-page="create-report" onclick="showPage('create-report')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>Create Report</button>
+  <button class="ni" data-page="machines" onclick="showPage('machines')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="1"/></svg>Machines</button>
+  <button class="ni" data-page="customers" onclick="showPage('customers')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Customers</button>
+  <div class="ns">Schedule</div>
+  <button class="ni" data-page="calendar" onclick="showPage('calendar')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Calendar</button>
+  <div class="ns">Tools</div>
+  <button class="ni" data-page="scan" onclick="showPage('scan')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>Scan Report</button>
+  <button class="ni" data-page="technicians" onclick="showPage('technicians')" id="navTech"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Technicians</button>
+  <button class="ni" data-page="users" onclick="showPage('users')" id="navUsers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>User Management</button>
+  <button class="ni" data-page="outlook" onclick="showPage('outlook')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Outlook Sync</button>
+  <button class="ni" data-page="data-mgmt" onclick="showPage('data-mgmt')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Data Import/Export</button>
+  <button class="ni" data-page="agents" onclick="showPage('agents')" id="navAgents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>Agents / Companies</button>
+  <div class="sb-foot">
+    <div class="sb-user"><div class="sb-user-av" id="sbAvatar">A</div><div class="sb-user-info"><div class="sb-user-name" id="sbUserName">Admin</div><div class="sb-user-role" id="sbUserRole">Administrator</div></div></div>
+    <button class="btn btn-s btn-sm" style="width:100%" onclick="doLogout()">Sign Out</button>
+    <div id="syncIndicator" style="display:flex;align-items:center;gap:6px;margin-top:10px"></div>
+  </div>
+</aside>
+
+<div class="mn">
+<div class="tb">
+  <div style="display:flex;align-items:center;gap:12px">
+    <button class="btn-i" onclick="toggleSidebar()" style="display:none" id="menuBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg></button>
+    <span class="tb-t" id="pageTitle">Dashboard</span>
+    <div id="syncDot" style="display:flex;align-items:center"></div>
+  </div>
+  <div class="tb-a">
+    <button class="btn btn-s btn-sm" onclick="openNewJobModal()">+ Job</button>
+    <button class="btn btn-p btn-sm" onclick="showPage('create-report')">+ Report</button>
+  </div>
+</div>
+
+<!-- ===== PAGES - Keeping lightweight, content rendered by JS ===== -->
+<div class="ct pg active" id="page-dashboard"><div id="dashContent">Loading...</div></div>
+<div class="ct pg" id="page-jobs"><div id="jobsContent"></div></div>
+<div class="ct pg" id="page-reports"><div id="reportsContent"></div></div>
+<div class="ct pg" id="page-create-report"><div id="createReportContent"></div></div>
+<div class="ct pg" id="page-machines"><div id="machinesContent"></div></div>
+<div class="ct pg" id="page-customers"><div id="customersContent"></div></div>
+<div class="ct pg" id="page-calendar"><div id="calendarContent"></div></div>
+<div class="ct pg" id="page-scan"><div id="scanContent"></div></div>
+<div class="ct pg" id="page-technicians"><div id="techContent"></div></div>
+<div class="ct pg" id="page-users"><div id="usersContent"></div></div>
+<div class="ct pg" id="page-outlook"><div id="outlookContent"></div></div>
+<div class="ct pg" id="page-data-mgmt"><div id="dataMgmtContent"></div></div>
+<div class="ct pg" id="page-agents"><div id="agentsContent"></div></div>
+
+</div></div>
+
+<!-- Shared modals will be injected by JS -->
+<div class="mo" id="globalModal"><div class="ml" id="globalModalContent"></div></div>
+<div class="dp" id="detPnl"><div class="dp-h"><h3 id="dpT">Details</h3><button class="btn-i" onclick="closePnl()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="dp-b" id="dpB"></div></div>
+<div class="photo-lightbox" id="photoLB"><button class="lb-close" onclick="closeLB()">✕</button><img id="lbImg"><div id="lbCaption" style="color:#ccc;font-size:var(--fs-sm);margin-top:12px;text-align:center"></div><div class="lb-nav"><button onclick="lbNav(-1)">← Prev</button><span id="lbCount" style="color:#888;font-size:var(--fs-sm);display:flex;align-items:center"></span><button onclick="lbNav(1)">Next →</button></div></div>
+<div class="tc-c" id="toastC"></div>
+
+<script>
+// ===== FIREBASE =====
+const FB_CFG={apiKey:"AIzaSyCSQAS7mFBlTfmz0FVWaSLgI-Puk1Y3sN4",authDomain:"octocrm1.firebaseapp.com",databaseURL:"https://octocrm1-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"octocrm1",storageBucket:"octocrm1.firebasestorage.app",messagingSenderId:"212247591529",appId:"1:212247591529:web:4a076e40a71b59646b00f8"};
+const USE_FB=true;let fbDB=null,fbOK=false;
+
+function initFB(){
+  if(!USE_FB)return;
+  try{
+    if(!firebase.apps.length)firebase.initializeApp(FB_CFG);
+    fbDB=firebase.database();
+    fbDB.ref('.info/connected').on('value',s=>{fbOK=s.val()===true;updSync();});
+    fbDB.ref('octoCRM_v4').on('value',s=>{
+      const d=s.val();
+      if(d){
+        DB=d;
+        // Always ensure users exist (Firebase data may not have them)
+        if(!DB.users||!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
+        if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=DB.users.length+1;
+        try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+        refreshPage();
+      }
+    });
+  }catch(e){console.warn('FB err:',e)}
+}
+
+// ===== COMPANIES =====
+const CO={
+  octopack:{name:'OCTOPACK SEA PTE LTD',addr:'7 Yishun Industrial Street 1 #03-49 North Spring Bizhub, Singapore 768162',tel:'+65 6909 8136',email:'CS@octopack.com.sg',uen:'201709641E',color:'#1d4ed8',tag:'OCTOPACK - The Better Way To Pack'},
+  jw:{name:'JW Supplies & Works Pte Ltd',addr:'9 Yishun Industrial Street 1 #03-76 North Spring Bizhub, Singapore 768163',tel:'+65 9061 8811',email:'joyce@jwsupplies.sg',uen:'201822151K',color:'#2563eb',tag:'JW Supplies & Works Pte Ltd'},
+  redbox:{name:'REDBOX GLOBAL SOLUTIONS PTE LTD',addr:'7 Yishun Industrial Street 1 #03-49 North Spring Bizhub, Singapore 768162',tel:'+65 6909 8136',email:'engineering@redboxgs.com',uen:'201710953N',color:'#dc2626',tag:'Redbox Global Solutions'}
+};
+
+// ===== DATA =====
+let DB={reports:[],jobs:[],techs:[],custs:[],users:[],nR:1,nJ:1,nT:1,nC:1,nU:1,olConn:false};
+let CUR_USER=null; // current logged-in user
+
+// Default users
+const DEF_USERS=[
+  {id:1,username:'admin',password:'admin123',name:'Administrator',role:'admin'},
+  {id:2,username:'manager',password:'mgr123',name:'Manager',role:'manager'},
+  {id:3,username:'tech1',password:'tech123',name:'Colin Tan',role:'technician'}
+];
+
+function loadDB(){
+  // Try loading from localStorage
+  try{
+    const s=localStorage.getItem('ocrm4');
+    if(s){
+      const parsed=JSON.parse(s);
+      // Only use if it has the expected structure
+      if(parsed && typeof parsed==='object'){
+        DB=parsed;
+      }
+    }
+  }catch(e){console.warn('loadDB parse error:',e);}
+  
+  // Ensure arrays exist
+  if(!Array.isArray(DB.reports))DB.reports=[];
+  if(!Array.isArray(DB.jobs))DB.jobs=[];
+  if(!Array.isArray(DB.techs))DB.techs=[];
+  if(!Array.isArray(DB.custs))DB.custs=[];
+  if(!Array.isArray(DB.users))DB.users=[];
+  if(!Array.isArray(DB.machines))DB.machines=[];
+  if(!Array.isArray(DB.agents))DB.agents=[];
+  if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;
+
+  // Always ensure default users exist
+  if(!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
+  
+  // Seed default agents/companies
+  if(!DB.agents.length){
+    DB.agents=[
+      {id:DB.nA++,name:'Octopack SEA Pte Ltd',type:'Principal'},
+      {id:DB.nA++,name:'JW Supplies & Works Pte Ltd',type:'Principal'},
+      {id:DB.nA++,name:'Redbox Global Solutions Pte Ltd',type:'Principal'},
+      {id:DB.nA++,name:'Direct Customer',type:'Direct'}
+    ];
+  }
+  
+  // Seed technicians
+  if(!DB.techs.length){
+    DB.techs=[{id:DB.nT++,name:'Colin Tan',phone:'+6591234567',spec:'Strapping Machines'},{id:DB.nT++,name:'Ahmad Razak',phone:'+6598765432',spec:'General'},{id:DB.nT++,name:'Sriram Jordan',phone:'+6581112222',spec:'General'}];
+  }
+
+  // Seed customers from EOPac Machine Info spreadsheet
+  if(!DB.custs.length){
+    DB.custs=[
+      {id:101,name:'Schneider Indo.',address:'Batam',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:102,name:'SSW',address:'102 Pasir Panjang Rd',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:103,name:'Bollore',address:'50 Alps Ave',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:104,name:'Universal Global',address:'Tuas Ave 1',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:105,name:'ELW',address:'2 Kaki Bukit Rd 3',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:106,name:'ALW',address:'163 Aljunied Road',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:107,name:'PPW',address:'102 Pasir Panjang Road',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:108,name:'Pan Asia Logistic',address:'93 Tuas Bay Drive',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:109,name:'GKE',address:'39 Benoi Road',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:110,name:'GAC',address:'20 Benoi Way',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:111,name:'SKW',address:'9/11 Senoko South Road',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:112,name:'PPW Pallet Turner',address:'102 Pasir Panjang Road',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:113,name:'D&G Warehouse',address:'60 Tuas Crescent',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:114,name:'Global Consolidators Pte Ltd',address:'40 Penjuru Lane Blk 3 #01-03',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:115,name:'Tionale Pte Ltd',address:'38 Jalan Buroh #09-01',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:116,name:'SDV',address:'11 Sunview Way #03-1',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:117,name:'Golden Link Goodrich Building',address:'8 Changi South Lane #02-01',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:118,name:'GKE Logistics Marquis',address:'39 Benoi Road #01-01',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:119,name:'NMB Singapore Limited',address:'No 1. Chai Chee Avenue',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:120,name:'Pangean',address:'No.8 Pandan Crecrent 01-03',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:121,name:'Young in Trading Pte Ltd',address:'Blk 11. Kaki Bukit Rd 1',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:122,name:'Bertschi',address:'No 2 Saraya',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:123,name:'Yanmar',address:'No. 4 Tuas Lane',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:124,name:'Megapac',address:'1 Gul Circle #04-03/05',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:125,name:'Goldpeak/ Leica Instruments',address:'15 Tukang Innovation #04-01',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:126,name:'SLOG',address:'4 pandan Ave #01-01',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:127,name:'Tay Paper Recycling',address:'48 Gul Ave',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:128,name:'Toll Logistics SBD',address:'60 Pioneer Road',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:129,name:'Toll Logistics Mead Johnson',address:'60 Pioneer Road',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:130,name:'Toll Logistics Food Panda',address:'60 Pioneer Road',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:131,name:'Schneider (Micron)',address:'35 Greenwich drive 05-01',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:132,name:'CWT Logistics',address:'38 Tanjong Penjuru',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:133,name:'ACW Logistics Pte Ltd',address:'20 Penjuru Lane #01-01',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:134,name:'Crane Worldwide',address:'8 Jurong Pier Road #03-01',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:135,name:'Yusen Logistics',address:'32 Tuas Ave 13 (L3)',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:136,name:'Store+Delivery+Logistics P.L.',address:'47 Jalan Buroh (L6)',contact:'',phone:'',email:'',agent:'Redbox Global Solutions'},
+      {id:137,name:'ABB Changi',address:'N 21 Changi North Way S(498794)',contact:'Mr. Kim Hwee',phone:'+6562345678',email:'kimhwee@abb.com',agent:'Octopack SEA'},
+      {id:138,name:'KCW Logistics',address:'20 Penjuru Lane S(609195)',contact:'Mr. Irwin',phone:'',email:'',agent:'JW Supplies'},
+      {id:139,name:'SSW 9 Senoko',address:'South Street 2, Singapore',contact:'Mr. Kuna',phone:'+6010887308',email:'',agent:'Redbox Global Solutions'}
+    ];
+    DB.nC=140;
+  }
+
+  // Seed machines from EOPac spreadsheet (51 machines)
+  if(!DB.machines.length){
+    DB.machines=[
+      {id:101,customer:'Schneider Indo.',location:'Batam',model:'ET300PPS w Scale',serial:'126202',installDate:'2018-07-14',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:102,customer:'Schneider Indo.',location:'Batam',model:'ET300PPS w Scale',serial:'126302',installDate:'2018-07-14',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:103,customer:'SSW',location:'102 Pasir Panjang Rd',model:'ET300PPS',serial:'126402',installDate:'2018-07-22',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:104,customer:'Bollore',location:'50 Alps Ave',model:'ET300PPS w Scale',serial:'126102',installDate:'2018-08-11',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:105,customer:'Universal Global',location:'Tuas Ave 1',model:'ET300PPS w Scale',serial:'128305',installDate:'2018-10-25',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:106,customer:'ELW',location:'2 Kaki Bukit Rd 3',model:'ET2200PPS',serial:'131117',installDate:'2018-12-14',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:107,customer:'ALW',location:'163 Aljunied Road',model:'ET2200PPS',serial:'131217',installDate:'2018-12-31',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:108,customer:'PPW',location:'102 Pasir Panjang Road',model:'EAR400PPS-ATE',serial:'133108',installDate:'2019-02-15',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:109,customer:'Pan Asia Logistic',location:'93 Tuas Bay Drive',model:'ET300PPS',serial:'128405',installDate:'2019-06-28',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:110,customer:'GKE',location:'39 Benoi Road',model:'ET300PPS w Scale',serial:'128105',installDate:'2019-03-19',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:111,customer:'GAC',location:'20 Benoi Way',model:'ET300PPS',serial:'128205',installDate:'2019-03-13',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:112,customer:'SKW',location:'9/11 Senoko South Road',model:'ET2200PPS',serial:'131317',installDate:'2019-04-05',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:113,customer:'PPW Pallet Turner',location:'102 Pasir Panjang Road',model:'TPQ15MJ-001',serial:'LH19010702',installDate:'2019-02-22',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:114,customer:'PPW Pallet Turner',location:'102 Pasir Panjang Road',model:'TPQ15MJ-001',serial:'LH19010703',installDate:'2019-02-22',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:115,customer:'D&G Warehouse',location:'60 Tuas Crescent',model:'ET300PPS',serial:'194224',installDate:'2019-07-30',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:116,customer:'Global Consolidators Pte Ltd',location:'40 Penjuru Lane Blk 3 #01-03',model:'ET300PPS',serial:'194124',installDate:'2019-09-23',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:117,customer:'Tionale Pte Ltd',location:'38 Jalan Buroh #09-01',model:'ET300PPS w Scale',serial:'194324',installDate:'2019-08-29',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:118,customer:'SDV',location:'11 Sunview Way #03-1',model:'ET300PPS',serial:'194424',installDate:'2022-10-31',warranty:'12 months',purchaseRental:'Rental',serviceContract:'NA',maintFrequency:'2'},
+      {id:119,customer:'Golden Link Goodrich Building',location:'8 Changi South Lane #02-01',model:'ET300PPS w Scale',serial:'191220',installDate:'2020-07-08',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:120,customer:'SDV',location:'11 Sunview Way #03-1',model:'ET300PPS',serial:'191219',installDate:'2022-10-31',warranty:'12 months',purchaseRental:'Rental',serviceContract:'NA',maintFrequency:'2'},
+      {id:121,customer:'GKE Logistics Marquis',location:'39 Benoi Road #01-01',model:'ET3000PPS',serial:'191217',installDate:'2020-09-29',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:122,customer:'Tionale Pte Ltd',location:'38 Jalan Buroh #09-01',model:'ET300PPS w Scale',serial:'191218',installDate:'2020-10-03',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:123,customer:'NMB Singapore Limited',location:'No 1. Chai Chee Avenue',model:'ET3000PPS/Ramp',serial:'2011424',installDate:'2021-02-23',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:124,customer:'NMB Singapore Limited',location:'28 Gul Way',model:'ET3000PPS/Ramp',serial:'2011324',installDate:'2021-04-21',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:125,customer:'Pangean',location:'No.8 Pandan Crecrent 01-03',model:'ET3000PPS',serial:'2011224',installDate:'2021-06-28',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:126,customer:'Young in Trading Pte Ltd',location:'Blk 11. Kaki Bukit Rd 1',model:'ET2200PPS-MW1.8',serial:'20220107',installDate:'2022-02-28',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:127,customer:'Bertschi',location:'No 2 Saraya',model:'ET300PPS',serial:'2011124',installDate:'2022-03-01',warranty:'60 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:128,customer:'Yanmar',location:'No. 4 Tuas Lane',model:'ET200PPS-MW1.8',serial:'20220108',installDate:'2022-03-02',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:129,customer:'PPW Pallet Turner',location:'102 Pasir Panjang Road',model:'TPQ15MJ-001',serial:'LH22051016',installDate:'2022-08-14',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:130,customer:'PPW Pallet Turner',location:'102 Pasir Panjang Road',model:'TPQ15MJ-001',serial:'LH22051017',installDate:'2022-08-14',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:131,customer:'Megapac',location:'1 Gul Circle #04-03/05',model:'ET200PPS-MW1.8',serial:'20220102',installDate:'2022-10-07',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:132,customer:'SDV',location:'11 Sunview Way #03-1',model:'ET200PPS-MW1.8',serial:'20220106',installDate:'2022-11-16',warranty:'12 months',purchaseRental:'Rental',serviceContract:'NA',maintFrequency:'2'},
+      {id:133,customer:'Goldpeak/ Leica Instruments',location:'15 Tukang Innovation #04-01',model:'ET200PPS-MW1.8',serial:'20220103',installDate:'2023-10-27',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:134,customer:'SLOG',location:'4 pandan Ave #01-01',model:'ET200PPS-MW1.8',serial:'20220101',installDate:'2023-01-18',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:135,customer:'Tay Paper Recycling',location:'48 Gul Ave',model:'ET200PPS w Scale',serial:'20230204',installDate:'2023-03-22',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:136,customer:'Toll Logistics SBD',location:'60 Pioneer Road',model:'ET200PPS-2.4',serial:'20230208',installDate:'2023-04-21',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:137,customer:'Toll Logistics Mead Johnson',location:'60 Pioneer Road',model:'ET200PPS-2.4',serial:'20230205',installDate:'2023-04-21',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:138,customer:'Toll Logistics Food Panda',location:'60 Pioneer Road',model:'ET200PPS-2.4',serial:'20230203',installDate:'2023-04-21',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:139,customer:'Schneider (Micron)',location:'35 Greenwich drive 05-01',model:'ET200PPSW-1.8',serial:'20220105',installDate:'2023-07-30',warranty:'12 months',purchaseRental:'Rental',serviceContract:'NA',maintFrequency:'2'},
+      {id:140,customer:'CWT Logistics',location:'38 Tanjong Penjuru',model:'ET200PPS-2.4',serial:'20230207',installDate:'2023-08-10',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:141,customer:'ACW Logistics Pte Ltd',location:'20 Penjuru Lane #01-01',model:'ET200PPSW-2.4',serial:'20230206',installDate:'2023-08-23',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:142,customer:'CWT Logistics',location:'38 Tanjong Penjuru',model:'ET200PPS-2.4',serial:'20230802',installDate:'2023-11-06',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:143,customer:'CWT Logistics',location:'38 Tanjong Penjuru',model:'ET200PPS-2.4',serial:'20230803',installDate:'2023-11-06',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:144,customer:'CWT Logistics',location:'38 Tanjong Penjuru',model:'ET200PPS-2.4',serial:'20230805',installDate:'2023-11-06',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:145,customer:'CWT Logistics',location:'38 Tanjong Penjuru',model:'ET200PPS-2.4',serial:'20230806',installDate:'2023-11-06',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:146,customer:'Crane Worldwide',location:'8 Jurong Pier Road #03-01',model:'ET200PPSW-2.4',serial:'20230801',installDate:'2023-11-28',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:147,customer:'Crane Worldwide',location:'8 Jurong Pier Road #03-01',model:'ET200PPSW-2.4',serial:'20230804',installDate:'2023-11-28',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:148,customer:'Yusen Logistics',location:'32 Tuas Ave 13 (L3)',model:'ET200PPSW-1.8',serial:'20220104',installDate:'2023-12-07',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:149,customer:'Store+Delivery+Logistics P.L.',location:'47 Jalan Buroh (L6)',model:'ET200PPSW-2.4',serial:'20231102',installDate:'2023-12-13',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:150,customer:'CWT Logistics',location:'38 Tanjong Penjuru',model:'ET200PPS-2.4',serial:'20231105',installDate:'2023-12-26',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''},
+      {id:151,customer:'CWT Logistics',location:'38 Tanjong Penjuru',model:'ET200PPS-2.4',serial:'20231103',installDate:'2023-12-26',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''}
+    ];
+    DB.nM=200;
+  }
+
+  // Seed sample reports
+  if(!DB.reports.length){
+    DB.reports=[
+      {id:DB.nR++,company:'octopack',jobNo:'SR-800396',date:'2026-02-27',customer:'ABB Changi',contact:'Mr. Kim Hwee',contactNum:'+6562345678',model:'TP-601Y1',serial:'B88357',engineer:'Colin Tan',type:'Preventive Maintenance',timeStart:'09:15',timeEnd:'11:15',remarks:'Performed PM.\n- Check motors, belts, tension\n- Visual inspection sensors/switches\n- Cleaning heater element\n- Test run both machines',recommendations:'All working in normal condition.',status:'Completed',nextVisit:'2026-08-27',signed:false,photos:[]},
+      {id:DB.nR++,company:'jw',jobNo:'SR-00500',date:'2026-04-09',customer:'KCW Logistics',contact:'Mr. Irwin',contactNum:'',model:'FT-500 PPS',serial:'SQ230206',engineer:'Kevin',type:'Breakdown Call',timeStart:'09:15',timeEnd:'15:00',remarks:'Machine tripped breaker. Replaced ageing carriage flat cable.',recommendations:'New inverter replaced.',status:'Completed',nextVisit:'',signed:false,photos:[]},
+      {id:DB.nR++,company:'redbox',jobNo:'SR-800411',date:'2026-04-01',customer:'SKW',contact:'Mr. Kuna',contactNum:'+6010887308',model:'ET2200PPS',serial:'131317',engineer:'Sriram / Jordan',type:'Preventive Maintenance',timeStart:'11:30',timeEnd:'13:30',remarks:'- Check gearbox\n- Check chains (platform)\n- Cleaning machines',recommendations:'Need to change chain.',status:'Pending Follow-Up',nextVisit:'',signed:false,photos:[]}
+    ];
+  }
+  if(!DB.jobs.length){
+    DB.jobs=[{id:DB.nJ++,title:'PM Service — ABB Changi',customer:'ABB Changi',machine:'B88357',techId:1,type:'Preventive Maintenance',priority:'Medium',date:'2026-08-27',time:'09:00',desc:'6-monthly PM for Transpak TP-601Y1.',status:'Assigned',createdAt:new Date().toISOString(),waSent:true}];
+  }
+  saveDB();
+}
+
+function saveDB(){
+  try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+  if(USE_FB&&fbDB)fbDB.ref('octoCRM_v4').set(DB).catch(()=>{});
+}
+
+// ===== AUTH =====
+function doLogin(){
+  const u=document.getElementById('loginUser').value.trim().toLowerCase();
+  const p=document.getElementById('loginPass').value;
+  const user=DB.users.find(x=>x.username.toLowerCase()===u&&x.password===p);
+  if(!user){const err=document.getElementById('loginErr');err.textContent='Invalid username or password.';err.style.display='block';return;}
+  CUR_USER=user;
+  localStorage.setItem('ocrm4_session',JSON.stringify({id:user.id,username:user.username}));
+  showApp();
+}
+
+function doLogout(){
+  CUR_USER=null;
+  localStorage.removeItem('ocrm4_session');
+  document.getElementById('appMain').classList.remove('show');
+  document.getElementById('loginScreen').style.display='flex';
+}
+
+function tryAutoLogin(){
+  try{
+    const s=localStorage.getItem('ocrm4_session');
+    if(s){
+      const sess=JSON.parse(s);
+      if(sess && sess.id){
+        const user=DB.users.find(x=>x.id===sess.id);
+        if(user){
+          CUR_USER=user;
+          showApp();
+          return;
+        }
+      }
+    }
+  }catch(e){
+    localStorage.removeItem('ocrm4_session');
+  }
+  // Show login screen
+  document.getElementById('loginScreen').style.display='flex';
+}
+
+function showApp(){
+  document.getElementById('loginScreen').style.display='none';
+  document.getElementById('appMain').classList.add('show');
+  document.getElementById('sbAvatar').textContent=CUR_USER.name.charAt(0);
+  document.getElementById('sbUserName').textContent=CUR_USER.name;
+  document.getElementById('sbUserRole').textContent={admin:'Administrator',manager:'Manager',technician:'Technician'}[CUR_USER.role]||CUR_USER.role;
+  // Role-based nav visibility
+  const isAdmin=CUR_USER.role==='admin';
+  const isMgr=CUR_USER.role==='manager';
+  document.getElementById('navUsers').style.display=isAdmin?'':'none';
+  document.getElementById('navTech').style.display=(isAdmin||isMgr)?'':'none';
+  renderDash();
+  updSync();
+}
+
+function canEdit(){return CUR_USER&&(CUR_USER.role==='admin'||CUR_USER.role==='manager');}
+function canDelete(){return CUR_USER&&CUR_USER.role==='admin';}
+function canManageUsers(){return CUR_USER&&CUR_USER.role==='admin';}
+
+// ===== NAV =====
+let curJF='all';
+function showPage(p){
+  document.querySelectorAll('.pg').forEach(e=>e.classList.remove('active'));
+  document.querySelectorAll('.ni').forEach(e=>e.classList.remove('active'));
+  const pg=document.getElementById('page-'+p);if(pg)pg.classList.add('active');
+  const nv=document.querySelector(`.ni[data-page="${p}"]`);if(nv)nv.classList.add('active');
+  const t={dashboard:'Dashboard',jobs:'Job Board',reports:'Service Reports','create-report':'Create Report',machines:'Machines',customers:'Customers',calendar:'Calendar',scan:'Scan Report',technicians:'Technicians',users:'User Management',outlook:'Outlook Sync','data-mgmt':'Data Import/Export',agents:'Agents / Companies'};
+  document.getElementById('pageTitle').textContent=t[p]||p;
+  closePnl();closeSidebar();
+  document.querySelectorAll('.mob-tab').forEach(t=>t.classList.toggle('active',t.dataset.mp===p));
+  // Lazy render pages
+  if(p==='dashboard')renderDash();
+  else if(p==='jobs')renderJobs();
+  else if(p==='reports')renderReports();
+  else if(p==='create-report')renderCreateReport();
+  else if(p==='machines')renderMachines();
+  else if(p==='customers')renderCusts();
+  else if(p==='calendar')renderCal();
+  else if(p==='scan')renderScan();
+  else if(p==='technicians')renderTechs();
+  else if(p==='users')renderUsers();
+  else if(p==='outlook')renderOutlook();
+  else if(p==='data-mgmt')renderDataMgmt();
+  else if(p==='agents')renderAgents();
+}
+
+function refreshPage(){
+  const a=document.querySelector('.pg.active');
+  if(!a)return;
+  showPage(a.id.replace('page-',''));
+}
+
+// ===== MOBILE =====
+function toggleSidebar(){const sb=document.getElementById('sidebar'),ov=document.getElementById('sbOverlay');if(sb.classList.contains('mopen')){sb.classList.remove('mopen');ov.classList.remove('show');document.body.style.overflow='';}else{sb.classList.add('mopen');ov.classList.add('show');document.body.style.overflow='hidden';}}
+function closeSidebar(){document.getElementById('sidebar').classList.remove('mopen');document.getElementById('sbOverlay').classList.remove('show');document.body.style.overflow='';}
+function mobNav(p){closeSidebar();showPage(p);}
+document.getElementById('sbOverlay').addEventListener('click',closeSidebar);
+
+// Hide bottom nav when keyboard open
+if('visualViewport' in window){const mn=document.querySelector('.mob-nav');window.visualViewport.addEventListener('resize',()=>{if(mn)mn.style.display=window.visualViewport.height<window.innerHeight*.75?'none':'';});}
+
+// ===== SYNC =====
+function updSync(){
+  const el=document.getElementById('syncIndicator'),dt=document.getElementById('syncDot');
+  if(fbOK){
+    if(el)el.innerHTML='<span class="dot" style="width:8px;height:8px;background:var(--ok)"></span><span style="font-size:12px;color:var(--ok)">Live sync ✓</span>';
+    if(dt)dt.innerHTML='<span class="dot" style="width:7px;height:7px;background:var(--ok)" title="Live"></span>';
+  }else{
+    if(el)el.innerHTML='<span class="dot" style="width:8px;height:8px;background:var(--wn)"></span><span style="font-size:12px;color:var(--wn)">Connecting...</span>';
+    if(dt)dt.innerHTML='<span class="dot" style="width:7px;height:7px;background:var(--wn)" title="Connecting"></span>';
+  }
+}
+
+// ===== UTILITIES =====
+function E(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):''}
+function stBd(s){const m={'Completed':'bd-ok','Pending Follow-Up':'bd-wn','In Progress':'bd-ac','Requires Parts':'bd-er'};return`<span class="bd ${m[s]||'bd-ac'}"><span class="dot"></span> ${E(s)}</span>`}
+function jsBd(s){const m={'Open':'bd-pu','Assigned':'bd-ac','In Progress':'bd-wn','Completed':'bd-ok'};return`<span class="bd ${m[s]||'bd-ac'}"><span class="dot"></span> ${E(s)}</span>`}
+function prBd(p){const m={'Low':'bd-tl','Medium':'bd-ac','High':'bd-wn','Urgent':'bd-er'};return`<span class="bd ${m[p]||'bd-ac'}">${E(p)}</span>`}
+function tyBd(t){const m={'Preventive Maintenance':'bd-ok','Corrective Maintenance':'bd-wn','Breakdown Call':'bd-er','Installation':'bd-ac','Inspection':'bd-pu','Emergency':'bd-er'};return`<span class="bd ${m[t]||'bd-ac'}">${E(t)}</span>`}
+function toast(msg,type='info'){const c=document.getElementById('toastC'),t=document.createElement('div');t.className=`ts ${type}`;const i={success:'✓',error:'✕',info:'ℹ'};t.innerHTML=`<span style="font-weight:700;font-size:18px">${i[type]||'ℹ'}</span><span>${msg}</span>`;c.appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300)},3e3)}
+function openModal(title,bodyHTML,footerHTML){const mc=document.getElementById('globalModalContent');mc.innerHTML=`<div class="mh"><h2>${title}</h2><button class="btn-i" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="mb">${bodyHTML}</div>${footerHTML?`<div class="mf">${footerHTML}</div>`:''}`;document.getElementById('globalModal').classList.add('open')}
+function closeModal(){document.getElementById('globalModal').classList.remove('open')}
+function closePnl(){document.getElementById('detPnl').classList.remove('open')}
+document.getElementById('globalModal').addEventListener('click',e=>{if(e.target.id==='globalModal')closeModal()});
+
+function getMachs(){const m={};DB.reports.forEach(r=>{if(!r.serial)return;if(!m[r.serial])m[r.serial]={serial:r.serial,model:r.model,customer:r.customer,reports:[],lastService:r.date,issues:[]};m[r.serial].reports.push(r);if(r.date>m[r.serial].lastService){m[r.serial].lastService=r.date;m[r.serial].customer=r.customer;}if(r.status!=='Completed')m[r.serial].issues.push(r)});return Object.values(m)}
+function getAllCusts(){const m={};DB.custs.forEach(c=>{m[c.name]={...c}});DB.reports.forEach(r=>{const n=r.customer?.trim();if(!n)return;if(!m[n])m[n]={id:null,name:n,address:'',contact:'',phone:'',email:'',agent:''};if(r.contact&&!m[n].contact)m[n].contact=r.contact;if(r.contactNum&&!m[n].phone)m[n].phone=r.contactNum});return Object.values(m).sort((a,b)=>a.name.localeCompare(b.name))}
+
+function statusSelect(id,current,type){
+  const opts=type==='job'?['Open','Assigned','In Progress','Completed']:['Completed','Pending Follow-Up','In Progress','Requires Parts'];
+  const fn=type==='job'?'updateJobSt':'updateRptSt';
+  return`<select class="fc" style="width:auto;padding:8px 32px 8px 10px;font-size:var(--fs-sm);min-height:38px;min-width:150px" onchange="${fn}(${id},this.value)">${opts.map(o=>`<option${o===current?' selected':''}>${o}</option>`).join('')}</select>`;
+}
+
+// ===== DASHBOARD =====
+function renderDash(){
+  const aj=DB.jobs.filter(j=>j.status!=='Completed'),ms=getMachs(),cs=getAllCusts();
+  document.getElementById('dashContent').innerHTML=`
+    <div class="sg">
+      <div class="sc"><div class="si" style="background:var(--acs);color:var(--ac)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div><div class="sv">${DB.reports.length}</div><div class="sl">Reports</div></div>
+      <div class="sc"><div class="si" style="background:var(--wns);color:var(--wn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></div><div class="sv">${aj.length}</div><div class="sl">Active Jobs</div></div>
+      <div class="sc"><div class="si" style="background:var(--oks);color:var(--ok)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="1"/></svg></div><div class="sv">${ms.length}</div><div class="sl">Machines</div></div>
+      <div class="sc"><div class="si" style="background:var(--pus);color:var(--pu)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div class="sv">${cs.length}</div><div class="sl">Customers</div></div>
+    </div>
+    <div class="tw" style="margin-bottom:16px"><div class="th"><h3>Active Jobs</h3><button class="btn btn-sm btn-s" onclick="showPage('jobs')">View All →</button></div>
+    ${aj.length?aj.slice(0,5).map(j=>{ return`<div class="rpt-card" onclick="showPage('jobs')"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title?.substring(0,40))}</span>${prBd(j.priority)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Technician(s)</span><span class="rc-val">${E(getJobTechNames(j))}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div><div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${jsBd(j.status)}</span></div></div>`}).join(''):'<div class="es" style="padding:24px"><p>No active jobs.</p></div>'}
+    </div>
+    <div class="tw"><div class="th"><h3>Recent Reports</h3></div>
+    ${DB.reports.length?[...DB.reports].sort((a,b)=>b.id-a.id).slice(0,5).map(r=>`<div class="rpt-card" onclick="showPage('reports')"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span><span class="bd" style="background:${CO[r.company]?.color||'var(--ac)'}15;color:${CO[r.company]?.color||'var(--ac)'};font-size:11px">${E(r.company)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${stBd(r.status)}</span></div></div>`).join(''):'<div class="es" style="padding:24px"><p>No reports yet.</p></div>'}
+    </div>`;
+  document.getElementById('repCt').textContent=DB.reports.length;
+  document.getElementById('jobCt').textContent=aj.length;
+}
+
+// ===== JOBS (with status update) =====
+function renderJobs(){
+  const s=(document.querySelector('#page-jobs .sx input')?.value||'').toLowerCase();
+  let jobs=[...DB.jobs].sort((a,b)=>b.id-a.id);
+  if(curJF!=='all')jobs=jobs.filter(j=>j.status===curJF);
+  if(s)jobs=jobs.filter(j=>(j.title+j.customer+j.desc).toLowerCase().includes(s));
+
+  document.getElementById('jobsContent').innerHTML=`
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px"><h2 style="font-size:var(--fs-xl)">Job Board</h2><div style="display:flex;gap:8px"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search jobs..." oninput="renderJobs()"></div><button class="btn btn-p btn-sm" onclick="openNewJobModal()">+ Job</button></div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${['all','Open','Assigned','In Progress','Completed'].map(f=>`<button class="fc-chip${curJF===f?' active':''}" onclick="curJF='${f}';renderJobs()">${f==='all'?'All':f}</button>`).join('')}</div>
+    ${jobs.length?jobs.map(j=>{ return`<div class="jc"><div class="jc-h"><div><h4>${E(j.title)}</h4><span style="font-size:var(--fs-xs);color:var(--t3)">JOB-${String(j.id).padStart(4,'0')}</span></div><div style="display:flex;gap:6px">${prBd(j.priority)}</div></div>
+      <div class="jc-m"><span>🏢 ${E(j.customer||'—')}</span><span>⚙️ ${E(j.machine||'—')}</span><span>📅 ${E(j.date||'TBD')}</span><span>👥 ${E(getJobTechNames(j))}</span></div>
+      ${j.desc?`<div class="jc-d">${E(j.desc)}</div>`:''}
+      <div style="margin-bottom:12px"><label style="font-size:var(--fs-xs);font-weight:600;color:var(--t3);display:block;margin-bottom:4px">STATUS</label>${statusSelect(j.id,j.status,'job')}</div>
+      <div class="jc-a">
+        ${j.status!=='Completed'?`<button class="btn btn-sm btn-wa" onclick="sendJWA(${j.id})">📱 WhatsApp</button>`:''}
+        ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editJob(${j.id})">Edit</button>`:''}
+        ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delJob(${j.id})">Delete</button>`:''}
+      </div>
+      ${j.waSent?'<div style="margin-top:8px;font-size:var(--fs-xs);color:var(--wa)">✓✓ WhatsApp sent</div>':''}
+    </div>`}).join(''):'<div class="es"><p>No jobs found.</p></div>'}`;
+}
+
+function updateJobSt(id,st){const j=DB.jobs.find(x=>x.id===id);if(j){j.status=st;saveDB();toast(`Job → ${st}`,'success');}}
+function updateRptSt(id,st){const r=DB.reports.find(x=>x.id===id);if(r){r.status=st;saveDB();toast(`${r.jobNo} → ${st}`,'success');}}
+
+function openNewJobModal(){
+  const cs=getAllCusts(),ms=getMachs();
+  openModal('Create Job',`
+    <input type="hidden" id="eJId">
+    <div class="fr"><div class="fg"><label>Title</label><input class="fc" id="jTi" placeholder="PM Service..."></div><div class="fg"><label>Priority</label><select class="fc" id="jPr"><option>Low</option><option selected>Medium</option><option>High</option><option>Urgent</option></select></div></div>
+    <div class="fr"><div class="fg"><label>Customer</label><select class="fc" id="jCu"><option value="">— Select —</option>${cs.map(c=>`<option>${E(c.name)}</option>`).join('')}</select></div><div class="fg"><label>Machine</label><select class="fc" id="jMa"><option value="">— Select —</option>${ms.map(m=>`<option value="${E(m.serial)}">${E(m.serial)} — ${E(m.model)}</option>`).join('')}</select></div></div>
+    <div class="fg"><label>Technician(s) — select one or more</label>
+      <div id="jTeChecks" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${DB.techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="jTeChk" value="${t.id}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
+    </div>
+    <div class="fg"><label>Type</label><select class="fc" id="jTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Installation</option><option>Emergency</option></select></div>
+    <div class="fr"><div class="fg"><label>Date</label><input class="fc" type="date" id="jDt"></div><div class="fg"><label>Time</label><input class="fc" type="time" id="jTm"></div></div>
+    <div class="fg"><label>Instructions</label><textarea class="fc" id="jDs"></textarea></div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-wa" onclick="saveJobAndWA()">Save & WhatsApp</button><button class="btn btn-p" onclick="saveJob()">Save</button>`);
+}
+
+function getSelectedTechIds(){return[...document.querySelectorAll('.jTeChk:checked')].map(c=>parseInt(c.value));}
+
+function editJob(id){const j=DB.jobs.find(x=>x.id===id);if(!j)return;openNewJobModal();setTimeout(()=>{
+  document.getElementById('eJId').value=j.id;document.getElementById('jTi').value=j.title||'';document.getElementById('jPr').value=j.priority;document.getElementById('jCu').value=j.customer||'';document.getElementById('jMa').value=j.machine||'';document.getElementById('jTy').value=j.type;document.getElementById('jDt').value=j.date||'';document.getElementById('jTm').value=j.time||'';document.getElementById('jDs').value=j.desc||'';
+  // Check the right technicians
+  const ids=j.techIds||[j.techId].filter(Boolean);
+  document.querySelectorAll('.jTeChk').forEach(c=>{c.checked=ids.includes(parseInt(c.value));});
+},50);}
+
+function saveJob(){
+  const eidEl=document.getElementById('eJId');
+  const eid=eidEl?eidEl.value:'';
+  const techIds=getSelectedTechIds();
+  const d={title:document.getElementById('jTi').value.trim(),customer:document.getElementById('jCu').value,machine:document.getElementById('jMa').value,techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
+  if(!d.title){toast('Enter title.','error');return;}
+  if(eid&&eid!==''){const i=DB.jobs.findIndex(j=>j.id===parseInt(eid));if(i>=0)DB.jobs[i]={...DB.jobs[i],...d};}
+  else{d.id=DB.nJ++;d.createdAt=new Date().toISOString();d.waSent=false;DB.jobs.push(d);}
+  saveDB();closeModal();renderJobs();renderDash();toast('Job saved.','success');
+}
+
+function saveJobAndWA(){const tids=getSelectedTechIds();if(!tids.length){toast('Select technician(s).','error');return;}const beforeLen=DB.jobs.length;saveJob();if(DB.jobs.length>beforeLen){sendJWA(DB.jobs[DB.jobs.length-1].id);}}
+
+function getJobTechNames(j){
+  const ids=j.techIds||[j.techId].filter(Boolean);
+  return ids.map(id=>{const t=DB.techs.find(x=>x.id===id);return t?t.name:'?';}).join(', ')||'Unassigned';
+}
+
+function sendJWA(jid){
+  const j=DB.jobs.find(x=>x.id===jid);if(!j)return;
+  const ids=j.techIds||[j.techId].filter(Boolean);
+  if(!ids.length){toast('No technician(s).','error');return;}
+  const c=DB.custs.find(x=>x.name===j.customer);
+  // Send to each technician
+  ids.forEach(tid=>{
+    const tc=DB.techs.find(t=>t.id===tid);if(!tc)return;
+    let m=`🔧 *NEW JOB*\n📋 *${j.title}*\n📌 ${j.type}\n🏢 ${j.customer||''}`;
+    if(c?.address)m+=`\n📍 ${c.address}`;if(c?.phone)m+=`\n📞 ${c.contact||''} ${c.phone}`;
+    if(j.machine)m+=`\n⚙️ S/N: ${j.machine}`;m+=`\n📅 ${j.date||'TBD'}`;if(j.time)m+=` ⏰ ${j.time}`;
+    const teamNames=ids.map(id=>{const t=DB.techs.find(x=>x.id===id);return t?t.name:'';}).filter(Boolean).join(', ');
+    m+=`\n👥 Team: ${teamNames}`;
+    if(j.desc)m+=`\n\n📝 ${j.desc}`;m+=`\n\n— OctoCRM`;
+    window.open(`https://wa.me/${tc.phone.replace(/[^0-9]/g,'')}?text=${encodeURIComponent(m)}`,'_blank');
+    toast(`WhatsApp → ${tc.name}`,'success');
+  });
+  j.waSent=true;saveDB();renderJobs();
+}
+
+function delJob(id){if(!confirm('Delete?'))return;DB.jobs=DB.jobs.filter(j=>j.id!==id);saveDB();renderJobs();renderDash();toast('Deleted.','info');}
+
+// ===== REPORTS =====
+function renderReports(){
+  const reps=[...DB.reports].sort((a,b)=>b.id-a.id);
+  document.getElementById('reportsContent').innerHTML=`
+    <div class="tw"><div class="th"><h3>Service Reports</h3><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="rSrch" oninput="filterReports()"></div></div>
+    <div id="rptList">${renderRptCards(reps)}</div></div>`;
+}
+function filterReports(){const s=(document.getElementById('rSrch')?.value||'').toLowerCase();const f=DB.reports.filter(x=>(x.jobNo+x.customer+x.serial+x.company+x.engineer).toLowerCase().includes(s)).sort((a,b)=>b.id-a.id);document.getElementById('rptList').innerHTML=renderRptCards(f);}
+
+function renderRptCards(reps){
+  if(!reps.length)return'<div class="es" style="padding:24px"><p>No reports found.</p></div>';
+  return reps.map(x=>{
+    const pc=(x.photos||[]).length;const co=CO[x.company]||CO.octopack;
+    return`<div class="rpt-card">
+      <div class="rpt-card-top"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="rpt-card-jobno">${E(x.jobNo)}</span><span class="bd" style="background:${co.color}10;color:${co.color};font-size:11px">${E(x.company)}</span>${x.signed?'<span class="bd bd-ok" style="font-size:10px">✓ Signed</span>':''}${pc?`<span class="bd bd-ac" style="font-size:10px">📷 ${pc}</span>`:''}</div><span style="font-size:var(--fs-xs);color:var(--t3)">${E(x.date)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(x.customer)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(x.model)} / ${E(x.serial)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Type</span><span class="rc-val">${tyBd(x.type)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Engineer</span><span class="rc-val">${E(x.engineer||'—')}</span></div>
+      <div class="rpt-card-row" style="align-items:center"><span class="rc-label">Status</span><span class="rc-val">${statusSelect(x.id,x.status,'rpt')}</span></div>
+      <div class="rpt-card-actions">
+        ${pc?`<button class="btn btn-sm btn-s" onclick="viewRptPhotos(${x.id})">📷</button>`:''}
+        <button class="btn btn-sm btn-p" onclick="viewRptPreview(${x.id})">👁 View</button>
+        ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editReport(${x.id})">✏ Edit</button>`:''}
+        <button class="btn btn-sm btn-s" onclick="downloadReportPDF(${x.id})">📥 PDF</button>
+        <button class="btn btn-sm btn-s" onclick="emailReportPDF(${x.id})">📧</button>
+        ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delRpt(${x.id})">Delete</button>`:''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function delRpt(id){if(!confirm('Delete?'))return;DB.reports=DB.reports.filter(r=>r.id!==id);saveDB();renderReports();toast('Deleted.','info');}
+function viewRptPhotos(id){const r=DB.reports.find(x=>x.id===id);if(!r?.photos?.length){toast('No photos.','info');return;}openLBx(r.photos,0);}
+
+function editReport(id){
+  const r=DB.reports.find(x=>x.id===id);if(!r)return;
+  const cs=getAllCusts();const techs=DB.techs||[];
+  const types=['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Installation','Inspection','Emergency'];
+  const statuses=['Completed','Pending Follow-Up','In Progress','Requires Parts'];
+  const existingEngineers=(r.engineers||[r.engineer]).filter(Boolean);
+  openModal('Edit Report — '+r.jobNo,`
+    <input type="hidden" id="erId" value="${r.id}">
+    <div class="fr"><div class="fg"><label>Company</label><select class="fc" id="erCo"><option value="octopack"${r.company==='octopack'?' selected':''}>Octopack SEA</option><option value="jw"${r.company==='jw'?' selected':''}>JW Supplies</option><option value="redbox"${r.company==='redbox'?' selected':''}>Redbox Global</option></select></div><div class="fg"><label>Job No.</label><input class="fc" id="erJN" value="${E(r.jobNo)}"></div></div>
+    <div class="fr"><div class="fg"><label>Date</label><input class="fc" type="date" id="erDt" value="${E(r.date)}"></div><div class="fg"><label>Status</label><select class="fc" id="erSt">${statuses.map(s=>`<option${s===r.status?' selected':''}>${s}</option>`).join('')}</select></div></div>
+    <div class="fr"><div class="fg"><label>Customer</label><input class="fc" id="erCu" list="erCuL" value="${E(r.customer)}"><datalist id="erCuL">${cs.map(c=>`<option value="${E(c.name)}">`).join('')}</datalist></div><div class="fg"><label>Contact</label><input class="fc" id="erCn" value="${E(r.contact||'')}"></div></div>
+    <div class="fr"><div class="fg"><label>Contact Number</label><input class="fc" id="erCp" value="${E(r.contactNum||'')}"></div><div class="fg"><label>PO No.</label><input class="fc" id="erPO" value="${E(r.poNo||'')}"></div></div>
+    <div class="fr"><div class="fg"><label>Model</label><input class="fc" id="erMd" value="${E(r.model||'')}"></div><div class="fg"><label>Serial</label><input class="fc" id="erSr" value="${E(r.serial||'')}"></div></div>
+    <div class="fg"><label>Serviced By — select one or more</label>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="erEnChk" value="${E(t.name)}" ${existingEngineers.includes(t.name)?'checked':''} style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
+      <input class="fc" id="erEnCustom" value="${E(existingEngineers.filter(n=>!techs.find(t=>t.name===n)).join(', '))}" placeholder="Additional engineer name" style="margin-top:6px">
+    </div>
+    <div class="fg"><label>Type</label><select class="fc" id="erTy">${types.map(t=>`<option${t===r.type?' selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="fr"><div class="fg"><label>Time Start</label><input class="fc" type="time" id="erTS" value="${E(r.timeStart||'')}"></div><div class="fg"><label>Time End</label><input class="fc" type="time" id="erTE" value="${E(r.timeEnd||'')}"></div></div>
+    <div class="fg"><label>Issues / Remarks</label><textarea class="fc" id="erRm">${E(r.remarks||'')}</textarea></div>
+    <div class="fg"><label>Recommendations</label><textarea class="fc" id="erRc">${E(r.recommendations||'')}</textarea></div>
+    <div class="fg"><label>Next Visit</label><input class="fc" type="date" id="erNV" value="${E(r.nextVisit||'')}"></div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveEditReport()">Save Changes</button>`);
+}
+
+function saveEditReport(){
+  const id=parseInt(document.getElementById('erId').value);
+  const i=DB.reports.findIndex(r=>r.id===id);if(i<0){toast('Report not found.','error');return;}
+  const checkedEng=[...document.querySelectorAll('.erEnChk:checked')].map(c=>c.value);
+  const customEng=(document.getElementById('erEnCustom')?.value||'').trim();
+  if(customEng)checkedEng.push(...customEng.split(',').map(s=>s.trim()).filter(Boolean));
+  DB.reports[i]={...DB.reports[i],
+    company:document.getElementById('erCo').value,
+    jobNo:document.getElementById('erJN').value.trim(),
+    date:document.getElementById('erDt').value,
+    status:document.getElementById('erSt').value,
+    customer:document.getElementById('erCu').value.trim(),
+    contact:document.getElementById('erCn').value.trim(),
+    contactNum:document.getElementById('erCp').value.trim(),
+    poNo:document.getElementById('erPO').value.trim(),
+    model:document.getElementById('erMd').value.trim(),
+    serial:document.getElementById('erSr').value.trim(),
+    engineer:checkedEng.join(', '),
+    engineers:checkedEng,
+    type:document.getElementById('erTy').value,
+    timeStart:document.getElementById('erTS').value,
+    timeEnd:document.getElementById('erTE').value,
+    remarks:document.getElementById('erRm').value.trim(),
+    recommendations:document.getElementById('erRc').value.trim(),
+    nextVisit:document.getElementById('erNV').value
+  };
+  saveDB();closeModal();renderReports();renderDash();toast('Report updated.','success');
+}
+
+function viewRptPreview(id){
+  const r=DB.reports.find(x=>x.id===id);if(!r)return;
+  const co=CO[r.company]||CO.octopack;const photos=r.photos||[];
+  const html=`<div style="background:#fff;color:#000;padding:24px;border-radius:var(--r);font-family:Arial,sans-serif;font-size:13px">
+    <div style="display:flex;justify-content:space-between;border-bottom:2px solid #333;padding-bottom:16px;margin-bottom:16px;flex-wrap:wrap;gap:12px">
+      <div><div style="font-size:18px;font-weight:700;color:${co.color}">${co.name}</div><div style="font-size:11px;color:#666;margin-top:4px">${co.addr}<br>Tel: ${co.tel} | ${co.email}</div></div>
+      <div style="text-align:right"><div style="font-size:16px;font-weight:700">FIELD SERVICE REPORT</div><div style="font-size:14px;margin-top:4px"><strong>${E(r.jobNo)}</strong></div></div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:13px"><tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;width:25%">Customer</th><td style="border:1px solid #ccc;padding:8px">${E(r.customer)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;width:20%">Contact</th><td style="border:1px solid #ccc;padding:8px">${E(r.contact)} ${E(r.contactNum)}</td></tr>
+    <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Date</th><td style="border:1px solid #ccc;padding:8px">${E(r.date)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Engineer</th><td style="border:1px solid #ccc;padding:8px">${E(r.engineer)}</td></tr>
+    <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Model</th><td style="border:1px solid #ccc;padding:8px">${E(r.model)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Serial</th><td style="border:1px solid #ccc;padding:8px;font-weight:700">${E(r.serial)}</td></tr>
+    <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Type</th><td colspan="3" style="border:1px solid #ccc;padding:8px;font-weight:600">${E(r.type)}</td></tr>
+    <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Issues/Remarks</th><td colspan="3" style="border:1px solid #ccc;padding:8px;white-space:pre-line">${E(r.remarks)}</td></tr>
+    <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Recommendations</th><td colspan="3" style="border:1px solid #ccc;padding:8px;white-space:pre-line">${E(r.recommendations)}</td></tr>
+    <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Status</th><td style="border:1px solid #ccc;padding:8px;font-weight:700">${E(r.status)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Next Visit</th><td style="border:1px solid #ccc;padding:8px">${E(r.nextVisit||'—')}</td></tr></table>
+    ${photos.length?`<div style="margin-top:16px;padding-top:12px;border-top:1px solid #ddd"><strong>📸 Photos (${photos.length})</strong><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${photos.map((p,i)=>`<img src="${p.dataUrl}" style="width:100px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #ccc;cursor:pointer" onclick="openLBx(DB.reports.find(x=>x.id===${id}).photos,${i})">`).join('')}</div></div>`:''}
+    ${r.engSig||r.custSig?`<div style="display:flex;justify-content:space-between;margin-top:20px;padding-top:16px;border-top:2px solid #333"><div style="text-align:center;width:45%">${r.engSig?`<img src="${r.engSig}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">ENGINEER</div></div><div style="text-align:center;width:45%">${r.custSig?`<img src="${r.custSig}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">${E(r.sigName||'CUSTOMER')}</div></div></div>`:''}
+  </div>`;
+  openModal('Report Preview — '+r.jobNo,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>${canEdit()?`<button class="btn btn-s" onclick="closeModal();editReport(${r.id})">✏ Edit</button>`:''}<button class="btn btn-s" onclick="downloadReportPDF(${r.id})">📥 PDF</button><button class="btn btn-p" onclick="emailReportPDF(${r.id})">📧 Email PDF</button>`);
+}
+
+// ===== CREATE REPORT (simplified for performance) =====
+let crPhotos=[];
+function renderCreateReport(){
+  crPhotos=[];
+  const cs=getAllCusts();
+  const techs=DB.techs||[];
+  document.getElementById('createReportContent').innerHTML=`
+    <div style="max-width:800px">
+      <h2 style="margin-bottom:8px">Create Service Report</h2>
+      <p style="color:var(--t2);margin-bottom:20px">Select company, fill details, capture signature, and email.</p>
+      <div class="fg"><label>Company</label><select class="fc" id="crCo"><option value="octopack">Octopack SEA</option><option value="jw">JW Supplies & Works</option><option value="redbox">Redbox Global Solutions</option></select></div>
+      <div class="fr"><div class="fg"><label>Job No.</label><input class="fc" id="crJN" value="SR-${String(DB.nR).padStart(5,'0')}"></div><div class="fg"><label>Date</label><input class="fc" type="date" id="crDt" value="${new Date().toISOString().split('T')[0]}"></div></div>
+      
+      <div class="fg"><label>Customer</label>
+        <select class="fc" id="crCu" onchange="onCustChange()">
+          <option value="">— Select or type below —</option>
+          ${cs.map(c=>`<option value="${E(c.name)}">${E(c.name)} — ${E(c.address||'').substring(0,40)}</option>`).join('')}
+        </select>
+        <input class="fc" id="crCuCustom" placeholder="Or type new customer name..." style="margin-top:6px;display:none">
+        <button class="btn btn-sm btn-s" onclick="toggleCustomCust()" style="margin-top:6px;font-size:var(--fs-xs)" id="crCuToggle">+ New customer not in list</button>
+      </div>
+      
+      <div class="fr">
+        <div class="fg"><label>Contact Person</label>
+          <select class="fc" id="crCn" onchange="if(this.value==='__custom__'){this.style.display='none';document.getElementById('crCnCustom').style.display='';document.getElementById('crCnCustom').focus();}">
+            <option value="">— Select —</option>
+          </select>
+          <input class="fc" id="crCnCustom" placeholder="Type contact name" style="display:none">
+        </div>
+        <div class="fg"><label>Contact Number</label>
+          <select class="fc" id="crCp" onchange="if(this.value==='__custom__'){this.style.display='none';document.getElementById('crCpCustom').style.display='';document.getElementById('crCpCustom').focus();}">
+            <option value="">— Select —</option>
+          </select>
+          <input class="fc" id="crCpCustom" placeholder="+65 xxxx xxxx" style="display:none">
+        </div>
+      </div>
+      
+      <div class="fr">
+        <div class="fg"><label>Equipment Model</label>
+          <select class="fc" id="crMd" onchange="onModelChange()">
+            <option value="">— Select customer first —</option>
+          </select>
+          <input class="fc" id="crMdCustom" placeholder="Or type model" style="display:none;margin-top:6px">
+        </div>
+        <div class="fg"><label>Serial Number</label>
+          <select class="fc" id="crSr">
+            <option value="">— Select model first —</option>
+          </select>
+          <input class="fc" id="crSrCustom" placeholder="Or type serial" style="display:none;margin-top:6px">
+        </div>
+      </div>
+      
+      <div class="fg"><label>Serviced By (Technician) — select one or more</label>
+          <div id="crEnChecks" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="crEnChk" value="${E(t.name)}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
+          <input class="fc" id="crEnCustom" placeholder="Additional engineer name (if not in list)" style="margin-top:6px">
+        </div>
+        <div class="fg"><label>Type of Call</label><select class="fc" id="crTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Installation</option><option>Inspection</option><option>Emergency</option></select></div>
+      <div class="fg"><label>PO No.</label><input class="fc" id="crPO" placeholder="Optional"></div>
+      <div class="fr"><div class="fg"><label>Time Start</label><input class="fc" type="time" id="crTS"></div><div class="fg"><label>Time End</label><input class="fc" type="time" id="crTE"></div></div>
+      <div class="fg"><label>Issues / Remarks</label><textarea class="fc" id="crRm" placeholder="Describe work performed..."></textarea></div>
+      <div class="fg"><label>Recommendations</label><textarea class="fc" id="crRc" placeholder="Follow-up actions..."></textarea></div>
+      <div class="fr"><div class="fg"><label>Status</label><select class="fc" id="crSt"><option>Completed</option><option>Pending Follow-Up</option><option>In Progress</option><option>Requires Parts</option></select></div><div class="fg"><label>Next Visit</label><input class="fc" type="date" id="crNV"></div></div>
+
+      <div style="background:var(--input);border:1px solid var(--bdr);border-radius:var(--rl);padding:20px;margin-top:16px">
+        <h3 style="margin-bottom:12px">📸 Photos</h3>
+        <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+          <button class="btn btn-s btn-sm" onclick="document.getElementById('crPhIn').click()">📷 Take Photo</button>
+          <button class="btn btn-s btn-sm" onclick="document.getElementById('crPhGal').click()">🖼 Gallery</button>
+        </div>
+        <input type="file" accept="image/*" capture="environment" multiple onchange="addCrPhotos(this.files)" id="crPhIn" style="display:none">
+        <input type="file" accept="image/*" multiple onchange="addCrPhotos(this.files)" id="crPhGal" style="display:none">
+        <div class="photo-grid" id="crPhGrid"><span style="color:var(--t3);font-size:var(--fs-sm)">No photos yet.</span></div>
+      </div>
+
+      <div style="background:var(--input);border:1px solid var(--bdr);border-radius:var(--rl);padding:20px;margin-top:16px">
+        <h3 style="margin-bottom:12px">✍ Signatures</h3>
+        <div class="fr">
+          <div class="fg"><label>Customer Name</label><input class="fc" id="crSgNm"><canvas id="sigC" class="sig-pad" width="400" height="140" style="width:100%;margin-top:8px"></canvas><button class="btn btn-s btn-sm" onclick="clrSig('sigC')" style="margin-top:6px">Clear</button></div>
+          <div class="fg"><label>Engineer Sig</label><canvas id="sigE" class="sig-pad" width="400" height="140" style="width:100%;margin-top:8px"></canvas><button class="btn btn-s btn-sm" onclick="clrSig('sigE')" style="margin-top:6px">Clear</button></div>
+        </div>
+      </div>
+
+      <div style="background:var(--input);border:1px solid var(--bdr);border-radius:var(--rl);padding:20px;margin-top:16px">
+        <h3 style="margin-bottom:12px">📧 Email Report</h3>
+        <div class="fg"><label>Send To (Customer Email)</label>
+          <input class="fc" id="crEml" placeholder="customer@company.com">
+          <div id="crEmlPicks" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+        </div>
+        <div class="fg"><label>CC (Technicians, Admin)</label>
+          <input class="fc" id="crCC" placeholder="you@company.com, admin@company.com">
+          <div id="crCCPicks" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+        </div>
+        <p style="font-size:var(--fs-xs);color:var(--t3);margin-top:4px">Tap an email below to add it. Multiple CC emails separated by commas.</p>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
+        <button class="btn btn-ok" onclick="saveAndEmailCR()">💾 Save & Email PDF</button>
+        <button class="btn btn-p" onclick="saveCR()">Save Only</button>
+        <button class="btn btn-s" onclick="previewCR()">👁 Preview</button>
+      </div>
+    </div>`;
+  // Init sig pads
+  setTimeout(()=>{
+    initSig('sigC');initSig('sigE');
+    updateEmailPickers();
+  },100);
+}
+
+// Smart linked dropdowns
+function onCustChange(){
+  const custName=document.getElementById('crCu').value;
+  const cust=DB.custs.find(c=>c.name===custName)||(getAllCusts().find(c=>c.name===custName));
+  
+  // Contact person dropdown
+  const cnSel=document.getElementById('crCn');
+  const contacts=new Set();
+  if(cust?.contact)contacts.add(cust.contact);
+  DB.reports.filter(r=>r.customer===custName&&r.contact).forEach(r=>contacts.add(r.contact));
+  cnSel.innerHTML='<option value="">— Select —</option>'+[...contacts].map(c=>`<option value="${E(c)}">${E(c)}</option>`).join('')+'<option value="__custom__">✏ Type new...</option>';
+  cnSel.style.display='';document.getElementById('crCnCustom').style.display='none';
+  if(cust?.contact)cnSel.value=cust.contact;
+  
+  // Contact number dropdown
+  const cpSel=document.getElementById('crCp');
+  const phones=new Set();
+  if(cust?.phone)phones.add(cust.phone);
+  DB.reports.filter(r=>r.customer===custName&&r.contactNum).forEach(r=>phones.add(r.contactNum));
+  cpSel.innerHTML='<option value="">— Select —</option>'+[...phones].map(p=>`<option value="${E(p)}">${E(p)}</option>`).join('')+'<option value="__custom__">✏ Type new...</option>';
+  cpSel.style.display='';document.getElementById('crCpCustom').style.display='none';
+  if(cust?.phone)cpSel.value=cust.phone;
+  
+  // Email auto-fill
+  if(cust?.email)document.getElementById('crEml').value=cust.email;
+  
+  // Refresh email picker chips
+  updateEmailPickers();
+  
+  // Machines for this customer
+  const custMachines=(DB.machines||[]).filter(m=>m.customer===custName);
+  const reportMachines=DB.reports.filter(r=>r.customer===custName&&r.model&&r.serial).map(r=>({model:r.model,serial:r.serial}));
+  const allMachines=[...custMachines,...reportMachines];
+  
+  // Unique models
+  const models=new Set();
+  allMachines.forEach(m=>models.add(m.model));
+  
+  const mdSel=document.getElementById('crMd');
+  if(models.size>0){
+    mdSel.innerHTML='<option value="">— Select model —</option>'+[...models].map(m=>`<option value="${E(m)}">${E(m)}</option>`).join('')+'<option value="__custom__">✏ Type custom model...</option>';
+  }else{
+    mdSel.innerHTML='<option value="">No machines found</option><option value="__custom__">✏ Type custom model...</option>';
+  }
+  mdSel.style.display='';document.getElementById('crMdCustom').style.display='none';
+  
+  mdSel.onchange=function(){
+    if(this.value==='__custom__'){this.style.display='none';document.getElementById('crMdCustom').style.display='';document.getElementById('crMdCustom').focus();
+      document.getElementById('crSr').innerHTML='<option value="">— Type serial below —</option><option value="__custom__">✏ Type serial...</option>';
+      document.getElementById('crSr').onchange=function(){if(this.value==='__custom__'){this.style.display='none';document.getElementById('crSrCustom').style.display='';document.getElementById('crSrCustom').focus();}};
+    }else{onModelChange();}
+  };
+  
+  // Reset serial
+  document.getElementById('crSr').innerHTML='<option value="">— Select model first —</option>';
+  document.getElementById('crSrCustom').style.display='none';
+  document.getElementById('crSr').style.display='';
+}
+
+function onModelChange(){
+  const custName=document.getElementById('crCu').value;
+  const model=document.getElementById('crMd').value;
+  if(!model||model==='__custom__')return;
+  
+  const custMachines=(DB.machines||[]).filter(m=>m.customer===custName&&m.model===model);
+  const reportMachines=DB.reports.filter(r=>r.customer===custName&&r.model===model&&r.serial).map(r=>({serial:r.serial}));
+  const serials=new Set();
+  custMachines.forEach(m=>serials.add(m.serial));
+  reportMachines.forEach(m=>serials.add(m.serial));
+  
+  const srSel=document.getElementById('crSr');
+  if(serials.size>0){
+    srSel.innerHTML='<option value="">— Select serial —</option>'+[...serials].map(s=>`<option value="${E(s)}">${E(s)}</option>`).join('')+'<option value="__custom__">✏ Type custom serial...</option>';
+    // Auto-select if only one
+    if(serials.size===1)srSel.value=[...serials][0];
+  }else{
+    srSel.innerHTML='<option value="">No serials found</option><option value="__custom__">✏ Type serial...</option>';
+  }
+  srSel.style.display='';document.getElementById('crSrCustom').style.display='none';
+  srSel.onchange=function(){if(this.value==='__custom__'){this.style.display='none';document.getElementById('crSrCustom').style.display='';document.getElementById('crSrCustom').focus();}};
+}
+
+function toggleCustomCust(){
+  const sel=document.getElementById('crCu');
+  const inp=document.getElementById('crCuCustom');
+  const btn=document.getElementById('crCuToggle');
+  if(inp.style.display==='none'){
+    inp.style.display='';sel.style.display='none';inp.focus();
+    btn.textContent='← Back to customer list';
+    // Reset dependent fields
+    document.getElementById('crCn').innerHTML='<option value="">—</option><option value="__custom__">✏ Type new...</option>';
+    document.getElementById('crCp').innerHTML='<option value="">—</option><option value="__custom__">✏ Type new...</option>';
+    document.getElementById('crMd').innerHTML='<option value="">—</option><option value="__custom__">✏ Type model...</option>';
+    document.getElementById('crSr').innerHTML='<option value="">—</option><option value="__custom__">✏ Type serial...</option>';
+  }else{
+    inp.style.display='none';sel.style.display='';
+    btn.textContent='+ New customer not in list';
+  }
+}
+
+function updateEmailPickers(){
+  const custName=getFieldVal('crCu','crCuCustom');
+  const cust=DB.custs.find(c=>c.name===custName)||getAllCusts().find(c=>c.name===custName);
+  
+  // Collect all available emails
+  const toEmails=[];// For "Send To" (customer-side)
+  const ccEmails=[];// For CC (technicians, company)
+  
+  // Customer email
+  if(cust?.email)toEmails.push({label:cust.name,email:cust.email,color:'var(--ac)'});
+  
+  // Customer contact emails from past reports
+  DB.reports.filter(r=>r.customer===custName).forEach(r=>{
+    if(r.email&&!toEmails.find(e=>e.email===r.email))toEmails.push({label:'Previous',email:r.email,color:'var(--t2)'});
+  });
+  
+  // Technician emails for CC
+  (DB.techs||[]).forEach(t=>{
+    if(t.email)ccEmails.push({label:t.name,email:t.email,color:'var(--ok)'});
+  });
+  
+  // Company emails for CC
+  Object.values(CO).forEach(co=>{
+    if(co.email)ccEmails.push({label:co.name.substring(0,15),email:co.email,color:'var(--pu)'});
+  });
+  
+  // Render "Send To" email chips
+  const emlPicks=document.getElementById('crEmlPicks');
+  if(emlPicks){
+    emlPicks.innerHTML=toEmails.length?toEmails.map(e=>
+      `<button class="btn btn-sm" style="padding:4px 10px;font-size:12px;min-height:32px;border:1px solid var(--bdr);background:var(--bg2);color:${e.color};border-radius:20px" onclick="document.getElementById('crEml').value='${E(e.email)}';toast('Set: ${E(e.email)}','success')" title="${E(e.label)}">${E(e.label)}: ${E(e.email)}</button>`
+    ).join(''):'<span style="font-size:var(--fs-xs);color:var(--t3)">Select a customer to see available emails</span>';
+  }
+  
+  // Render CC email chips
+  const ccPicks=document.getElementById('crCCPicks');
+  if(ccPicks){
+    ccPicks.innerHTML=ccEmails.map(e=>
+      `<button class="btn btn-sm" style="padding:4px 10px;font-size:12px;min-height:32px;border:1px solid var(--bdr);background:var(--bg2);color:${e.color};border-radius:20px" onclick="addCCEmail('${E(e.email)}')" title="${E(e.label)}">+ ${E(e.label)}: ${E(e.email)}</button>`
+    ).join('');
+  }
+}
+
+function addCCEmail(email){
+  const ccField=document.getElementById('crCC');
+  const current=ccField.value.trim();
+  // Don't add if already there
+  if(current.includes(email)){toast('Already added.','info');return;}
+  ccField.value=current?(current+', '+email):email;
+  toast('Added: '+email,'success');
+}
+
+function addCrPhotos(files){if(!files)return;Array.from(files).forEach(f=>{if(crPhotos.length>=10)return;const r=new FileReader();r.onload=e=>{compImg(e.target.result,800,.7,d=>{crPhotos.push({dataUrl:d,caption:'Photo '+(crPhotos.length+1),timestamp:new Date().toLocaleString()});updCrPhGrid();});};r.readAsDataURL(f);});}
+function compImg(src,maxW,q,cb){const img=new Image();img.onload=function(){const c=document.createElement('canvas');let w=img.width,h=img.height;if(w>maxW){h=h*(maxW/w);w=maxW;}c.width=w;c.height=h;const ctx=c.getContext('2d');ctx.drawImage(img,0,0,w,h);cb(c.toDataURL('image/jpeg',q));};img.src=src;}
+function updCrPhGrid(){const g=document.getElementById('crPhGrid');if(!crPhotos.length){g.innerHTML='<span style="color:var(--t3);font-size:var(--fs-sm)">No photos yet.</span>';return;}g.innerHTML=crPhotos.map((p,i)=>`<div class="photo-thumb"><img src="${p.dataUrl}" onclick="openLBx(crPhotos,${i})"><button class="photo-del" onclick="event.stopPropagation();crPhotos.splice(${i},1);updCrPhGrid()">✕</button></div>`).join('');}
+
+function initSig(cid){const c=document.getElementById(cid);if(!c)return;const ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);ctx.strokeStyle='#222';ctx.lineWidth=2;ctx.lineCap='round';c._drawn=false;let d=false;function gp(e){const r=c.getBoundingClientRect(),sx=c.width/r.width,sy=c.height/r.height,t=e.touches?e.touches[0]:e;return{x:(t.clientX-r.left)*sx,y:(t.clientY-r.top)*sy}}
+c.addEventListener('mousedown',e=>{d=true;const p=gp(e);ctx.beginPath();ctx.moveTo(p.x,p.y)});c.addEventListener('mousemove',e=>{if(!d)return;const p=gp(e);ctx.lineTo(p.x,p.y);ctx.stroke();c._drawn=true});c.addEventListener('mouseup',()=>d=false);c.addEventListener('mouseleave',()=>d=false);
+c.addEventListener('touchstart',e=>{e.preventDefault();d=true;const p=gp(e);ctx.beginPath();ctx.moveTo(p.x,p.y)},{passive:false});c.addEventListener('touchmove',e=>{e.preventDefault();if(!d)return;const p=gp(e);ctx.lineTo(p.x,p.y);ctx.stroke();c._drawn=true},{passive:false});c.addEventListener('touchend',()=>d=false);}
+function clrSig(cid){const c=document.getElementById(cid);if(!c)return;const ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);c._drawn=false;}
+
+function getFieldVal(selId,customId){
+  const sel=document.getElementById(selId);
+  const custom=document.getElementById(customId);
+  if(custom&&custom.style.display!=='none'&&custom.value.trim())return custom.value.trim();
+  if(sel&&sel.value&&sel.value!=='__custom__'&&sel.value!=='')return sel.value.trim();
+  return'';
+}
+function getSelectedEngineers(){
+  const checked=[...document.querySelectorAll('.crEnChk:checked')].map(c=>c.value);
+  const custom=(document.getElementById('crEnCustom')?.value||'').trim();
+  if(custom)checked.push(custom);
+  return checked;
+}
+function getCRData(){
+  const sc=document.getElementById('sigC'),se=document.getElementById('sigE');
+  const engineers=getSelectedEngineers();
+  return{
+    company:document.getElementById('crCo').value,
+    jobNo:document.getElementById('crJN').value.trim(),
+    date:document.getElementById('crDt').value,
+    customer:getFieldVal('crCu','crCuCustom'),
+    contact:getFieldVal('crCn','crCnCustom'),
+    contactNum:getFieldVal('crCp','crCpCustom'),
+    poNo:document.getElementById('crPO').value.trim(),
+    model:getFieldVal('crMd','crMdCustom'),
+    serial:getFieldVal('crSr','crSrCustom'),
+    engineer:engineers.join(', '),
+    engineers:engineers,
+    type:document.getElementById('crTy').value,
+    timeStart:document.getElementById('crTS').value,
+    timeEnd:document.getElementById('crTE').value,
+    remarks:document.getElementById('crRm').value.trim(),
+    recommendations:document.getElementById('crRc').value.trim(),
+    status:document.getElementById('crSt').value,
+    nextVisit:document.getElementById('crNV').value,
+    sigName:document.getElementById('crSgNm')?.value.trim()||'',
+    custSig:sc?._drawn?sc.toDataURL():'',
+    engSig:se?._drawn?se.toDataURL():'',
+    signed:!!(sc?._drawn),
+    photos:crPhotos.slice()
+  };
+}
+
+function saveCR(){const d=getCRData();if(!d.jobNo){toast('Job No. required.','error');return;}d.id=DB.nR++;d.scannedAt=new Date().toISOString();DB.reports.push(d);let c=DB.custs.find(x=>x.name===d.customer);if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:'',agent:''});}saveDB();toast('Report saved!','success');showPage('reports');}
+
+async function saveAndEmailCR(){
+  const d=getCRData();
+  if(!d.jobNo){toast('Job No. required.','error');return;}
+  const em=document.getElementById('crEml')?.value;
+  if(!em){toast('Enter customer email.','error');return;}
+  // Save report
+  d.id=DB.nR++;d.scannedAt=new Date().toISOString();
+  DB.reports.push(d);
+  let c=DB.custs.find(x=>x.name===d.customer);
+  if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:em,agent:''});}
+  else if(c&&em){c.email=em;}
+  saveDB();toast('Report saved!','success');
+  // Generate PDF and email
+  const result=await generateReportPDF(d,false);
+  const co=CO[d.company]||CO.octopack;
+  const cc=document.getElementById('crCC')?.value||'';
+  const subj=`Service Report ${d.jobNo} — ${d.type} — ${co.name}`;
+  const body=`Dear ${d.contact||'Customer'},\n\nPlease find attached the signed service report.\n\nJob No.: ${d.jobNo}\nDate: ${d.date}\nEquipment: ${d.model} (S/N: ${d.serial})\nType: ${d.type}\nStatus: ${d.status}\n\nRegards,\n${d.engineer||''}\n${co.name}`;
+  // Try native share (mobile can attach PDF directly)
+  if(result&&navigator.share&&navigator.canShare){
+    try{
+      const file=new File([result.blob],result.fileName,{type:'application/pdf'});
+      if(navigator.canShare({files:[file]})){await navigator.share({title:subj,files:[file]});toast('Shared!','success');showPage('reports');return;}
+    }catch(e){if(e.name!=='AbortError')console.warn(e);}
+  }
+  // Fallback: download PDF + open email
+  if(result)result.pdf.save(result.fileName);
+  window.open(`mailto:${em}?cc=${encodeURIComponent(cc)}&subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body+(result?'\n\n📎 Attach the downloaded PDF: '+result.fileName:''))}`);
+  showPage('reports');
+}
+
+function previewCR(){const d=getCRData();const fakeId=Date.now();DB.reports.push({...d,id:fakeId});viewRptPreview(fakeId);DB.reports=DB.reports.filter(r=>r.id!==fakeId);}
+
+// ===== MACHINES (from DB.machines + report history) =====
+function getAllMachinesDB(){
+  const m={};
+  (DB.machines||[]).forEach(mc=>{m[mc.serial]={...mc,reports:[],lastService:'',issues:[]};});
+  DB.reports.forEach(r=>{if(!r.serial)return;if(!m[r.serial])m[r.serial]={serial:r.serial,model:r.model,customer:r.customer,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:'',maintFrequency:'',reports:[],lastService:'',issues:[]};m[r.serial].reports.push(r);if(!m[r.serial].lastService||r.date>m[r.serial].lastService)m[r.serial].lastService=r.date;if(r.status!=='Completed')m[r.serial].issues.push(r);});
+  return Object.values(m);
+}
+function renderMachines(){
+  const ms=getAllMachinesDB();
+  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search serial, model, customer..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍 Duplicates</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div><div id="mList">${mCards(ms)}</div></div>`;
+}
+function filterMachines(){const s=(document.getElementById('mSrch')?.value||'').toLowerCase();document.getElementById('mList').innerHTML=mCards(getAllMachinesDB().filter(m=>(m.serial+m.model+m.customer+(m.location||'')).toLowerCase().includes(s)));}
+function mCards(ms){
+  if(!ms.length)return'<div class="es"><p>No machines found.</p></div>';
+  return ms.map(m=>{
+    const custExists=DB.custs.find(c=>c.name===m.customer);
+    return`<div class="rpt-card">
+    <div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(m.serial)}</span><div style="display:flex;gap:6px"><span class="bd ${(m.issues||[]).length?'bd-wn':'bd-ok'}">${(m.issues||[]).length?'Issues':'OK'}</span></div></div>
+    <div class="rpt-card-row"><span class="rc-label">Model</span><span class="rc-val">${E(m.model)}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${custExists?`<button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="viewMachineCust('${E(m.customer)}')">${E(m.customer)} →</button>`:`${E(m.customer)}`}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Location</span><span class="rc-val" style="max-width:60%">${E(m.location||'')}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Installed</span><span class="rc-val">${E(m.installDate||'—')}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Warranty</span><span class="rc-val">${E(m.warranty||'—')}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Type</span><span class="rc-val">${E(m.purchaseRental||'—')}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Contract</span><span class="rc-val">${E(m.serviceContract||'—')}</span></div>
+    ${m.lastService?`<div class="rpt-card-row"><span class="rc-label">Last Service</span><span class="rc-val">${E(m.lastService)}</span></div>`:''}
+    <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val">${(m.reports||[]).length}</span></div>
+    <div class="rpt-card-actions">
+      ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editMachine('${E(m.serial)}')">Edit</button>`:''}
+      ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delMachine('${E(m.serial)}')">Delete</button>`:''}
+    </div>
+  </div>`;}).join('');
+}
+
+function openMachineModal(data){
+  const d=data||{};
+  const cs=getAllCusts();
+  openModal(d.serial?'Edit Machine':'Add Machine',`
+    <input type="hidden" id="eMSerial" value="${E(d.serial||'')}">
+    <div class="fr"><div class="fg"><label>Serial Number</label><input class="fc" id="mSr" value="${E(d.serial||'')}" ${d.serial?'readonly style="background:var(--bdr)"':''}></div><div class="fg"><label>Model</label><input class="fc" id="mMd" value="${E(d.model||'')}"></div></div>
+    <div class="fg"><label>Customer</label><select class="fc" id="mCu"><option value="">— Select —</option>${cs.map(c=>`<option${c.name===d.customer?' selected':''}>${E(c.name)}</option>`).join('')}</select></div>
+    <div class="fg"><label>Location / Address</label><input class="fc" id="mLo" value="${E(d.location||'')}"></div>
+    <div class="fr"><div class="fg"><label>Install Date</label><input class="fc" type="date" id="mDt" value="${E(d.installDate||'')}"></div><div class="fg"><label>Warranty</label><input class="fc" id="mWr" value="${E(d.warranty||'12 months')}"></div></div>
+    <div class="fr"><div class="fg"><label>Purchase / Rental</label><select class="fc" id="mPR"><option${d.purchaseRental==='Purchase'?' selected':''}>Purchase</option><option${d.purchaseRental==='Rental'?' selected':''}>Rental</option></select></div><div class="fg"><label>Service Contract</label><input class="fc" id="mSC" value="${E(d.serviceContract||'Nil')}"></div></div>
+    <div class="fg"><label>Maintenance Frequency</label><input class="fc" id="mMF" value="${E(d.maintFrequency||'')}" placeholder="e.g. 2 (times per year)"></div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveMachine()">Save</button>`);
+}
+
+function editMachine(serial){
+  const m=(DB.machines||[]).find(x=>x.serial===serial);
+  if(m)openMachineModal(m);
+  else openMachineModal({serial});
+}
+
+function saveMachine(){
+  const origSerial=document.getElementById('eMSerial')?.value||'';
+  const d={
+    serial:document.getElementById('mSr').value.trim(),
+    model:document.getElementById('mMd').value.trim(),
+    customer:document.getElementById('mCu').value,
+    location:document.getElementById('mLo').value.trim(),
+    installDate:document.getElementById('mDt').value,
+    warranty:document.getElementById('mWr').value.trim(),
+    purchaseRental:document.getElementById('mPR').value,
+    serviceContract:document.getElementById('mSC').value.trim(),
+    maintFrequency:document.getElementById('mMF').value.trim()
+  };
+  if(!d.serial){toast('Serial number required.','error');return;}
+  if(!d.model){toast('Model required.','error');return;}
+  
+  if(!Array.isArray(DB.machines))DB.machines=[];
+  
+  if(origSerial){
+    // Editing existing
+    const i=DB.machines.findIndex(m=>m.serial===origSerial);
+    if(i>=0){
+      // If customer changed, update the link
+      const oldCust=DB.machines[i].customer;
+      DB.machines[i]={...DB.machines[i],...d};
+    }else{
+      d.id=DB.nM++;DB.machines.push(d);
+    }
+  }else{
+    // Check duplicate serial
+    if(DB.machines.find(m=>m.serial===d.serial)){toast('Serial already exists.','error');return;}
+    d.id=DB.nM++;DB.machines.push(d);
+  }
+  saveDB();closeModal();renderMachines();toast('Machine saved.','success');
+}
+
+function delMachine(serial){
+  const rptCount=DB.reports.filter(r=>r.serial===serial).length;
+  if(!confirm(`Delete machine "${serial}"?${rptCount?'\n\n⚠ '+rptCount+' service report(s) reference this machine.':''}`))return;
+  DB.machines=(DB.machines||[]).filter(m=>m.serial!==serial);
+  saveDB();renderMachines();toast('Machine deleted.','info');
+}
+
+function viewMachineCust(custName){
+  // Navigate to customer list and highlight
+  showPage('customers');
+  setTimeout(()=>{
+    const input=document.getElementById('cSrch');
+    if(input){input.value=custName;filterCusts();}
+  },100);
+}
+
+// ===== CUSTOMERS (with Agent field) =====
+function renderCusts(){
+  const cs=getAllCusts();
+  document.getElementById('customersContent').innerHTML=`<div class="tw"><div class="th"><h3>Customers (${cs.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="cSrch" oninput="filterCusts()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍 Duplicates</button><button class="btn btn-p btn-sm" onclick="openCustModal()">+ Add</button>':''}</div></div>
+  <div id="cList">${renderCustCards(cs)}</div></div>`;
+}
+function filterCusts(){const s=(document.getElementById('cSrch')?.value||'').toLowerCase();const cs=getAllCusts().filter(c=>(c.name+c.address+c.contact+c.phone+c.agent).toLowerCase().includes(s));document.getElementById('cList').innerHTML=renderCustCards(cs);}
+function renderCustCards(cs){
+  return cs.map(c=>{
+    const reps=DB.reports.filter(r=>r.customer===c.name);
+    const custMachines=(DB.machines||[]).filter(m=>m.customer===c.name);
+    const rptSerials=[...new Set(reps.filter(r=>r.serial).map(r=>r.serial))];
+    const allSerials=[...new Set([...custMachines.map(m=>m.serial),...rptSerials])];
+    return`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(c.name)}</span><div style="display:flex;gap:6px">${canEdit()?`<button class="btn btn-sm btn-s" onclick="editCust('${E(c.name)}')">Edit</button>`:''}${canDelete()?`<button class="btn btn-sm btn-d" onclick="delCust(${c.id||0},'${E(c.name)}')">Delete</button>`:''}</div></div>
+    <div class="rpt-card-row"><span class="rc-label">Address</span><span class="rc-val" style="max-width:65%">${E(c.address||'—')}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Contact</span><span class="rc-val">${E(c.contact||'—')}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Phone</span><span class="rc-val">${c.phone?`<a href="tel:${c.phone}" style="color:var(--ac);text-decoration:none">${E(c.phone)}</a>`:'—'}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Email</span><span class="rc-val">${c.email?`<a href="mailto:${c.email}" style="color:var(--ac);text-decoration:none">${E(c.email)}</a>`:'—'}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Agent</span><span class="rc-val" style="color:var(--pu);font-weight:600">${E(c.agent||'—')}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Machines</span><span class="rc-val"><button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="viewCustMachines('${E(c.name)}')">${allSerials.length} machine${allSerials.length!==1?'s':''} →</button></span></div>
+    <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val">${reps.length}</span></div></div>`;
+  }).join('')||'<div class="es"><p>No customers.</p></div>';
+}
+
+function delCust(id,name){
+  const machCount=(DB.machines||[]).filter(m=>m.customer===name).length;
+  if(!confirm(`Delete "${name}"?${machCount?'\n\n⚠ This customer has '+machCount+' linked machine(s).':''}`))return;
+  DB.custs=DB.custs.filter(c=>c.id!==id&&c.name!==name);
+  saveDB();renderCusts();toast('Customer deleted.','info');
+}
+
+function viewCustMachines(custName){
+  const ms=(DB.machines||[]).filter(m=>m.customer===custName);
+  const rptMs=DB.reports.filter(r=>r.customer===custName&&r.serial).reduce((acc,r)=>{if(!acc.find(x=>x.serial===r.serial))acc.push({serial:r.serial,model:r.model});return acc;},[]);
+  // Merge
+  const allSerials=new Set();
+  const combined=[];
+  ms.forEach(m=>{allSerials.add(m.serial);combined.push(m);});
+  rptMs.forEach(m=>{if(!allSerials.has(m.serial)){combined.push({...m,customer:custName,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:''});}});
+  
+  const html=combined.length?combined.map(m=>`<div style="padding:12px 0;border-bottom:1px solid var(--bdr)">
+    <div style="display:flex;justify-content:space-between;align-items:center"><strong>${E(m.serial)}</strong>
+    <div style="display:flex;gap:6px">${canEdit()?`<button class="btn btn-sm btn-s" onclick="closeModal();editMachine('${E(m.serial)}')">Edit</button>`:''}</div></div>
+    <div style="font-size:var(--fs-sm);color:var(--t2);margin-top:4px">${E(m.model)} ${m.location?'• '+E(m.location):''} ${m.installDate?'• Installed '+E(m.installDate):''}</div>
+  </div>`).join(''):'<p style="color:var(--t3)">No machines linked to this customer.</p>';
+  
+  openModal(`Machines — ${custName}`,html+`<div style="margin-top:16px"><button class="btn btn-p btn-sm" onclick="closeModal();openMachineModal({customer:'${E(custName)}'})">+ Add Machine</button></div>`,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
+}
+function openCustModal(data){
+  const d=data||{};
+  const agents=DB.agents||[];
+  openModal(d.name?'Edit Customer':'Add Customer',`
+    <input type="hidden" id="eCId" value="${d.id||''}">
+    <div class="fg"><label>Customer Name</label><input class="fc" id="cNm" value="${E(d.name||'')}"></div>
+    <div class="fg"><label>Address</label><input class="fc" id="cAd" value="${E(d.address||'')}"></div>
+    <div class="fr"><div class="fg"><label>Contact Person</label><input class="fc" id="cCo" value="${E(d.contact||'')}"></div><div class="fg"><label>Phone</label><input class="fc" id="cPh" value="${E(d.phone||'')}" placeholder="+65..."></div></div>
+    <div class="fr"><div class="fg"><label>Email</label><input class="fc" id="cEm" value="${E(d.email||'')}"></div>
+    <div class="fg"><label>Agent / Company</label>
+      <select class="fc" id="cAg">
+        <option value="">— None —</option>
+        ${agents.map(a=>`<option value="${E(a.name)}"${a.name===d.agent?' selected':''}>${E(a.name)} ${a.type?'('+E(a.type)+')':''}</option>`).join('')}
+      </select>
+      <div style="margin-top:6px;font-size:var(--fs-xs)"><a href="#" onclick="event.preventDefault();closeModal();showPage('agents')" style="color:var(--ac)">Manage agents/companies →</a></div>
+    </div></div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveCust()">Save</button>`);
+}
+function editCust(nm){const c=DB.custs.find(x=>x.name===nm)||getAllCusts().find(x=>x.name===nm);openCustModal(c||{});}
+function saveCust(){
+  const eidEl=document.getElementById('eCId');const eid=eidEl?eidEl.value:'';
+  const d={name:document.getElementById('cNm').value.trim(),address:document.getElementById('cAd').value.trim(),contact:document.getElementById('cCo').value.trim(),phone:document.getElementById('cPh').value.trim(),email:document.getElementById('cEm').value.trim(),agent:document.getElementById('cAg').value.trim()};
+  if(!d.name){toast('Name required.','error');return;}
+  if(eid&&eid!==''){
+    const i=DB.custs.findIndex(c=>c.id===parseInt(eid));
+    if(i>=0){
+      const oldName=DB.custs[i].name;
+      DB.custs[i]={...DB.custs[i],...d};
+      // If name changed, update linked machines and reports
+      if(oldName!==d.name){
+        (DB.machines||[]).forEach(m=>{if(m.customer===oldName)m.customer=d.name;});
+        DB.reports.forEach(r=>{if(r.customer===oldName)r.customer=d.name;});
+        DB.jobs.forEach(j=>{if(j.customer===oldName)j.customer=d.name;});
+      }
+    }else{d.id=DB.nC++;DB.custs.push(d);}
+  }
+  else{d.id=DB.nC++;DB.custs.push(d);}
+  saveDB();closeModal();renderCusts();toast('Saved.','success');
+}
+
+// ===== TECHNICIANS =====
+function renderTechs(){document.getElementById('techContent').innerHTML=`<div class="tw"><div class="th"><h3>Technicians</h3><button class="btn btn-p btn-sm" onclick="openTechModal()">+ Add</button></div>${DB.techs.map(t=>{const aj=DB.jobs.filter(j=>j.status!=='Completed'&&((j.techIds||[]).includes(t.id)||j.techId===t.id)).length;return`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(t.name)}</span><span class="bd ${aj?'bd-wn':'bd-ok'}">${aj?'Busy ('+aj+')':'Available'}</span></div><div class="rpt-card-row"><span class="rc-label">WhatsApp</span><span class="rc-val"><a href="https://wa.me/${t.phone.replace(/[^0-9]/g,'')}" target="_blank" style="color:var(--wa);text-decoration:none">${E(t.phone)}</a></span></div><div class="rpt-card-row"><span class="rc-label">Email</span><span class="rc-val">${t.email?`<a href="mailto:${t.email}" style="color:var(--ac);text-decoration:none">${E(t.email)}</a>`:'—'}</span></div><div class="rpt-card-row"><span class="rc-label">Spec</span><span class="rc-val">${E(t.spec)}</span></div><div class="rpt-card-actions">${canEdit()?`<button class="btn btn-sm btn-s" onclick="editTech(${t.id})">Edit</button>`:''} ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delTech(${t.id})">Remove</button>`:''}</div></div>`}).join('')||'<div class="es"><p>No technicians.</p></div>'}</div>`;}
+function openTechModal(data){const d=data||{};openModal(d.name?'Edit Technician':'Add Technician',`<input type="hidden" id="eTId" value="${d.id||''}"><div class="fg"><label>Name</label><input class="fc" id="tNm" value="${E(d.name||'')}"></div><div class="fg"><label>WhatsApp</label><input class="fc" id="tPh" value="${E(d.phone||'')}" placeholder="+65..."></div><div class="fg"><label>Email</label><input class="fc" type="email" id="tEm" value="${E(d.email||'')}" placeholder="tech@company.com"></div><div class="fg"><label>Specialization</label><select class="fc" id="tSp"><option${d.spec==='General'?' selected':''}>General</option><option${d.spec==='Strapping Machines'?' selected':''}>Strapping Machines</option><option${d.spec==='Wrapping Machines'?' selected':''}>Wrapping Machines</option><option${d.spec==='Sealing Machines'?' selected':''}>Sealing Machines</option><option${d.spec==='Electrical'?' selected':''}>Electrical</option><option${d.spec==='Mechanical'?' selected':''}>Mechanical</option></select></div>`,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveTech()">Save</button>`);}
+function editTech(id){const t=DB.techs.find(x=>x.id===id);if(t)openTechModal(t);}
+function saveTech(){const eidEl=document.getElementById('eTId');const eid=eidEl?eidEl.value:'';const d={name:document.getElementById('tNm').value.trim(),phone:document.getElementById('tPh').value.trim(),email:document.getElementById('tEm').value.trim(),spec:document.getElementById('tSp').value};if(!d.name||!d.phone){toast('Name & phone required.','error');return;}if(eid&&eid!==''){const i=DB.techs.findIndex(t=>t.id===parseInt(eid));if(i>=0)DB.techs[i]={...DB.techs[i],...d};}else{d.id=DB.nT++;DB.techs.push(d);}saveDB();closeModal();renderTechs();toast('Saved.','success');}
+function delTech(id){if(!confirm('Remove?'))return;DB.techs=DB.techs.filter(t=>t.id!==id);saveDB();renderTechs();toast('Removed.','info');}
+
+// ===== USER MANAGEMENT =====
+function renderUsers(){
+  if(!canManageUsers()){document.getElementById('usersContent').innerHTML='<div class="es"><p>Admin access required.</p></div>';return;}
+  document.getElementById('usersContent').innerHTML=`<div class="tw"><div class="th"><h3>User Management</h3><button class="btn btn-p btn-sm" onclick="openUserModal()">+ Add User</button></div>${DB.users.map(u=>`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(u.name)}</span><span class="bd bd-${u.role==='admin'?'er':u.role==='manager'?'ac':'ok'}">${E(u.role)}</span></div><div class="rpt-card-row"><span class="rc-label">Username</span><span class="rc-val">${E(u.username)}</span></div><div class="rpt-card-actions"><button class="btn btn-sm btn-s" onclick="editUser(${u.id})">Edit</button>${u.id!==CUR_USER.id?`<button class="btn btn-sm btn-d" onclick="delUser(${u.id})">Remove</button>`:''}</div></div>`).join('')}</div>`;
+}
+function openUserModal(data){const d=data||{};openModal(d.name?'Edit User':'Add User',`<input type="hidden" id="eUId" value="${d.id||''}"><div class="fg"><label>Full Name</label><input class="fc" id="uNm" value="${E(d.name||'')}"></div><div class="fr"><div class="fg"><label>Username</label><input class="fc" id="uUn" value="${E(d.username||'')}" autocomplete="off"></div><div class="fg"><label>Password</label><input class="fc" type="text" id="uPw" value="${E(d.password||'')}" autocomplete="off"></div></div><div class="fg"><label>Role</label><select class="fc" id="uRl"><option value="admin"${d.role==='admin'?' selected':''}>Admin — Full access</option><option value="manager"${d.role==='manager'?' selected':''}>Manager — Create & edit, no user mgmt</option><option value="technician"${d.role==='technician'?' selected':''}>Technician — View & update status only</option></select></div>`,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveUser()">Save</button>`);}
+function editUser(id){const u=DB.users.find(x=>x.id===id);if(u)openUserModal(u);}
+function saveUser(){const eidEl=document.getElementById('eUId');const eid=eidEl?eidEl.value:'';const d={name:document.getElementById('uNm').value.trim(),username:document.getElementById('uUn').value.trim(),password:document.getElementById('uPw').value,role:document.getElementById('uRl').value};if(!d.name||!d.username||!d.password){toast('All fields required.','error');return;}if(eid&&eid!==''){const i=DB.users.findIndex(u=>u.id===parseInt(eid));if(i>=0)DB.users[i]={...DB.users[i],...d};}else{d.id=DB.nU++;DB.users.push(d);}saveDB();closeModal();renderUsers();toast('User saved.','success');}
+function delUser(id){if(!confirm('Remove user?'))return;DB.users=DB.users.filter(u=>u.id!==id);saveDB();renderUsers();toast('Removed.','info');}
+
+// ===== CALENDAR =====
+let calY,calM;
+function calPrev(){calM--;if(calM<0){calM=11;calY--;}renderCal();}
+function calNext(){calM++;if(calM>11){calM=0;calY++;}renderCal();}
+function renderCal(){if(calY===undefined){const n=new Date();calY=n.getFullYear();calM=n.getMonth();}const mo=['January','February','March','April','May','June','July','August','September','October','November','December'];const fd=new Date(calY,calM,1).getDay(),dm=new Date(calY,calM+1,0).getDate(),td=new Date();const ev={};function ae(dt,d){if(!dt)return;if(!ev[dt])ev[dt]=[];ev[dt].push(d);}DB.reports.forEach(r=>{ae(r.date,{l:r.customer?.substring(0,16),bg:'var(--oks)',c:'var(--ok)'});ae(r.nextVisit,{l:'🔔 '+r.customer?.substring(0,12),bg:'var(--wns)',c:'var(--wn)'});});DB.jobs.forEach(j=>{if(j.status!=='Completed')ae(j.date,{l:'🔧 '+j.title?.substring(0,14),bg:'var(--acs)',c:'var(--ac)'});});
+let h=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><button class="btn btn-s btn-sm" onclick="calPrev()">← Prev</button><h3 style="font-size:var(--fs-lg);font-weight:700">${mo[calM]} ${calY}</h3><button class="btn btn-s btn-sm" onclick="calNext()">Next →</button></div><div class="cg">`;
+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>{h+=`<div class="ch-h">${d}</div>`;});const pd=new Date(calY,calM,0).getDate();for(let i=fd-1;i>=0;i--)h+=`<div class="cd om"><div class="dn">${pd-i}</div></div>`;for(let d=1;d<=dm;d++){const ds=`${calY}-${String(calM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;const it=td.getFullYear()===calY&&td.getMonth()===calM&&td.getDate()===d;const de=ev[ds]||[];h+=`<div class="cd ${it?'today':''}"><div class="dn">${d}</div>${de.slice(0,2).map(e=>`<div class="ce" style="background:${e.bg};color:${e.c}">${E(e.l)}</div>`).join('')}${de.length>2?`<div style="font-size:9px;color:var(--t3)">+${de.length-2}</div>`:''}</div>`;}const tt=fd+dm;for(let i=1;i<=(7-(tt%7))%7;i++)h+=`<div class="cd om"><div class="dn">${i}</div></div>`;h+='</div>';document.getElementById('calendarContent').innerHTML=h;}
+
+// ===== SCAN (AI-powered using Claude API) =====
+function renderScan(){
+  const savedKey=localStorage.getItem('ocrm4_gemini_key')||'';
+  document.getElementById('scanContent').innerHTML=`<div style="max-width:700px">
+    <h2 style="margin-bottom:8px">📸 AI Document Scanner</h2>
+    <p style="color:var(--t2);margin-bottom:20px">Upload or photograph a service report. <strong>Google Gemini AI</strong> reads and extracts all fields — free, fast, and accurate with handwriting.</p>
+    
+    <div style="background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);padding:16px;margin-bottom:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <label style="font-size:var(--fs-sm);font-weight:600;color:var(--t2)">🔑 Google Gemini API Key</label>
+        <span id="apiKeyStatus" style="font-size:var(--fs-xs)">${savedKey?'<span style="color:var(--ok)">✓ Key saved</span>':'<span style="color:var(--er)">Not set</span>'}</span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <input class="fc" type="password" id="apiKeyInput" value="${E(savedKey)}" placeholder="AIzaSy..." style="flex:1;font-size:var(--fs-sm)">
+        <button class="btn btn-sm btn-p" onclick="saveApiKey()">Save</button>
+      </div>
+      <p style="font-size:11px;color:var(--t3);margin-top:8px">Free API key from <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--ac)">aistudio.google.com/apikey</a> — 15 requests/min free. Stored locally only.</p>
+    </div>
+
+    <div class="sz" id="scZ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:40px;height:40px;color:var(--t3);margin-bottom:8px"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg><div style="font-size:var(--fs);font-weight:600">Tap to scan document</div><div style="font-size:var(--fs-sm);color:var(--t3)">Camera, gallery, or PDF file</div><input type="file" accept="image/*,.pdf,application/pdf" capture="environment" onchange="procScan(this.files[0])" id="scIn"></div>
+    <div style="display:flex;gap:8px;margin-bottom:16px"><button class="btn btn-s btn-sm" onclick="document.getElementById('scInG').click()">🖼 From Gallery / PDF</button></div>
+    <input type="file" accept="image/*,.pdf,application/pdf" onchange="procScan(this.files[0])" id="scInG" style="display:none">
+    <div id="scPrev" style="display:none;margin-bottom:16px">
+      <img id="scPreviewImg" style="max-width:100%;border-radius:var(--r);border:1px solid var(--bdr);margin-bottom:12px">
+      <div class="scan-enhance">
+        <h4>🔧 Image Enhancement</h4>
+        <div class="scan-slider"><label>Brightness</label><input type="range" min="-100" max="100" value="20" id="scBright" oninput="applyEnhancePreview()"><span class="sv-val" id="scBrVal">20</span></div>
+        <div class="scan-slider"><label>Contrast</label><input type="range" min="-100" max="100" value="40" id="scContrast" oninput="applyEnhancePreview()"><span class="sv-val" id="scCoVal">40</span></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm btn-s" onclick="autoEnhance()">✨ Auto Enhance</button><button class="btn btn-sm btn-s" onclick="resetEnhance()">↺ Reset</button><button class="btn btn-sm btn-p" onclick="sendToAI()">🤖 Extract with AI</button></div>
+      </div>
+    </div>
+    <div id="scProc" style="display:none;padding:20px;background:var(--acs);border-radius:var(--r);margin-bottom:16px"><div style="display:flex;align-items:center;gap:12px"><div style="width:20px;height:20px;border:2px solid var(--bdr);border-top-color:var(--ac);border-radius:50%;animation:spin .8s linear infinite"></div><span id="scProcMsg">🤖 Gemini AI is reading your document...</span></div></div>
+    <div id="scRes" style="display:none"><h3 style="margin-bottom:4px">✅ AI Extracted Data</h3><p style="color:var(--t2);font-size:var(--fs-sm);margin-bottom:16px">Review and correct any fields before saving.</p><div id="scForm"></div><div style="display:flex;gap:8px;margin-top:16px"><button class="btn btn-p" onclick="saveScanRpt()">Save Report</button><button class="btn btn-s" onclick="renderScan()">Start Over</button></div></div>
+  </div>`;
+}
+
+function saveApiKey(){
+  const key=document.getElementById('apiKeyInput').value.trim();
+  if(key){
+    localStorage.setItem('ocrm4_gemini_key',key);
+    document.getElementById('apiKeyStatus').innerHTML='<span style="color:var(--ok)">✓ Key saved</span>';
+    toast('Gemini API key saved.','success');
+  }else{
+    localStorage.removeItem('ocrm4_gemini_key');
+    document.getElementById('apiKeyStatus').innerHTML='<span style="color:var(--er)">Not set</span>';
+    toast('API key removed.','info');
+  }
+}
+
+let scanBase64=null,scanCanvas=null,scanOrigData=null,scanIsPDF=false,scanMediaType='image/jpeg';
+
+function procScan(f){
+  if(!f)return;
+  scanIsPDF=f.type==='application/pdf';
+  
+  const reader=new FileReader();
+  reader.onload=function(e){
+    scanBase64=e.target.result;
+    
+    if(scanIsPDF){
+      // Show PDF info (can't preview PDF on canvas)
+      scanMediaType='application/pdf';
+      document.getElementById('scPreviewImg').src='';
+      document.getElementById('scPreviewImg').alt='PDF uploaded: '+f.name;
+      document.getElementById('scPreviewImg').style.display='none';
+      document.getElementById('scPrev').style.display='block';
+      document.getElementById('scPrev').querySelector('.scan-enhance').style.display='none';
+      // Show a PDF indicator instead of image
+      const prevDiv=document.getElementById('scPrev');
+      prevDiv.insertAdjacentHTML('afterbegin',`<div id="pdfBanner" style="padding:24px;background:var(--ers);border-radius:var(--r);text-align:center;margin-bottom:12px"><div style="font-size:32px;margin-bottom:8px">📄</div><div style="font-size:var(--fs);font-weight:700">${E(f.name)}</div><div style="font-size:var(--fs-sm);color:var(--t2);margin-top:4px">${(f.size/1024).toFixed(0)} KB — PDF will be sent directly to AI</div></div>`);
+      // Auto-send to AI for PDFs
+      setTimeout(()=>sendToAI(),500);
+    } else {
+      // Image handling with enhancement
+      scanMediaType=f.type.startsWith('image/png')?'image/png':'image/jpeg';
+      document.getElementById('scPreviewImg').style.display='block';
+      document.getElementById('scPreviewImg').src=scanBase64;
+      document.getElementById('scPrev').style.display='block';
+      document.getElementById('scPrev').querySelector('.scan-enhance').style.display='block';
+      // Remove any PDF banner
+      document.getElementById('pdfBanner')?.remove();
+      
+      const img=new Image();
+      img.onload=function(){
+        scanCanvas=document.createElement('canvas');
+        let w=img.width,h=img.height;const maxW=1200;if(w>maxW){h=h*(maxW/w);w=maxW;}
+        scanCanvas.width=w;scanCanvas.height=h;
+        const ctx=scanCanvas.getContext('2d');
+        ctx.drawImage(img,0,0,w,h);
+        scanOrigData=ctx.getImageData(0,0,w,h);
+        autoEnhance();
+      };
+      img.src=scanBase64;
+    }
+  };
+  reader.readAsDataURL(f);
+}
+
+function applyEnhancePreview(){
+  if(!scanOrigData||!scanCanvas)return;
+  const b=parseInt(document.getElementById('scBright').value);
+  const c=parseInt(document.getElementById('scContrast').value);
+  document.getElementById('scBrVal').textContent=b;
+  document.getElementById('scCoVal').textContent=c;
+  const ctx=scanCanvas.getContext('2d');
+  const imgData=new ImageData(new Uint8ClampedArray(scanOrigData.data),scanOrigData.width,scanOrigData.height);
+  const d=imgData.data;const cf=(259*(c+255))/(255*(259-c));
+  for(let i=0;i<d.length;i+=4){
+    for(let ch=0;ch<3;ch++){d[i+ch]=Math.min(255,Math.max(0,cf*(d[i+ch]+b-128)+128));}
+  }
+  ctx.putImageData(imgData,0,0);
+  document.getElementById('scPreviewImg').src=scanCanvas.toDataURL('image/jpeg',0.9);
+}
+
+function autoEnhance(){document.getElementById('scBright').value=20;document.getElementById('scContrast').value=40;applyEnhancePreview();}
+function resetEnhance(){document.getElementById('scBright').value=0;document.getElementById('scContrast').value=0;applyEnhancePreview();}
+
+async function sendToAI(){
+  const apiKey=localStorage.getItem('ocrm4_gemini_key');
+  if(!apiKey){
+    toast('Please enter your Google Gemini API key first.','error');
+    document.getElementById('apiKeyInput')?.focus();
+    return;
+  }
+
+  const procEl=document.getElementById('scProc');
+  const resEl=document.getElementById('scRes');
+  procEl.style.display='block';resEl.style.display='none';
+  document.getElementById('scProcMsg').textContent='🤖 Gemini AI is reading your document...';
+
+  // Get the image/PDF data
+  let base64Data, mimeType;
+  if(scanIsPDF){
+    base64Data=scanBase64.split(',')[1];
+    mimeType='application/pdf';
+  } else {
+    const imgSrc=scanCanvas?scanCanvas.toDataURL('image/jpeg',0.85):scanBase64;
+    base64Data=imgSrc.split(',')[1];
+    mimeType=imgSrc.startsWith('data:image/png')?'image/png':'image/jpeg';
+  }
+
+  const prompt=`You are reading a Field Service Report document. Read every handwritten and printed field carefully.
+
+Extract ALL information and return ONLY a valid JSON object with these exact keys (use empty string "" if a field is not found or not readable):
+
+{
+  "company": "Determine from letterhead: use 'octopack' for Octopack SEA, 'jw' for JW Supplies & Works, 'redbox' for Redbox Global Solutions. If unknown use 'octopack'",
+  "jobNo": "The SR- or job number",
+  "date": "In YYYY-MM-DD format",
+  "customer": "Customer name and address combined",
+  "contact": "Contact person name",
+  "contactNum": "Phone number if visible",
+  "model": "Equipment make/model",
+  "serial": "Serial number",
+  "engineer": "Serviced by name",
+  "type": "One of: Preventive Maintenance, Corrective Maintenance, Breakdown Call, Installation, Inspection, Emergency",
+  "timeStart": "In HH:MM 24hr format",
+  "timeEnd": "In HH:MM 24hr format",
+  "remarks": "All issues and remarks text, include all details",
+  "recommendations": "All recommendations and follow up actions text"
+}
+
+CRITICAL: Return ONLY the raw JSON object. No markdown fences, no backticks, no explanation text before or after.`;
+
+  try{
+    const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        contents:[{
+          parts:[
+            {inline_data:{mime_type:mimeType,data:base64Data}},
+            {text:prompt}
+          ]
+        }],
+        generationConfig:{
+          temperature:0.1,
+          maxOutputTokens:2000
+        }
+      })
+    });
+
+    if(!response.ok){
+      const errData=await response.json().catch(()=>({}));
+      const errMsg=errData.error?.message||`HTTP ${response.status}`;
+      throw new Error(errMsg);
+    }
+
+    const data=await response.json();
+    
+    // Extract text from Gemini response
+    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+    if(!text){throw new Error('Empty response from Gemini');}
+    
+    // Parse JSON — clean up any markdown fences
+    const clean=text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+    const parsed=JSON.parse(clean);
+    
+    document.getElementById('scProcMsg').textContent='✅ Gemini extraction complete!';
+    setTimeout(()=>{procEl.style.display='none';resEl.style.display='block';showScanForm(parsed);},500);
+    
+  }catch(err){
+    console.error('Gemini scan error:',err);
+    const errMsg=err.message||'Unknown error';
+    if(errMsg.includes('API_KEY_INVALID')||errMsg.includes('401')||errMsg.includes('403')){
+      document.getElementById('scProcMsg').textContent='❌ Invalid API key. Get a free key at aistudio.google.com/apikey';
+    }else if(errMsg.includes('429')||errMsg.includes('RATE_LIMIT')){
+      document.getElementById('scProcMsg').textContent='⏳ Rate limited (15/min free tier). Wait a moment and retry.';
+    }else if(errMsg.includes('JSON')){
+      document.getElementById('scProcMsg').textContent='⚠️ AI could not parse the document clearly. Try a clearer photo.';
+    }else{
+      document.getElementById('scProcMsg').textContent='⚠️ '+errMsg;
+    }
+    setTimeout(()=>{procEl.style.display='none';resEl.style.display='block';showScanForm({});},2500);
+  }
+}
+
+function showScanForm(data){
+  const d=data||{};
+  const fs=[
+    {k:'company',l:'Company',t:'select',opts:['octopack','jw','redbox'],v:d.company||'octopack'},
+    {k:'jobNo',l:'Job No.',v:d.jobNo||'SR-'+Math.floor(800000+Math.random()*1e5)},
+    {k:'date',l:'Date',t:'date',v:d.date||new Date().toISOString().split('T')[0]},
+    {k:'customer',l:'Customer',v:d.customer||''},
+    {k:'contact',l:'Contact Person',v:d.contact||''},
+    {k:'contactNum',l:'Phone',v:d.contactNum||''},
+    {k:'model',l:'Equipment Model',v:d.model||''},
+    {k:'serial',l:'Serial Number',v:d.serial||''},
+    {k:'engineer',l:'Serviced By',v:d.engineer||''},
+    {k:'type',l:'Type of Call',t:'select',opts:['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Installation','Inspection','Emergency'],v:d.type||'Preventive Maintenance'},
+    {k:'timeStart',l:'Time Start',t:'time',v:d.timeStart||''},
+    {k:'timeEnd',l:'Time End',t:'time',v:d.timeEnd||''},
+    {k:'remarks',l:'Issues / Remarks',t:'textarea',v:d.remarks||''},
+    {k:'recommendations',l:'Recommendations',t:'textarea',v:d.recommendations||''}
+  ];
+  document.getElementById('scForm').innerHTML=fs.map(f=>{
+    if(f.t==='select')return`<div class="fg"><label>${f.l}</label><select class="fc" id="sc_${f.k}">${f.opts.map(o=>`<option${o.toLowerCase()===String(f.v).toLowerCase()?' selected':''}>${o}</option>`).join('')}</select></div>`;
+    if(f.t==='textarea')return`<div class="fg"><label>${f.l}</label><textarea class="fc" id="sc_${f.k}">${E(f.v)}</textarea></div>`;
+    return`<div class="fg"><label>${f.l} ${f.v?'<span style="color:var(--ok)">✓</span>':''}</label><input class="fc" type="${f.t||'text'}" id="sc_${f.k}" value="${E(f.v)}"></div>`;
+  }).join('');
+}
+
+function saveScanRpt(){
+  const fs=['company','jobNo','date','customer','contact','contactNum','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations'];
+  const d={id:DB.nR++,status:'Completed',nextVisit:'',signed:false,photos:[],scannedAt:new Date().toISOString()};
+  fs.forEach(f=>{const el=document.getElementById('sc_'+f);if(el)d[f]=el.value.trim();});
+  if(!d.jobNo){toast('Job No. required.','error');return;}
+  DB.reports.push(d);
+  let c=DB.custs.find(x=>x.name===d.customer);if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:'',agent:''});}
+  saveDB();toast('Saved!','success');showPage('reports');
+}
+
+// ===== OUTLOOK / CALENDAR SYNC =====
+function renderOutlook(){
+  const jobCount=DB.jobs.filter(j=>j.date).length;
+  const nextVisits=DB.reports.filter(r=>r.nextVisit).length;
+  const totalEvents=jobCount+nextVisits;
+  
+  document.getElementById('outlookContent').innerHTML=`<div style="max-width:700px">
+    <h2 style="margin-bottom:8px">Calendar Sync</h2>
+    <p style="color:var(--t2);margin-bottom:20px">Export jobs and scheduled visits to Outlook, Google Calendar, or Apple Calendar.</p>
+    
+    <div class="oc">
+      <h3>📅 Export Calendar (.ics)</h3>
+      <p>Download an .ics file containing all jobs and next visits. Import into any calendar app.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin:12px 0">
+        <span class="bd bd-ac">${jobCount} Job${jobCount!==1?'s':''}</span>
+        <span class="bd bd-wn">${nextVisits} Next Visit${nextVisits!==1?'s':''}</span>
+        <span class="bd bd-ok">${totalEvents} Total Events</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+        <button class="btn btn-p" onclick="expICS('all')">📥 Download All Events</button>
+        <button class="btn btn-s" onclick="expICS('jobs')">Jobs Only</button>
+        <button class="btn btn-s" onclick="expICS('visits')">Next Visits Only</button>
+      </div>
+    </div>
+    
+    <div class="oc">
+      <h3>📋 How to Import</h3>
+      <div style="font-size:var(--fs-sm);color:var(--t2);line-height:1.8">
+        <p><strong>Outlook (Desktop):</strong> File → Open & Export → Import/Export → Import an iCalendar file → select the .ics file</p>
+        <p style="margin-top:8px"><strong>Outlook (Web):</strong> Settings ⚙ → Calendar → Shared calendars → Import calendar → Upload the .ics file</p>
+        <p style="margin-top:8px"><strong>Google Calendar:</strong> Settings ⚙ → Import & Export → Import → select the .ics file</p>
+        <p style="margin-top:8px"><strong>iPhone/iPad:</strong> Tap the downloaded .ics file → "Add All Events"</p>
+      </div>
+    </div>
+    
+    <div class="oc">
+      <h3>📊 Upcoming Events Preview</h3>
+      <div id="calPreview">${renderCalPreview()}</div>
+    </div>
+  </div>`;
+}
+
+function renderCalPreview(){
+  const today=new Date().toISOString().split('T')[0];
+  const events=[];
+  
+  DB.jobs.forEach(j=>{
+    if(!j.date)return;
+    const techNames=getJobTechNames(j);
+    events.push({date:j.date,time:j.time||'',title:j.title,type:'Job',status:j.status,detail:`${j.customer||''} | ${techNames}`,badge:'bd-ac'});
+  });
+  
+  DB.reports.forEach(r=>{
+    if(!r.nextVisit)return;
+    events.push({date:r.nextVisit,time:'',title:`Follow-up: ${r.customer}`,type:'Next Visit',status:'Scheduled',detail:`${r.model||''} ${r.serial||''} | ${r.engineer||''}`,badge:'bd-wn'});
+  });
+  
+  events.sort((a,b)=>a.date.localeCompare(b.date));
+  const upcoming=events.filter(e=>e.date>=today).slice(0,10);
+  
+  if(!upcoming.length)return'<p style="color:var(--t3);font-size:var(--fs-sm)">No upcoming events.</p>';
+  
+  return upcoming.map(e=>`<div style="padding:10px 0;border-bottom:1px solid var(--bdr);font-size:var(--fs-sm)">
+    <div style="display:flex;justify-content:space-between;align-items:center"><strong>${E(e.title?.substring(0,40))}</strong><span class="bd ${e.badge}" style="font-size:10px">${E(e.type)}</span></div>
+    <div style="color:var(--t3);margin-top:2px">📅 ${E(e.date)}${e.time?' ⏰ '+E(e.time):''} — ${E(e.detail)}</div>
+  </div>`).join('');
+}
+
+function expICS(filter){
+  const events=[];
+  const now=new Date();
+  const stamp=now.toISOString().replace(/[-:]/g,'').replace(/\.\d{3}/,'');
+  
+  // Jobs
+  if(filter==='all'||filter==='jobs'){
+    DB.jobs.forEach(j=>{
+      if(!j.date)return;
+      const techNames=getJobTechNames(j);
+      const cust=DB.custs.find(c=>c.name===j.customer);
+      const d=j.date.replace(/-/g,'');
+      const ev=['BEGIN:VEVENT',`UID:job-${j.id}@octocrm`,`DTSTAMP:${stamp}`];
+      
+      if(j.time){
+        // Timed event
+        const [hh,mm]=j.time.split(':');
+        ev.push(`DTSTART:${d}T${hh}${mm}00`);
+        ev.push(`DTEND:${d}T${String(parseInt(hh)+2).padStart(2,'0')}${mm}00`);
+      }else{
+        ev.push(`DTSTART;VALUE=DATE:${d}`,`DTEND;VALUE=DATE:${d}`);
+      }
+      
+      ev.push(`SUMMARY:${icsEsc(j.title||'Job')}`);
+      if(cust?.address)ev.push(`LOCATION:${icsEsc(cust.address)}`);
+      
+      let desc=`Type: ${j.type||''}\nCustomer: ${j.customer||''}\nTechnician(s): ${techNames}\nPriority: ${j.priority||''}\nStatus: ${j.status||''}`;
+      if(j.machine)desc+=`\nMachine S/N: ${j.machine}`;
+      if(cust?.phone)desc+=`\nContact: ${cust.contact||''} ${cust.phone}`;
+      if(j.desc)desc+=`\n\nInstructions:\n${j.desc}`;
+      ev.push(`DESCRIPTION:${icsEsc(desc)}`);
+      
+      // Color/category
+      if(j.priority==='Urgent'||j.priority==='High')ev.push('PRIORITY:1');
+      else if(j.priority==='Medium')ev.push('PRIORITY:5');
+      else ev.push('PRIORITY:9');
+      
+      ev.push(`STATUS:${j.status==='Completed'?'COMPLETED':'CONFIRMED'}`);
+      ev.push('END:VEVENT');
+      events.push(ev.join('\r\n'));
+    });
+  }
+  
+  // Next visits from reports
+  if(filter==='all'||filter==='visits'){
+    DB.reports.forEach(r=>{
+      if(!r.nextVisit)return;
+      const d=r.nextVisit.replace(/-/g,'');
+      const ev=['BEGIN:VEVENT',`UID:visit-${r.id}@octocrm`,`DTSTAMP:${stamp}`,
+        `DTSTART;VALUE=DATE:${d}`,`DTEND;VALUE=DATE:${d}`,
+        `SUMMARY:${icsEsc('Follow-up: '+r.customer+' — '+r.model)}`,
+        `DESCRIPTION:${icsEsc(`Follow-up visit for ${r.customer}\nMachine: ${r.model||''} (S/N: ${r.serial||''})\nPrevious job: ${r.jobNo||''} on ${r.date||''}\nEngineer: ${r.engineer||''}\nPrevious remarks: ${r.remarks||''}\nRecommendations: ${r.recommendations||''}`)}`,
+        'PRIORITY:5','STATUS:NEEDS-ACTION','END:VEVENT'];
+      events.push(ev.join('\r\n'));
+    });
+  }
+  
+  if(!events.length){toast('No events to export.','info');return;}
+  
+  const ics=['BEGIN:VCALENDAR','VERSION:2.0','PRODID:-//OctoCRM//Field Service v4//EN',
+    'X-WR-CALNAME:OctoCRM — Technical Department','METHOD:PUBLISH','CALSCALE:GREGORIAN',
+    ...events,'END:VCALENDAR'].join('\r\n');
+  
+  const blob=new Blob([ics],{type:'text/calendar;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download=`OctoCRM_Calendar_${filter}_${new Date().toISOString().split('T')[0]}.ics`;
+  a.click();URL.revokeObjectURL(a.href);
+  toast(`Exported ${events.length} event(s).`,'success');
+}
+
+function icsEsc(s){
+  if(!s)return'';
+  return String(s).replace(/\\/g,'\\\\').replace(/;/g,'\\;').replace(/,/g,'\\,').replace(/\n/g,'\\n');
+}
+
+// ===== LIGHTBOX =====
+let lbP=[],lbI=0;
+function openLBx(photos,idx){lbP=photos;lbI=idx;document.getElementById('lbImg').src=photos[idx].dataUrl;document.getElementById('lbCaption').textContent=(photos[idx].caption||'')+(photos[idx].timestamp?' — '+photos[idx].timestamp:'');document.getElementById('lbCount').textContent=`${idx+1} / ${photos.length}`;document.getElementById('photoLB').classList.add('open');}
+function closeLB(){document.getElementById('photoLB').classList.remove('open');}
+function lbNav(dir){lbI+=dir;if(lbI<0)lbI=lbP.length-1;if(lbI>=lbP.length)lbI=0;document.getElementById('lbImg').src=lbP[lbI].dataUrl;document.getElementById('lbCaption').textContent=(lbP[lbI].caption||'');document.getElementById('lbCount').textContent=`${lbI+1} / ${lbP.length}`;}
+
+// ===== AGENTS / COMPANIES =====
+function renderAgents(){
+  const agents=DB.agents||[];
+  document.getElementById('agentsContent').innerHTML=`<div class="tw"><div class="th"><h3>Agents & Companies (${agents.length})</h3>${canEdit()?'<button class="btn btn-p btn-sm" onclick="openAgentModal()">+ Add</button>':''}</div>
+  ${agents.length?agents.map(a=>{
+    const custCount=DB.custs.filter(c=>c.agent===a.name).length;
+    return`<div class="rpt-card">
+      <div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(a.name)}</span><span class="bd bd-ac">${E(a.type||'Agent')}</span></div>
+      ${a.address?`<div class="rpt-card-row"><span class="rc-label">Address</span><span class="rc-val" style="max-width:65%">${E(a.address)}</span></div>`:''}
+      ${a.contact?`<div class="rpt-card-row"><span class="rc-label">Contact</span><span class="rc-val">${E(a.contact)}</span></div>`:''}
+      ${a.phone?`<div class="rpt-card-row"><span class="rc-label">Phone</span><span class="rc-val"><a href="tel:${a.phone}" style="color:var(--ac);text-decoration:none">${E(a.phone)}</a></span></div>`:''}
+      ${a.email?`<div class="rpt-card-row"><span class="rc-label">Email</span><span class="rc-val"><a href="mailto:${a.email}" style="color:var(--ac);text-decoration:none">${E(a.email)}</a></span></div>`:''}
+      <div class="rpt-card-row"><span class="rc-label">Customers</span><span class="rc-val">${custCount}</span></div>
+      <div class="rpt-card-actions">
+        ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editAgent(${a.id})">Edit</button>`:''}
+        ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delAgent(${a.id},'${E(a.name)}')">Delete</button>`:''}
+      </div>
+    </div>`;
+  }).join(''):'<div class="es"><p>No agents/companies.</p></div>'}</div>`;
+}
+
+function openAgentModal(data){
+  const d=data||{};
+  openModal(d.name?'Edit Agent/Company':'Add Agent/Company',`
+    <input type="hidden" id="eAId" value="${d.id||''}">
+    <div class="fg"><label>Company / Agent Name</label><input class="fc" id="aNm" value="${E(d.name||'')}"></div>
+    <div class="fg"><label>Type</label><select class="fc" id="aTy">
+      <option${d.type==='Principal'?' selected':''}>Principal</option>
+      <option${d.type==='Agent'?' selected':''}>Agent</option>
+      <option${d.type==='Distributor'?' selected':''}>Distributor</option>
+      <option${d.type==='Direct'?' selected':''}>Direct</option>
+      <option${d.type==='Reseller'?' selected':''}>Reseller</option>
+    </select></div>
+    <div class="fg"><label>Address</label><input class="fc" id="aAd" value="${E(d.address||'')}"></div>
+    <div class="fr"><div class="fg"><label>Contact Person</label><input class="fc" id="aCo" value="${E(d.contact||'')}"></div><div class="fg"><label>Phone</label><input class="fc" id="aPh" value="${E(d.phone||'')}" placeholder="+65..."></div></div>
+    <div class="fg"><label>Email</label><input class="fc" id="aEm" value="${E(d.email||'')}" type="email"></div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveAgent()">Save</button>`);
+}
+
+function editAgent(id){const a=(DB.agents||[]).find(x=>x.id===id);if(a)openAgentModal(a);}
+
+function saveAgent(){
+  const eidEl=document.getElementById('eAId');const eid=eidEl?eidEl.value:'';
+  const d={name:document.getElementById('aNm').value.trim(),type:document.getElementById('aTy').value,address:document.getElementById('aAd').value.trim(),contact:document.getElementById('aCo').value.trim(),phone:document.getElementById('aPh').value.trim(),email:document.getElementById('aEm').value.trim()};
+  if(!d.name){toast('Name required.','error');return;}
+  if(!Array.isArray(DB.agents))DB.agents=[];
+  if(eid&&eid!==''){
+    const i=DB.agents.findIndex(a=>a.id===parseInt(eid));
+    if(i>=0){
+      const oldName=DB.agents[i].name;
+      DB.agents[i]={...DB.agents[i],...d};
+      // Update customer references if name changed
+      if(oldName!==d.name){DB.custs.forEach(c=>{if(c.agent===oldName)c.agent=d.name;});}
+    }else{d.id=DB.nA++;DB.agents.push(d);}
+  }else{d.id=DB.nA++;DB.agents.push(d);}
+  saveDB();closeModal();renderAgents();toast('Saved.','success');
+}
+
+function delAgent(id,name){
+  const custCount=DB.custs.filter(c=>c.agent===name).length;
+  if(!confirm(`Delete agent "${name}"?${custCount?'\n\n⚠ '+custCount+' customer(s) are linked to this agent. They will be set to no agent.':''}`))return;
+  DB.agents=(DB.agents||[]).filter(a=>a.id!==id);
+  // Clear agent from linked customers
+  DB.custs.forEach(c=>{if(c.agent===name)c.agent='';});
+  saveDB();renderAgents();toast('Agent deleted.','info');
+}
+
+// ===== DATA IMPORT/EXPORT =====
+function renderDataMgmt(){
+  document.getElementById('dataMgmtContent').innerHTML=`<div style="max-width:800px">
+    <h2 style="margin-bottom:8px">Data Import / Export</h2>
+    <p style="color:var(--t2);margin-bottom:24px">Export your database to CSV files for backup or editing, and import CSV files to update records.</p>
+    
+    <div class="oc"><h3>📤 Export to CSV</h3><p>Download each table as a CSV file. Open in Excel, Google Sheets, or any spreadsheet app.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+        <button class="btn btn-p btn-sm" onclick="exportCSV('customers')">Customers (${DB.custs.length})</button>
+        <button class="btn btn-p btn-sm" onclick="exportCSV('machines')">Machines (${(DB.machines||[]).length})</button>
+        <button class="btn btn-p btn-sm" onclick="exportCSV('reports')">Reports (${DB.reports.length})</button>
+        <button class="btn btn-p btn-sm" onclick="exportCSV('jobs')">Jobs (${DB.jobs.length})</button>
+        <button class="btn btn-p btn-sm" onclick="exportCSV('technicians')">Technicians (${DB.techs.length})</button>
+        <button class="btn btn-s btn-sm" onclick="exportAllCSV()">📦 Export All (ZIP)</button>
+      </div>
+    </div>
+    
+    <div class="oc"><h3>📥 Import from CSV</h3><p>Upload a CSV file to add or update records. The first row must be column headers. Existing records with the same ID will be updated; new records will be added.</p>
+      <div class="fg" style="margin-top:12px">
+        <label>Data Type</label>
+        <select class="fc" id="impType">
+          <option value="customers">Customers</option>
+          <option value="machines">Machines</option>
+          <option value="reports">Reports</option>
+          <option value="jobs">Jobs</option>
+          <option value="technicians">Technicians</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label>CSV File</label>
+        <input type="file" accept=".csv,.txt" class="fc" id="impFile" style="padding:12px">
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-p btn-sm" onclick="importCSV()">Import</button>
+        <button class="btn btn-s btn-sm" onclick="downloadTemplate()">📋 Download Template</button>
+      </div>
+      <div id="impPreview" style="display:none;margin-top:16px"></div>
+    </div>
+    
+    <div class="oc"><h3>💾 Full Backup</h3><p>Export the entire database as a single JSON file for full backup and restore.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+        <button class="btn btn-p btn-sm" onclick="exportJSON()">📤 Export JSON Backup</button>
+        <button class="btn btn-s btn-sm" onclick="document.getElementById('jsonImpFile').click()">📥 Restore from JSON</button>
+        <input type="file" accept=".json" id="jsonImpFile" style="display:none" onchange="importJSON(this.files[0])">
+      </div>
+    </div>
+  </div>`;
+}
+
+// CSV helpers
+function escCSV(v){
+  if(v===null||v===undefined)return'';
+  const s=String(v);
+  if(s.includes(',')||s.includes('"')||s.includes('\n'))return'"'+s.replace(/"/g,'""')+'"';
+  return s;
+}
+
+function toCSV(headers,rows){
+  return[headers.map(escCSV).join(','),...rows.map(r=>headers.map(h=>escCSV(r[h])).join(','))].join('\n');
+}
+
+function downloadFile(content,filename,type){
+  const blob=new Blob([content],{type:type||'text/csv;charset=utf-8'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportCSV(table){
+  let headers,rows;
+  const ts=new Date().toISOString().split('T')[0];
+  
+  switch(table){
+    case 'customers':
+      headers=['id','name','address','contact','phone','email','agent'];
+      rows=DB.custs;break;
+    case 'machines':
+      headers=['id','serial','model','customer','location','installDate','warranty','purchaseRental','serviceContract','maintFrequency'];
+      rows=DB.machines||[];break;
+    case 'reports':
+      headers=['id','company','jobNo','date','customer','contact','contactNum','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit'];
+      rows=DB.reports;break;
+    case 'jobs':
+      headers=['id','title','customer','machine','type','priority','date','time','status','desc'];
+      rows=DB.jobs.map(j=>({...j,techNames:getJobTechNames(j)}));
+      headers.push('techNames');break;
+    case 'technicians':
+      headers=['id','name','phone','email','spec'];
+      rows=DB.techs;break;
+    default:return;
+  }
+  
+  const csv=toCSV(headers,rows);
+  downloadFile(csv,`octocrm_${table}_${ts}.csv`);
+  toast(`Exported ${rows.length} ${table}.`,'success');
+}
+
+function exportAllCSV(){
+  const ts=new Date().toISOString().split('T')[0];
+  ['customers','machines','reports','jobs','technicians'].forEach(t=>exportCSV(t));
+  toast('All tables exported.','success');
+}
+
+function downloadTemplate(){
+  const type=document.getElementById('impType').value;
+  const templates={
+    customers:'id,name,address,contact,phone,email,agent\n,Example Corp,123 Main St,John Doe,+6512345678,john@example.com,Redbox Global Solutions',
+    machines:'id,serial,model,customer,location,installDate,warranty,purchaseRental,serviceContract,maintFrequency\n,SN12345,ET300PPS,Example Corp,123 Main St,2024-01-15,12 months,Purchase,Nil,',
+    reports:'id,company,jobNo,date,customer,contact,contactNum,model,serial,engineer,type,timeStart,timeEnd,remarks,recommendations,status,nextVisit\n,octopack,SR-99999,2026-04-15,Example Corp,John,+65123,ET300PPS,SN12345,Colin Tan,Preventive Maintenance,09:00,11:00,Performed PM,All OK,Completed,',
+    jobs:'id,title,customer,machine,type,priority,date,time,status,desc\n,PM Service Example,Example Corp,SN12345,Preventive Maintenance,Medium,2026-05-01,09:00,Open,Routine PM check',
+    technicians:'id,name,phone,email,spec\n,New Tech,+6599999999,tech@company.com,General'
+  };
+  downloadFile(templates[type]||'',`octocrm_${type}_template.csv`);
+  toast('Template downloaded.','success');
+}
+
+function parseCSV(text){
+  const lines=[];
+  let current='';let inQuote=false;
+  for(let i=0;i<text.length;i++){
+    const c=text[i];
+    if(c==='"'){
+      if(inQuote&&text[i+1]==='"'){current+='"';i++;}
+      else inQuote=!inQuote;
+    }else if(c==='\n'&&!inQuote){
+      lines.push(current);current='';
+    }else{current+=c;}
+  }
+  if(current.trim())lines.push(current);
+  
+  return lines.map(line=>{
+    const cells=[];let cell='';let q=false;
+    for(let i=0;i<line.length;i++){
+      const c=line[i];
+      if(c==='"'){if(q&&line[i+1]==='"'){cell+='"';i++;}else q=!q;}
+      else if(c===','&&!q){cells.push(cell);cell='';}
+      else{cell+=c;}
+    }
+    cells.push(cell);
+    return cells.map(c=>c.trim());
+  });
+}
+
+function importCSV(){
+  const type=document.getElementById('impType').value;
+  const file=document.getElementById('impFile').files[0];
+  if(!file){toast('Select a CSV file.','error');return;}
+  
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const parsed=parseCSV(e.target.result);
+      if(parsed.length<2){toast('CSV must have headers + at least 1 row.','error');return;}
+      
+      const headers=parsed[0].map(h=>h.trim().toLowerCase());
+      const rows=parsed.slice(1).filter(r=>r.some(c=>c.trim()));
+      
+      let added=0,updated=0;
+      
+      rows.forEach(row=>{
+        const obj={};
+        headers.forEach((h,i)=>{obj[h]=row[i]||'';});
+        
+        switch(type){
+          case 'customers':{
+            if(!obj.name)return;
+            const existing=DB.custs.find(c=>c.name===obj.name||(obj.id&&c.id===parseInt(obj.id)));
+            if(existing){Object.assign(existing,{name:obj.name||existing.name,address:obj.address||existing.address,contact:obj.contact||existing.contact,phone:obj.phone||existing.phone,email:obj.email||existing.email,agent:obj.agent||existing.agent});updated++;}
+            else{DB.custs.push({id:DB.nC++,name:obj.name,address:obj.address||'',contact:obj.contact||'',phone:obj.phone||'',email:obj.email||'',agent:obj.agent||''});added++;}
+            break;
+          }
+          case 'machines':{
+            if(!obj.serial)return;
+            if(!Array.isArray(DB.machines))DB.machines=[];
+            const existing=DB.machines.find(m=>m.serial===obj.serial);
+            if(existing){Object.assign(existing,{model:obj.model||existing.model,customer:obj.customer||existing.customer,location:obj.location||existing.location,installDate:obj.installdate||existing.installDate,warranty:obj.warranty||existing.warranty,purchaseRental:obj.purchaserental||existing.purchaseRental,serviceContract:obj.servicecontract||existing.serviceContract,maintFrequency:obj.maintfrequency||existing.maintFrequency});updated++;}
+            else{DB.machines.push({id:DB.nM++,serial:obj.serial,model:obj.model||'',customer:obj.customer||'',location:obj.location||'',installDate:obj.installdate||'',warranty:obj.warranty||'12 months',purchaseRental:obj.purchaserental||'Purchase',serviceContract:obj.servicecontract||'Nil',maintFrequency:obj.maintfrequency||''});added++;}
+            break;
+          }
+          case 'reports':{
+            if(!obj.jobno)return;
+            const existing=DB.reports.find(r=>r.jobNo===obj.jobno||(obj.id&&r.id===parseInt(obj.id)));
+            if(existing){Object.assign(existing,{company:obj.company||existing.company,date:obj.date||existing.date,customer:obj.customer||existing.customer,contact:obj.contact||existing.contact,contactNum:obj.contactnum||existing.contactNum,model:obj.model||existing.model,serial:obj.serial||existing.serial,engineer:obj.engineer||existing.engineer,type:obj.type||existing.type,timeStart:obj.timestart||existing.timeStart,timeEnd:obj.timeend||existing.timeEnd,remarks:obj.remarks||existing.remarks,recommendations:obj.recommendations||existing.recommendations,status:obj.status||existing.status,nextVisit:obj.nextvisit||existing.nextVisit});updated++;}
+            else{DB.reports.push({id:DB.nR++,company:obj.company||'octopack',jobNo:obj.jobno,date:obj.date||'',customer:obj.customer||'',contact:obj.contact||'',contactNum:obj.contactnum||'',model:obj.model||'',serial:obj.serial||'',engineer:obj.engineer||'',type:obj.type||'Preventive Maintenance',timeStart:obj.timestart||'',timeEnd:obj.timeend||'',remarks:obj.remarks||'',recommendations:obj.recommendations||'',status:obj.status||'Completed',nextVisit:obj.nextvisit||'',signed:false,photos:[]});added++;}
+            break;
+          }
+          case 'jobs':{
+            if(!obj.title)return;
+            DB.jobs.push({id:DB.nJ++,title:obj.title,customer:obj.customer||'',machine:obj.machine||'',type:obj.type||'Preventive Maintenance',priority:obj.priority||'Medium',date:obj.date||'',time:obj.time||'',status:obj.status||'Open',desc:obj.desc||'',createdAt:new Date().toISOString(),waSent:false});added++;
+            break;
+          }
+          case 'technicians':{
+            if(!obj.name)return;
+            const existing=DB.techs.find(t=>t.name===obj.name);
+            if(existing){Object.assign(existing,{phone:obj.phone||existing.phone,email:obj.email||existing.email,spec:obj.spec||existing.spec});updated++;}
+            else{DB.techs.push({id:DB.nT++,name:obj.name,phone:obj.phone||'',email:obj.email||'',spec:obj.spec||'General'});added++;}
+            break;
+          }
+        }
+      });
+      
+      saveDB();
+      toast(`Import done: ${added} added, ${updated} updated.`,'success');
+      renderDataMgmt();
+    }catch(err){
+      console.error('CSV import error:',err);
+      toast('CSV parse error: '+err.message,'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
+function exportJSON(){
+  const ts=new Date().toISOString().split('T')[0];
+  downloadFile(JSON.stringify(DB,null,2),`octocrm_backup_${ts}.json`,'application/json');
+  toast('Full backup exported.','success');
+}
+
+function importJSON(file){
+  if(!file)return;
+  if(!confirm('This will REPLACE your entire database with the uploaded backup.\n\nAre you sure?'))return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const data=JSON.parse(e.target.result);
+      if(!data.reports&&!data.custs&&!data.techs){toast('Invalid backup file.','error');return;}
+      DB=data;
+      if(!Array.isArray(DB.users)||!DB.users.length){DB.users=[{id:1,username:'admin',password:'admin123',name:'Administrator',role:'admin'}];DB.nU=2;}
+      saveDB();
+      toast('Database restored from backup!','success');
+      renderDataMgmt();
+    }catch(err){toast('Invalid JSON file: '+err.message,'error');}
+  };
+  reader.readAsText(file);
+}
+
+// ===== DUPLICATE DETECTION & CLEANUP =====
+function strSim(a,b){
+  // Simple similarity score 0-1 using Levenshtein-like comparison
+  if(!a||!b)return 0;
+  a=a.toLowerCase().trim();b=b.toLowerCase().trim();
+  if(a===b)return 1;
+  // Check if one contains the other
+  if(a.includes(b)||b.includes(a))return 0.85;
+  // Word overlap
+  const wa=new Set(a.split(/\s+/));const wb=new Set(b.split(/\s+/));
+  let common=0;wa.forEach(w=>{if(wb.has(w))common++;});
+  const wordSim=common/Math.max(wa.size,wb.size);
+  // Character-level comparison
+  let matches=0;const shorter=a.length<b.length?a:b;const longer=a.length<b.length?b:a;
+  for(let i=0;i<shorter.length;i++){if(longer.includes(shorter[i]))matches++;}
+  const charSim=matches/longer.length;
+  return Math.max(wordSim,charSim*0.8);
+}
+
+function findDuplicates(){
+  const dupes={customers:[],machines:[],addresses:[]};
+  const custs=DB.custs||[];
+  const machines=DB.machines||[];
+  
+  // Find similar customer names
+  for(let i=0;i<custs.length;i++){
+    for(let j=i+1;j<custs.length;j++){
+      const sim=strSim(custs[i].name,custs[j].name);
+      if(sim>=0.7){dupes.customers.push({a:custs[i],b:custs[j],sim:Math.round(sim*100)});}
+    }
+  }
+  
+  // Find duplicate machine serials
+  const serialMap={};
+  machines.forEach(m=>{
+    if(!serialMap[m.serial])serialMap[m.serial]=[];
+    serialMap[m.serial].push(m);
+  });
+  Object.entries(serialMap).forEach(([serial,list])=>{
+    if(list.length>1)dupes.machines.push({serial,items:list});
+  });
+  
+  // Find similar addresses across different customers
+  for(let i=0;i<custs.length;i++){
+    for(let j=i+1;j<custs.length;j++){
+      if(!custs[i].address||!custs[j].address)continue;
+      const sim=strSim(custs[i].address,custs[j].address);
+      if(sim>=0.75&&custs[i].name!==custs[j].name){
+        dupes.addresses.push({a:custs[i],b:custs[j],sim:Math.round(sim*100)});
+      }
+    }
+  }
+  
+  return dupes;
+}
+
+function showDuplicateCheck(){
+  const dupes=findDuplicates();
+  const total=dupes.customers.length+dupes.machines.length+dupes.addresses.length;
+  
+  if(total===0){
+    openModal('✅ No Duplicates Found','<div class="es" style="padding:20px"><p style="font-size:var(--fs)">Database looks clean! No duplicate customers, machines, or addresses detected.</p></div>',`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
+    return;
+  }
+  
+  let html=`<p style="color:var(--t2);margin-bottom:16px">Found <strong>${total}</strong> potential duplicate(s). Review and merge or dismiss.</p>`;
+  
+  // Customer name duplicates
+  if(dupes.customers.length){
+    html+=`<h3 style="margin-bottom:12px;color:var(--wn)">👥 Similar Customer Names (${dupes.customers.length})</h3>`;
+    dupes.customers.forEach((d,i)=>{
+      html+=`<div style="padding:14px;background:var(--wns);border-radius:var(--r);margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div><strong>${E(d.a.name)}</strong> ↔ <strong>${E(d.b.name)}</strong><br><span style="font-size:var(--fs-xs);color:var(--t3)">${d.sim}% similar</span></div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-sm btn-p" onclick="mergeCusts(${d.a.id},'${E(d.a.name)}',${d.b.id},'${E(d.b.name)}')">Merge → Keep "${E(d.a.name)}"</button>
+            <button class="btn btn-sm btn-s" onclick="this.closest('div[style]').remove()">Dismiss</button>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  
+  // Duplicate machine serials
+  if(dupes.machines.length){
+    html+=`<h3 style="margin:16px 0 12px;color:var(--er)">⚙️ Duplicate Serial Numbers (${dupes.machines.length})</h3>`;
+    dupes.machines.forEach(d=>{
+      html+=`<div style="padding:14px;background:var(--ers);border-radius:var(--r);margin-bottom:10px">
+        <strong>S/N: ${E(d.serial)}</strong> — ${d.items.length} entries<br>
+        <span style="font-size:var(--fs-sm);color:var(--t2)">${d.items.map(m=>E(m.customer)+' ('+E(m.model)+')').join(' | ')}</span>
+        <div style="margin-top:8px"><button class="btn btn-sm btn-p" onclick="mergeSerials('${E(d.serial)}')">Keep first, remove duplicates</button>
+        <button class="btn btn-sm btn-s" onclick="this.closest('div[style]').remove()">Dismiss</button></div>
+      </div>`;
+    });
+  }
+  
+  // Similar addresses
+  if(dupes.addresses.length){
+    html+=`<h3 style="margin:16px 0 12px;color:var(--pu)">📍 Similar Addresses (${dupes.addresses.length})</h3>`;
+    dupes.addresses.forEach(d=>{
+      html+=`<div style="padding:14px;background:var(--pus);border-radius:var(--r);margin-bottom:10px">
+        <div><strong>${E(d.a.name)}</strong>: ${E(d.a.address)}<br><strong>${E(d.b.name)}</strong>: ${E(d.b.address)}<br><span style="font-size:var(--fs-xs);color:var(--t3)">${d.sim}% similar — possibly same location</span></div>
+        <div style="margin-top:8px"><button class="btn btn-sm btn-s" onclick="this.closest('div[style]').remove()">Dismiss</button></div>
+      </div>`;
+    });
+  }
+  
+  openModal(`🔍 Duplicate Check — ${total} Found`,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
+}
+
+function mergeCusts(keepId,keepName,removeId,removeName){
+  if(!confirm(`Merge "${removeName}" into "${keepName}"?\n\nAll machines, reports, and jobs under "${removeName}" will be updated to "${keepName}".`))return;
+  // Update all references
+  (DB.machines||[]).forEach(m=>{if(m.customer===removeName)m.customer=keepName;});
+  DB.reports.forEach(r=>{if(r.customer===removeName)r.customer=keepName;});
+  DB.jobs.forEach(j=>{if(j.customer===removeName)j.customer=keepName;});
+  // Merge contact info if keep is empty
+  const keep=DB.custs.find(c=>c.id===keepId);
+  const remove=DB.custs.find(c=>c.id===removeId);
+  if(keep&&remove){
+    if(!keep.contact&&remove.contact)keep.contact=remove.contact;
+    if(!keep.phone&&remove.phone)keep.phone=remove.phone;
+    if(!keep.email&&remove.email)keep.email=remove.email;
+    if(!keep.address&&remove.address)keep.address=remove.address;
+    if(!keep.agent&&remove.agent)keep.agent=remove.agent;
+  }
+  // Remove the duplicate
+  DB.custs=DB.custs.filter(c=>c.id!==removeId);
+  saveDB();closeModal();renderCusts();renderMachines();
+  toast(`Merged "${removeName}" → "${keepName}"`,'success');
+  // Re-check
+  setTimeout(()=>showDuplicateCheck(),500);
+}
+
+function mergeSerials(serial){
+  const items=(DB.machines||[]).filter(m=>m.serial===serial);
+  if(items.length<=1)return;
+  if(!confirm(`Keep first entry for S/N "${serial}" and remove ${items.length-1} duplicate(s)?`))return;
+  // Keep the first, remove the rest
+  const keepId=items[0].id;
+  DB.machines=DB.machines.filter(m=>m.serial!==serial||m.id===keepId);
+  saveDB();closeModal();renderMachines();
+  toast(`Removed ${items.length-1} duplicate(s) for S/N ${serial}`,'success');
+  setTimeout(()=>showDuplicateCheck(),500);
+}
+
+// ===== RESET =====
+function resetAllData(){
+  if(!confirm('This will DELETE all reports, jobs, customers, and settings.\n\nAre you sure?'))return;
+  if(!confirm('FINAL WARNING: All data will be permanently erased from this device AND the cloud database.\n\nProceed?'))return;
+  // Clear localStorage
+  localStorage.removeItem('ocrm4');
+  localStorage.removeItem('ocrm4_session');
+  // Clear Firebase
+  try{
+    if(typeof firebase!=='undefined'&&firebase.apps&&firebase.apps.length){
+      firebase.database().ref('octoCRM_v4').remove().then(()=>{location.reload();}).catch(()=>{location.reload();});
+    }else{location.reload();}
+  }catch(e){location.reload();}
+}
+
+// ===== INIT =====
+loadDB();
+tryAutoLogin();
+
+// Enter key on login
+document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
+document.getElementById('loginUser').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('loginPass').focus()});
+
+// Firebase + PDF libraries
+if(USE_FB){const s1=document.createElement('script');s1.src='https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js';s1.onload=()=>{const s2=document.createElement('script');s2.src='https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js';s2.onload=()=>initFB();document.head.appendChild(s2)};document.head.appendChild(s1);}
+
+// PDF libs loaded via script tags in <head>
+let pdfLibsReady=false;
+function checkPDFLibs(){pdfLibsReady=(typeof html2canvas!=='undefined'&&typeof window.jspdf!=='undefined');return pdfLibsReady;}
+// Check on load
+setTimeout(()=>{if(checkPDFLibs())console.log('PDF libs ready');else console.warn('PDF libs not loaded');},3000);
+
+// ===== PDF GENERATION =====
+function buildReportHTMLForPDF(r){
+  const co=CO[r.company]||CO.octopack;
+  const photos=r.photos||[];
+  return`<div id="pdfContent" style="background:#fff;color:#000;padding:32px;font-family:Arial,Helvetica,sans-serif;font-size:12px;width:700px;line-height:1.4">
+    <div style="display:flex;justify-content:space-between;border-bottom:2px solid #333;padding-bottom:14px;margin-bottom:14px">
+      <div><div style="font-size:17px;font-weight:bold;color:${co.color}">${co.name}</div><div style="font-size:10px;color:#555;margin-top:4px;line-height:1.5">${co.addr}<br>Tel: ${co.tel} | Email: ${co.email}<br>UEN/GST: ${co.uen}</div></div>
+      <div style="text-align:right"><div style="font-size:16px;font-weight:bold">FIELD SERVICE REPORT</div><div style="font-size:13px;margin-top:6px"><strong>JOB NO.: ${r.jobNo||''}</strong></div></div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px">
+      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left;width:22%">Customer / Address</th><td style="border:1px solid #aaa;padding:6px 8px">${r.customer||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left;width:18%">Contact Person</th><td style="border:1px solid #aaa;padding:6px 8px">${r.contact||''}</td></tr>
+      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Report Date</th><td style="border:1px solid #aaa;padding:6px 8px">${r.date||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Contact Number</th><td style="border:1px solid #aaa;padding:6px 8px">${r.contactNum||''}</td></tr>
+      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Serviced By</th><td style="border:1px solid #aaa;padding:6px 8px">${r.engineer||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">PO No.</th><td style="border:1px solid #aaa;padding:6px 8px">${r.poNo||'—'}</td></tr>
+      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Equipment / Model</th><td style="border:1px solid #aaa;padding:6px 8px">${r.model||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Time Start</th><td style="border:1px solid #aaa;padding:6px 8px">${r.timeStart||''}</td></tr>
+      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Serial No.</th><td style="border:1px solid #aaa;padding:6px 8px;font-weight:bold">${r.serial||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Time End</th><td style="border:1px solid #aaa;padding:6px 8px">${r.timeEnd||''}</td></tr>
+      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Type of Call</th><td colspan="3" style="border:1px solid #aaa;padding:6px 8px;font-weight:bold">${r.type||''}</td></tr>
+      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left;vertical-align:top">Issues / Remarks</th><td colspan="3" style="border:1px solid #aaa;padding:6px 8px;white-space:pre-line;min-height:60px">${r.remarks||''}</td></tr>
+      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left;vertical-align:top">Recommendations</th><td colspan="3" style="border:1px solid #aaa;padding:6px 8px;white-space:pre-line">${r.recommendations||''}</td></tr>
+      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Status</th><td style="border:1px solid #aaa;padding:6px 8px;font-weight:bold">${r.status||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Next Visit</th><td style="border:1px solid #aaa;padding:6px 8px">${r.nextVisit||'—'}</td></tr>
+    </table>
+    ${photos.length?`<div style="margin-top:10px;border-top:1px solid #ccc;padding-top:8px"><strong style="font-size:11px">Photos (${photos.length})</strong><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${photos.map(p=>`<img src="${p.dataUrl}" style="width:90px;height:68px;object-fit:cover;border-radius:4px;border:1px solid #ccc">`).join('')}</div></div>`:''}
+    <div style="display:flex;justify-content:space-between;margin-top:24px;padding-top:14px;border-top:2px solid #333">
+      <div style="text-align:center;width:42%">${r.engSig?`<img src="${r.engSig}" style="max-height:45px;margin-bottom:4px"><br>`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:10px;color:#666">SERVICE ENGINEER SIGNATURE</div></div>
+      <div style="text-align:center;width:42%">${r.custSig?`<img src="${r.custSig}" style="max-height:45px;margin-bottom:4px"><br>`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:10px;color:#666">CUSTOMER: ${r.sigName||''}<br>NAME & SIGNATURE</div></div>
+    </div>
+    <div style="text-align:center;margin-top:16px;font-size:9px;color:#999;border-top:1px solid #ddd;padding-top:6px">${co.tag}</div>
+  </div>`;
+}
+
+async function generateReportPDF(reportData, download){
+  // Check libs
+  checkPDFLibs();
+  if(!pdfLibsReady){
+    // One more try - maybe they're still loading
+    await new Promise(r=>setTimeout(r,2000));
+    checkPDFLibs();
+    if(!pdfLibsReady){
+      toast('PDF libraries not available. Please reload the page.','error');
+      return null;
+    }
+  }
+  
+  toast('Generating PDF...','info');
+  
+  // Create a hidden container for rendering
+  const container=document.createElement('div');
+  container.style.cssText='position:fixed;left:-9999px;top:0;z-index:-1;';
+  container.innerHTML=buildReportHTMLForPDF(reportData);
+  document.body.appendChild(container);
+  
+  try{
+    const el=container.querySelector('#pdfContent');
+    const canvas=await html2canvas(el,{scale:2,useCORS:true,logging:false,backgroundColor:'#ffffff'});
+    
+    const imgData=canvas.toDataURL('image/jpeg',0.92);
+    const {jsPDF}=window.jspdf;
+    const pdf=new jsPDF('p','mm','a4');
+    const pdfW=pdf.internal.pageSize.getWidth();
+    const pdfH=pdf.internal.pageSize.getHeight();
+    const imgW=pdfW-20;
+    const imgH=(canvas.height*imgW)/canvas.width;
+    
+    // Handle multi-page if content is tall
+    if(imgH<=pdfH-20){
+      pdf.addImage(imgData,'JPEG',10,10,imgW,imgH);
+    }else{
+      let y=0;
+      const pageImgH=pdfH-20;
+      const srcPageH=(pageImgH/imgH)*canvas.height;
+      let page=0;
+      while(y<canvas.height){
+        if(page>0)pdf.addPage();
+        const pageCanvas=document.createElement('canvas');
+        pageCanvas.width=canvas.width;
+        pageCanvas.height=Math.min(srcPageH,canvas.height-y);
+        const pCtx=pageCanvas.getContext('2d');
+        pCtx.drawImage(canvas,0,y,canvas.width,pageCanvas.height,0,0,canvas.width,pageCanvas.height);
+        const pageImg=pageCanvas.toDataURL('image/jpeg',0.92);
+        const h=(pageCanvas.height*imgW)/canvas.width;
+        pdf.addImage(pageImg,'JPEG',10,10,imgW,h);
+        y+=srcPageH;
+        page++;
+      }
+    }
+    
+    const fileName=`Service_Report_${reportData.jobNo||'report'}.pdf`;
+    
+    if(download!==false){
+      pdf.save(fileName);
+      toast('PDF downloaded: '+fileName,'success');
+    }
+    
+    document.body.removeChild(container);
+    return {pdf,fileName,blob:pdf.output('blob')};
+  }catch(err){
+    console.error('PDF generation error:',err);
+    document.body.removeChild(container);
+    toast('PDF generation failed: '+err.message,'error');
+    return null;
+  }
+}
+
+async function downloadReportPDF(id){
+  const r=DB.reports.find(x=>x.id===id);
+  if(!r){toast('Report not found.','error');return;}
+  await generateReportPDF(r,true);
+}
+
+async function emailReportPDF(id){
+  const r=DB.reports.find(x=>x.id===id);
+  if(!r){toast('Report not found.','error');return;}
+  
+  const result=await generateReportPDF(r,true);
+  if(!result)return;
+  
+  // Open email client with instructions
+  const co=CO[r.company]||CO.octopack;
+  const cust=DB.custs.find(c=>c.name===r.customer);
+  const toEmail=cust?.email||'';
+  const subj=`Service Report ${r.jobNo} — ${r.type} — ${co.name}`;
+  const body=`Dear ${r.contact||'Customer'},\n\nPlease find attached the service report PDF.\n\nJob No.: ${r.jobNo}\nDate: ${r.date}\nEquipment: ${r.model} (S/N: ${r.serial})\nType: ${r.type}\nStatus: ${r.status}\n\nRegards,\n${r.engineer||''}\n${co.name}`;
+  
+  // Try Web Share API first (mobile — can share PDF directly)
+  if(navigator.share&&navigator.canShare){
+    try{
+      const file=new File([result.blob],result.fileName,{type:'application/pdf'});
+      if(navigator.canShare({files:[file]})){
+        await navigator.share({title:subj,text:'Service Report '+r.jobNo,files:[file]});
+        toast('Shared successfully!','success');
+        return;
+      }
+    }catch(e){if(e.name!=='AbortError')console.warn('Share failed:',e);}
+  }
+  
+  // Fallback: open mailto (PDF already downloaded)
+  const cc=cust?.email?'':'';
+  window.open(`mailto:${toEmail}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body+'\n\n📎 Please attach the downloaded PDF file: '+result.fileName)}`);
+  toast('PDF downloaded. Attach it to the email.','info');
+}
+</script>
+</body>
+</html>
