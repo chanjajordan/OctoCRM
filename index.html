@@ -699,13 +699,21 @@ function statusSelect(id,current,type){
 // ===== DASHBOARD =====
 function renderDash(){
   const aj=DB.jobs.filter(j=>j.status!=='Completed'),ms=getMachs(),cs=getAllCusts();
+  const outstandingRpts=DB.reports.filter(r=>r.status!=='Completed');
+  const defectiveMachines=getAllMachinesDB().filter(m=>(m.issues||[]).length>0);
   document.getElementById('dashContent').innerHTML=`
     <div class="sg">
-      <div class="sc"><div class="si" style="background:var(--acs);color:var(--ac)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div><div class="sv">${DB.reports.length}</div><div class="sl">Reports</div></div>
+      <div class="sc"><div class="si" style="background:var(--acs);color:var(--ac)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div><div class="sv">${DB.reports.length}</div><div class="sl">Total Reports</div></div>
+      <div class="sc" onclick="showPage('reports')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><div class="sv" style="color:var(--er)">${outstandingRpts.length}</div><div class="sl">Outstanding Reports</div></div>
       <div class="sc"><div class="si" style="background:var(--wns);color:var(--wn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></div><div class="sv">${aj.length}</div><div class="sl">Active Jobs</div></div>
-      <div class="sc"><div class="si" style="background:var(--oks);color:var(--ok)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="1"/></svg></div><div class="sv">${ms.length}</div><div class="sl">Machines</div></div>
+      <div class="sc" onclick="showPage('machines')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="sv" style="color:var(--er)">${defectiveMachines.length}</div><div class="sl">Defective Machines</div></div>
+      <div class="sc"><div class="si" style="background:var(--oks);color:var(--ok)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="1"/></svg></div><div class="sv">${getAllMachinesDB().length}</div><div class="sl">Total Machines</div></div>
       <div class="sc"><div class="si" style="background:var(--pus);color:var(--pu)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div class="sv">${cs.length}</div><div class="sl">Customers</div></div>
     </div>
+    ${outstandingRpts.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--er)"><div class="th"><h3 style="color:var(--er)">⚠ Outstanding Reports</h3><button class="btn btn-sm btn-s" onclick="showPage('reports')">View All →</button></div>
+    ${outstandingRpts.slice(0,5).map(r=>`<div class="rpt-card"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span>${stBd(r.status)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(r.model)} / ${E(r.serial)}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(r.date)}</span></div></div>`).join('')}</div>`:''}
+    ${defectiveMachines.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--wn)"><div class="th"><h3 style="color:var(--wn)">🔧 Defective Machines</h3><button class="btn btn-sm btn-s" onclick="showPage('machines')">View All →</button></div>
+    ${defectiveMachines.slice(0,5).map(m=>`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(m.serial)}</span><span class="bd bd-er">${(m.issues||[]).length} issue(s)</span></div><div class="rpt-card-row"><span class="rc-label">Model</span><span class="rc-val">${E(m.model)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(m.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Last Issue</span><span class="rc-val">${E(m.issues[m.issues.length-1]?.status||'')}</span></div></div>`).join('')}</div>`:''}
     <div class="tw" style="margin-bottom:16px"><div class="th"><h3>Active Jobs</h3><button class="btn btn-sm btn-s" onclick="showPage('jobs')">View All →</button></div>
     ${aj.length?aj.slice(0,5).map(j=>{ return`<div class="rpt-card" onclick="showPage('jobs')"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title?.substring(0,40))}</span>${prBd(j.priority)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Technician(s)</span><span class="rc-val">${E(getJobTechNames(j))}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div><div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${jsBd(j.status)}</span></div></div>`}).join(''):'<div class="es" style="padding:24px"><p>No active jobs.</p></div>'}
     </div>
@@ -743,11 +751,25 @@ function updateJobSt(id,st){const j=DB.jobs.find(x=>x.id===id);if(j){j.status=st
 function updateRptSt(id,st){const r=DB.reports.find(x=>x.id===id);if(r){r.status=st;saveDB();toast(`${r.jobNo} → ${st}`,'success');}}
 
 function openNewJobModal(){
-  const cs=getAllCusts(),ms=getMachs();
+  const cs=getAllCusts();
   openModal('Create Job',`
     <input type="hidden" id="eJId">
     <div class="fr"><div class="fg"><label>Title</label><input class="fc" id="jTi" placeholder="PM Service..."></div><div class="fg"><label>Priority</label><select class="fc" id="jPr"><option>Low</option><option selected>Medium</option><option>High</option><option>Urgent</option></select></div></div>
-    <div class="fr"><div class="fg"><label>Customer</label><select class="fc" id="jCu"><option value="">— Select —</option>${cs.map(c=>`<option>${E(c.name)}</option>`).join('')}</select></div><div class="fg"><label>Machine</label><select class="fc" id="jMa"><option value="">— Select —</option>${ms.map(m=>`<option value="${E(m.serial)}">${E(m.serial)} — ${E(m.model)}</option>`).join('')}</select></div></div>
+    <div class="fg"><label>Customer</label>
+      <select class="fc" id="jCu" onchange="onJobCustChange()"><option value="">— Select —</option>${cs.map(c=>`<option>${E(c.name)}</option>`).join('')}</select>
+      <input class="fc" id="jCuCustom" placeholder="Or type new customer name..." style="display:none;margin-top:6px">
+      <button class="btn btn-sm btn-s" onclick="toggleJobCustomCust()" style="margin-top:6px;font-size:var(--fs-xs)" id="jCuToggle">+ New customer</button>
+    </div>
+    <div class="fr">
+      <div class="fg"><label>Machine Model</label>
+        <select class="fc" id="jMaMd" onchange="onJobModelChange()"><option value="">— Select customer first —</option></select>
+        <input class="fc" id="jMaMdCustom" placeholder="Type model..." style="display:none;margin-top:6px">
+      </div>
+      <div class="fg"><label>Serial Number</label>
+        <select class="fc" id="jMa"><option value="">— Select model first —</option></select>
+        <input class="fc" id="jMaCustom" placeholder="Type serial..." style="display:none;margin-top:6px">
+      </div>
+    </div>
     <div class="fg"><label>Technician(s) — select one or more</label>
       <div id="jTeChecks" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${DB.techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="jTeChk" value="${t.id}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
     </div>
@@ -757,11 +779,63 @@ function openNewJobModal(){
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-wa" onclick="saveJobAndWA()">Save & WhatsApp</button><button class="btn btn-p" onclick="saveJob()">Save</button>`);
 }
 
+function toggleJobCustomCust(){
+  const sel=document.getElementById('jCu'),inp=document.getElementById('jCuCustom'),btn=document.getElementById('jCuToggle');
+  if(inp.style.display==='none'){inp.style.display='';sel.style.display='none';inp.focus();btn.textContent='← Back to list';
+    document.getElementById('jMaMd').innerHTML='<option value="">—</option><option value="__custom__">✏ Type model...</option>';
+    document.getElementById('jMa').innerHTML='<option value="">—</option><option value="__custom__">✏ Type serial...</option>';
+    setCustomToggle('jMaMd','jMaMdCustom');setCustomToggle('jMa','jMaCustom');
+  }else{inp.style.display='none';sel.style.display='';btn.textContent='+ New customer';}
+}
+
+function setCustomToggle(selId,custId){
+  document.getElementById(selId).onchange=function(){
+    if(this.value==='__custom__'){this.style.display='none';document.getElementById(custId).style.display='';document.getElementById(custId).focus();}
+  };
+}
+
+function onJobCustChange(){
+  const custName=document.getElementById('jCu').value;
+  const custMachines=(DB.machines||[]).filter(m=>m.customer===custName);
+  const rptMachines=DB.reports.filter(r=>r.customer===custName&&r.model).reduce((acc,r)=>{if(!acc.find(x=>x.model===r.model))acc.push({model:r.model,serial:r.serial});return acc;},[]);
+  const models=new Set();
+  custMachines.forEach(m=>models.add(m.model));
+  rptMachines.forEach(m=>models.add(m.model));
+  const mdSel=document.getElementById('jMaMd');
+  mdSel.innerHTML='<option value="">— Select model —</option>'+[...models].map(m=>`<option>${E(m)}</option>`).join('')+'<option value="__custom__">✏ Type new model...</option>';
+  mdSel.style.display='';document.getElementById('jMaMdCustom').style.display='none';
+  setCustomToggle('jMaMd','jMaMdCustom');
+  mdSel.onchange=function(){if(this.value==='__custom__'){this.style.display='none';document.getElementById('jMaMdCustom').style.display='';document.getElementById('jMaMdCustom').focus();document.getElementById('jMa').innerHTML='<option value="">—</option><option value="__custom__">✏ Type serial...</option>';setCustomToggle('jMa','jMaCustom');}else{onJobModelChange();}};
+  document.getElementById('jMa').innerHTML='<option value="">— Select model first —</option>';
+  document.getElementById('jMaCustom').style.display='none';document.getElementById('jMa').style.display='';
+}
+
+function onJobModelChange(){
+  const custName=document.getElementById('jCu').value;
+  const model=document.getElementById('jMaMd').value;
+  if(!model||model==='__custom__')return;
+  const serials=new Set();
+  (DB.machines||[]).filter(m=>m.customer===custName&&m.model===model).forEach(m=>serials.add(m.serial));
+  DB.reports.filter(r=>r.customer===custName&&r.model===model&&r.serial).forEach(r=>serials.add(r.serial));
+  const srSel=document.getElementById('jMa');
+  srSel.innerHTML='<option value="">— Select serial —</option>'+[...serials].map(s=>`<option>${E(s)}</option>`).join('')+'<option value="__custom__">✏ Type serial...</option>';
+  if(serials.size===1)srSel.value=[...serials][0];
+  srSel.style.display='';document.getElementById('jMaCustom').style.display='none';
+  setCustomToggle('jMa','jMaCustom');
+}
+
+function getJobFieldVal(selId,custId){const s=document.getElementById(selId),c=document.getElementById(custId);if(c&&c.style.display!=='none'&&c.value.trim())return c.value.trim();if(s&&s.value&&s.value!=='__custom__')return s.value;return'';}
+
 function getSelectedTechIds(){return[...document.querySelectorAll('.jTeChk:checked')].map(c=>parseInt(c.value));}
 
 function editJob(id){const j=DB.jobs.find(x=>x.id===id);if(!j)return;openNewJobModal();setTimeout(()=>{
-  document.getElementById('eJId').value=j.id;document.getElementById('jTi').value=j.title||'';document.getElementById('jPr').value=j.priority;document.getElementById('jCu').value=j.customer||'';document.getElementById('jMa').value=j.machine||'';document.getElementById('jTy').value=j.type;document.getElementById('jDt').value=j.date||'';document.getElementById('jTm').value=j.time||'';document.getElementById('jDs').value=j.desc||'';
-  // Check the right technicians
+  document.getElementById('eJId').value=j.id;document.getElementById('jTi').value=j.title||'';document.getElementById('jPr').value=j.priority;
+  document.getElementById('jCu').value=j.customer||'';onJobCustChange();
+  setTimeout(()=>{
+    if(j.model){const mdSel=document.getElementById('jMaMd');if([...mdSel.options].find(o=>o.value===j.model))mdSel.value=j.model;else{document.getElementById('jMaMdCustom').value=j.model;document.getElementById('jMaMdCustom').style.display='';mdSel.style.display='none';}onJobModelChange();}
+    setTimeout(()=>{if(j.machine){const srSel=document.getElementById('jMa');if([...srSel.options].find(o=>o.value===j.machine))srSel.value=j.machine;else{document.getElementById('jMaCustom').value=j.machine;document.getElementById('jMaCustom').style.display='';srSel.style.display='none';}}},50);
+  },50);
+  document.getElementById('jTy').value=j.type;document.getElementById('jDt').value=j.date||'';document.getElementById('jTm').value=j.time||'';document.getElementById('jDs').value=j.desc||'';
   const ids=j.techIds||[j.techId].filter(Boolean);
   document.querySelectorAll('.jTeChk').forEach(c=>{c.checked=ids.includes(parseInt(c.value));});
 },50);}
@@ -770,7 +844,10 @@ function saveJob(){
   const eidEl=document.getElementById('eJId');
   const eid=eidEl?eidEl.value:'';
   const techIds=getSelectedTechIds();
-  const d={title:document.getElementById('jTi').value.trim(),customer:document.getElementById('jCu').value,machine:document.getElementById('jMa').value,techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
+  const customer=getJobFieldVal('jCu','jCuCustom');
+  const model=getJobFieldVal('jMaMd','jMaMdCustom');
+  const serial=getJobFieldVal('jMa','jMaCustom');
+  const d={title:document.getElementById('jTi').value.trim(),customer:customer,machine:serial,model:model,techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
   if(!d.title){toast('Enter title.','error');return;}
   if(eid&&eid!==''){const i=DB.jobs.findIndex(j=>j.id===parseInt(eid));if(i>=0)DB.jobs[i]={...DB.jobs[i],...d};}
   else{d.id=DB.nJ++;d.createdAt=new Date().toISOString();d.waSent=false;DB.jobs.push(d);}
@@ -1270,17 +1347,28 @@ function getAllMachinesDB(){
   DB.reports.forEach(r=>{if(!r.serial)return;if(!m[r.serial])m[r.serial]={serial:r.serial,model:r.model,customer:r.customer,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:'',maintFrequency:'',reports:[],lastService:'',issues:[]};m[r.serial].reports.push(r);if(!m[r.serial].lastService||r.date>m[r.serial].lastService)m[r.serial].lastService=r.date;if(r.status!=='Completed')m[r.serial].issues.push(r);});
   return Object.values(m);
 }
+let curMachCat='all';
 function renderMachines(){
   const ms=getAllMachinesDB();
-  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search serial, model, customer..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍 Duplicates</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div><div id="mList">${mCards(ms)}</div></div>`;
+  const cats=getMachineCategories();
+  const catCounts={};
+  ms.forEach(m=>{const c=m.category||'Uncategorized';catCounts[c]=(catCounts[c]||0)+1;});
+  const filtered=curMachCat==='all'?ms:ms.filter(m=>(m.category||'Uncategorized')===curMachCat);
+  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--bdr)">
+    <button class="fc-chip${curMachCat==='all'?' active':''}" onclick="curMachCat='all';renderMachines()">All (${ms.length})</button>
+    ${cats.map(c=>catCounts[c]?`<button class="fc-chip${curMachCat===c?' active':''}" onclick="curMachCat='${E(c)}';renderMachines()">${E(c)} (${catCounts[c]||0})</button>`:'').join('')}
+    ${catCounts['Uncategorized']?`<button class="fc-chip${curMachCat==='Uncategorized'?' active':''}" onclick="curMachCat='Uncategorized';renderMachines()">Uncategorized (${catCounts['Uncategorized']})</button>`:''}
+  </div>
+  <div id="mList">${mCards(filtered)}</div></div>`;
 }
-function filterMachines(){const s=(document.getElementById('mSrch')?.value||'').toLowerCase();document.getElementById('mList').innerHTML=mCards(getAllMachinesDB().filter(m=>(m.serial+m.model+m.customer+(m.location||'')).toLowerCase().includes(s)));}
+function filterMachines(){const s=(document.getElementById('mSrch')?.value||'').toLowerCase();const ms=getAllMachinesDB().filter(m=>(curMachCat==='all'||(m.category||'Uncategorized')===curMachCat)&&(m.serial+m.model+m.customer+(m.location||'')+(m.category||'')).toLowerCase().includes(s));document.getElementById('mList').innerHTML=mCards(ms);}
 function mCards(ms){
   if(!ms.length)return'<div class="es"><p>No machines found.</p></div>';
   return ms.map(m=>{
     const custExists=DB.custs.find(c=>c.name===m.customer);
     return`<div class="rpt-card">
-    <div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(m.serial)}</span><div style="display:flex;gap:6px"><span class="bd ${(m.issues||[]).length?'bd-wn':'bd-ok'}">${(m.issues||[]).length?'Issues':'OK'}</span></div></div>
+    <div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(m.serial)}</span><div style="display:flex;gap:6px;flex-wrap:wrap">${m.category?`<span class="bd bd-pu" style="font-size:10px">${E(m.category)}</span>`:''}<span class="bd ${(m.issues||[]).length?'bd-wn':'bd-ok'}">${(m.issues||[]).length?'Issues':'OK'}</span></div></div>
     <div class="rpt-card-row"><span class="rc-label">Model</span><span class="rc-val">${E(m.model)}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${custExists?`<button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="viewMachineCust('${E(m.customer)}')">${E(m.customer)} →</button>`:`${E(m.customer)}`}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Location</span><span class="rc-val" style="max-width:60%">${E(m.location||'')}</span></div>
@@ -1300,8 +1388,16 @@ function mCards(ms){
 function openMachineModal(data){
   const d=data||{};
   const cs=getAllCusts();
+  const cats=getMachineCategories();
   openModal(d.serial?'Edit Machine':'Add Machine',`
     <input type="hidden" id="eMSerial" value="${E(d.serial||'')}">
+    <div class="fg"><label>Machine Category</label><select class="fc" id="mCat">
+      <option value="">— Select —</option>
+      ${cats.map(c=>`<option${c===d.category?' selected':''}>${E(c)}</option>`).join('')}
+      <option value="__other__">Other...</option>
+    </select>
+    <input class="fc" id="mCatCustom" placeholder="Type new category..." style="display:none;margin-top:6px">
+    </div>
     <div class="fr"><div class="fg"><label>Serial Number</label><input class="fc" id="mSr" value="${E(d.serial||'')}" ${d.serial?'readonly style="background:var(--bdr)"':''}></div><div class="fg"><label>Model</label><input class="fc" id="mMd" value="${E(d.model||'')}"></div></div>
     <div class="fg"><label>Customer</label><select class="fc" id="mCu"><option value="">— Select —</option>${cs.map(c=>`<option${c.name===d.customer?' selected':''}>${E(c.name)}</option>`).join('')}</select></div>
     <div class="fg"><label>Location / Address</label><input class="fc" id="mLo" value="${E(d.location||'')}"></div>
@@ -1309,6 +1405,15 @@ function openMachineModal(data){
     <div class="fr"><div class="fg"><label>Purchase / Rental</label><select class="fc" id="mPR"><option${d.purchaseRental==='Purchase'?' selected':''}>Purchase</option><option${d.purchaseRental==='Rental'?' selected':''}>Rental</option></select></div><div class="fg"><label>Service Contract</label><input class="fc" id="mSC" value="${E(d.serviceContract||'Nil')}"></div></div>
     <div class="fg"><label>Maintenance Frequency</label><input class="fc" id="mMF" value="${E(d.maintFrequency||'')}" placeholder="e.g. 2 (times per year)"></div>
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveMachine()">Save</button>`);
+  // Category custom toggle
+  setTimeout(()=>{document.getElementById('mCat').onchange=function(){if(this.value==='__other__'){document.getElementById('mCatCustom').style.display='';document.getElementById('mCatCustom').focus();}else{document.getElementById('mCatCustom').style.display='none';}};},50);
+}
+
+function getMachineCategories(){
+  const defaults=['Stretch Wrapping Machines','Strapping Machines','Strapping Tools','Paper Machines','Air Bag Machines','Pallet Turners','Sealing Machines','Conveyor Systems','Other'];
+  const fromDB=new Set(defaults);
+  (DB.machines||[]).forEach(m=>{if(m.category)fromDB.add(m.category);});
+  return[...fromDB].sort();
 }
 
 function editMachine(serial){
@@ -1319,6 +1424,9 @@ function editMachine(serial){
 
 function saveMachine(){
   const origSerial=document.getElementById('eMSerial')?.value||'';
+  const catSel=document.getElementById('mCat').value;
+  const catCustom=document.getElementById('mCatCustom')?.value.trim()||'';
+  const category=(catSel==='__other__'&&catCustom)?catCustom:(catSel||'');
   const d={
     serial:document.getElementById('mSr').value.trim(),
     model:document.getElementById('mMd').value.trim(),
@@ -1328,7 +1436,8 @@ function saveMachine(){
     warranty:document.getElementById('mWr').value.trim(),
     purchaseRental:document.getElementById('mPR').value,
     serviceContract:document.getElementById('mSC').value.trim(),
-    maintFrequency:document.getElementById('mMF').value.trim()
+    maintFrequency:document.getElementById('mMF').value.trim(),
+    category:category
   };
   if(!d.serial){toast('Serial number required.','error');return;}
   if(!d.model){toast('Model required.','error');return;}
