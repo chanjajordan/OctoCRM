@@ -889,7 +889,7 @@ function sendJWA(jid){
   j.waSent=true;saveDB();renderJobs();
 }
 
-function delJob(id){if(!confirm('Delete?'))return;DB.jobs=DB.jobs.filter(j=>j.id!==id);saveDB();renderJobs();renderDash();toast('Deleted.','info');}
+function delJob(id){if(DB.jobs.length<=1){toast('Cannot delete the last job.','error');return;}if(!confirm('Delete?'))return;DB.jobs=DB.jobs.filter(j=>j.id!==id);saveDB();renderJobs();renderDash();toast('Deleted.','info');}
 
 // ===== REPORTS =====
 function renderReports(){
@@ -923,7 +923,7 @@ function renderRptCards(reps){
   }).join('');
 }
 
-function delRpt(id){if(!confirm('Delete?'))return;DB.reports=DB.reports.filter(r=>r.id!==id);saveDB();renderReports();toast('Deleted.','info');}
+function delRpt(id){if(DB.reports.length<=1){toast('Cannot delete the last report.','error');return;}if(!confirm('Delete?'))return;DB.reports=DB.reports.filter(r=>r.id!==id);saveDB();renderReports();toast('Deleted.','info');}
 function viewRptPhotos(id){const r=DB.reports.find(x=>x.id===id);if(!r?.photos?.length){toast('No photos.','info');return;}openLBx(r.photos,0);}
 
 function editReport(id){
@@ -1408,7 +1408,7 @@ function openMachineModal(data){
     <input class="fc" id="mCatCustom" placeholder="Type new category..." style="display:none;margin-top:6px">
     </div>
     <div class="fr"><div class="fg"><label>Serial Number</label><input class="fc" id="mSr" value="${E(d.serial||'')}" ${d.serial?'readonly style="background:var(--bdr)"':''}></div><div class="fg"><label>Model</label><input class="fc" id="mMd" value="${E(d.model||'')}"></div></div>
-    <div class="fg"><label>Customer</label><select class="fc" id="mCu"><option value="">— Select —</option>${cs.map(c=>`<option${c.name===d.customer?' selected':''}>${E(c.name)}</option>`).join('')}</select></div>
+    <div class="fg"><label>Customer</label><select class="fc" id="mCu" onchange="onMachCustChange()"><option value="">— Select —</option>${cs.map(c=>`<option${c.name===d.customer?' selected':''}>${E(c.name)}</option>`).join('')}</select></div>
     <div class="fg"><label>Location / Address</label><input class="fc" id="mLo" value="${E(d.location||'')}"></div>
     <div class="fr"><div class="fg"><label>Install Date</label><input class="fc" type="date" id="mDt" value="${E(d.installDate||'')}"></div><div class="fg"><label>Warranty</label><input class="fc" id="mWr" value="${E(d.warranty||'12 months')}"></div></div>
     <div class="fr"><div class="fg"><label>Purchase / Rental</label><select class="fc" id="mPR"><option${d.purchaseRental==='Purchase'?' selected':''}>Purchase</option><option${d.purchaseRental==='Rental'?' selected':''}>Rental</option></select></div><div class="fg"><label>Service Contract</label><input class="fc" id="mSC" value="${E(d.serviceContract||'Nil')}"></div></div>
@@ -1423,6 +1423,19 @@ function getMachineCategories(){
   const fromDB=new Set(defaults);
   (DB.machines||[]).forEach(m=>{if(m.category)fromDB.add(m.category);});
   return[...fromDB].sort();
+}
+
+function onMachCustChange(){
+  const custName=document.getElementById('mCu').value;
+  const loField=document.getElementById('mLo');
+  if(!custName){loField.value='';return;}
+  // Always fill from customer data when customer changes
+  const cust=DB.custs.find(c=>c.name===custName)||getAllCusts().find(c=>c.name===custName);
+  if(cust?.address){loField.value=cust.address;return;}
+  // Try location from existing machines for this customer
+  const existingMachine=(DB.machines||[]).find(m=>m.customer===custName&&m.location);
+  if(existingMachine){loField.value=existingMachine.location;return;}
+  loField.value='';
 }
 
 function editMachine(serial){
@@ -1472,6 +1485,7 @@ function saveMachine(){
 }
 
 function delMachine(serial){
+  if(getAllMachinesDB().length<=1){toast('Cannot delete the last machine.','error');return;}
   const rptCount=DB.reports.filter(r=>r.serial===serial).length;
   if(!confirm(`Delete machine "${serial}"?${rptCount?'\n\n⚠ '+rptCount+' report(s) reference this machine. Reports will be kept for records.':''}`))return;
   DB.machines=(DB.machines||[]).filter(m=>m.serial!==serial);
@@ -1516,6 +1530,7 @@ function renderCustCards(cs){
 function delCust(nameOrEl){
   const name=typeof nameOrEl==='string'?nameOrEl:nameOrEl;
   if(!name)return;
+  if(getAllCusts().length<=1){toast('Cannot delete the last customer.','error');return;}
   const machCount=(DB.machines||[]).filter(m=>m.customer===name).length;
   const rptCount=DB.reports.filter(r=>r.customer===name).length;
   
@@ -1602,7 +1617,7 @@ function renderTechs(){document.getElementById('techContent').innerHTML=`<div cl
 function openTechModal(data){const d=data||{};openModal(d.name?'Edit Technician':'Add Technician',`<input type="hidden" id="eTId" value="${d.id||''}"><div class="fg"><label>Name</label><input class="fc" id="tNm" value="${E(d.name||'')}"></div><div class="fg"><label>WhatsApp</label><input class="fc" id="tPh" value="${E(d.phone||'')}" placeholder="+65..."></div><div class="fg"><label>Email</label><input class="fc" type="email" id="tEm" value="${E(d.email||'')}" placeholder="tech@company.com"></div><div class="fg"><label>Specialization</label><select class="fc" id="tSp"><option${d.spec==='General'?' selected':''}>General</option><option${d.spec==='Strapping Machines'?' selected':''}>Strapping Machines</option><option${d.spec==='Wrapping Machines'?' selected':''}>Wrapping Machines</option><option${d.spec==='Sealing Machines'?' selected':''}>Sealing Machines</option><option${d.spec==='Electrical'?' selected':''}>Electrical</option><option${d.spec==='Mechanical'?' selected':''}>Mechanical</option></select></div>`,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveTech()">Save</button>`);}
 function editTech(id){const t=DB.techs.find(x=>x.id===id);if(t)openTechModal(t);}
 function saveTech(){const eidEl=document.getElementById('eTId');const eid=eidEl?eidEl.value:'';const d={name:document.getElementById('tNm').value.trim(),phone:document.getElementById('tPh').value.trim(),email:document.getElementById('tEm').value.trim(),spec:document.getElementById('tSp').value};if(!d.name||!d.phone){toast('Name & phone required.','error');return;}if(eid&&eid!==''){const i=DB.techs.findIndex(t=>t.id===parseInt(eid));if(i>=0)DB.techs[i]={...DB.techs[i],...d};}else{d.id=DB.nT++;DB.techs.push(d);}saveDB();closeModal();renderTechs();toast('Saved.','success');}
-function delTech(id){if(!confirm('Remove?'))return;DB.techs=DB.techs.filter(t=>t.id!==id);saveDB();renderTechs();toast('Removed.','info');}
+function delTech(id){if(DB.techs.length<=1){toast('Cannot delete the last technician.','error');return;}if(!confirm('Remove?'))return;DB.techs=DB.techs.filter(t=>t.id!==id);saveDB();renderTechs();toast('Removed.','info');}
 
 // ===== USER MANAGEMENT =====
 function renderUsers(){
@@ -1612,7 +1627,7 @@ function renderUsers(){
 function openUserModal(data){const d=data||{};openModal(d.name?'Edit User':'Add User',`<input type="hidden" id="eUId" value="${d.id||''}"><div class="fg"><label>Full Name</label><input class="fc" id="uNm" value="${E(d.name||'')}"></div><div class="fr"><div class="fg"><label>Username</label><input class="fc" id="uUn" value="${E(d.username||'')}" autocomplete="off"></div><div class="fg"><label>Password</label><input class="fc" type="text" id="uPw" value="${E(d.password||'')}" autocomplete="off"></div></div><div class="fg"><label>Role</label><select class="fc" id="uRl"><option value="admin"${d.role==='admin'?' selected':''}>Admin — Full access</option><option value="manager"${d.role==='manager'?' selected':''}>Manager — Create & edit, no user mgmt</option><option value="technician"${d.role==='technician'?' selected':''}>Technician — View & update status only</option></select></div>`,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveUser()">Save</button>`);}
 function editUser(id){const u=DB.users.find(x=>x.id===id);if(u)openUserModal(u);}
 function saveUser(){const eidEl=document.getElementById('eUId');const eid=eidEl?eidEl.value:'';const d={name:document.getElementById('uNm').value.trim(),username:document.getElementById('uUn').value.trim(),password:document.getElementById('uPw').value,role:document.getElementById('uRl').value};if(!d.name||!d.username||!d.password){toast('All fields required.','error');return;}if(eid&&eid!==''){const i=DB.users.findIndex(u=>u.id===parseInt(eid));if(i>=0)DB.users[i]={...DB.users[i],...d};}else{d.id=DB.nU++;DB.users.push(d);}saveDB();closeModal();renderUsers();toast('User saved.','success');}
-function delUser(id){if(!confirm('Remove user?'))return;DB.users=DB.users.filter(u=>u.id!==id);saveDB();renderUsers();toast('Removed.','info');}
+function delUser(id){if(DB.users.length<=1){toast('Cannot delete the last user.','error');return;}if(!confirm('Remove user?'))return;DB.users=DB.users.filter(u=>u.id!==id);saveDB();renderUsers();toast('Removed.','info');}
 
 // ===== CALENDAR =====
 let calY,calM;
@@ -2082,10 +2097,10 @@ function saveAgent(){
 }
 
 function delAgent(id,name){
+  if((DB.agents||[]).length<=1){toast('Cannot delete the last agent.','error');return;}
   const custCount=DB.custs.filter(c=>c.agent===name).length;
   if(!confirm(`Delete agent "${name}"?${custCount?'\n\n⚠ '+custCount+' customer(s) are linked to this agent. They will be set to no agent.':''}`))return;
   DB.agents=(DB.agents||[]).filter(a=>a.id!==id);
-  // Clear agent from linked customers
   DB.custs.forEach(c=>{if(c.agent===name)c.agent='';});
   saveDB();renderAgents();toast('Agent deleted.','info');
 }
