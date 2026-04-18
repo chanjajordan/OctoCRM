@@ -279,7 +279,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
     <div class="fg"><label style="text-align:left">Password</label><input class="fc" type="password" id="loginPass" placeholder="Enter password" autocomplete="current-password"></div>
     <button class="btn btn-p" style="width:100%;margin-top:8px;font-size:var(--fs);padding:14px" onclick="doLogin()">Sign In</button>
     <p style="margin-top:20px;font-size:var(--fs-xs);color:var(--t3)">Default: admin / admin123</p>
-    <p style="margin-top:12px"><button onclick="resetAllData()" style="background:none;border:none;color:var(--er);font-size:12px;cursor:pointer;text-decoration:underline;font-family:inherit">⚠ Reset all data & start fresh</button></p>
+    <p style="margin-top:12px"><button onclick="resetAllData()" style="background:none;border:none;color:var(--er);font-size:12px;cursor:pointer;text-decoration:underline;font-family:inherit">⚠ Reset to default database</button></p>
   </div>
 </div>
 
@@ -316,6 +316,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
   <div class="sb-foot">
     <div class="sb-user"><div class="sb-user-av" id="sbAvatar">A</div><div class="sb-user-info"><div class="sb-user-name" id="sbUserName">Admin</div><div class="sb-user-role" id="sbUserRole">Administrator</div></div></div>
     <button class="btn btn-s btn-sm" style="width:100%" onclick="doLogout()">Sign Out</button>
+    <button class="btn btn-sm" style="width:100%;margin-top:6px;background:var(--oks);color:var(--ok);border:1px solid var(--ok);font-size:11px" onclick="saveAsDefault()" id="btnSaveDef">💾 Save as Default DB</button>
     <div id="syncIndicator" style="display:flex;align-items:center;gap:6px;margin-top:10px"></div>
   </div>
 </aside>
@@ -615,6 +616,7 @@ function showApp(){
   const isMgr=CUR_USER.role==='manager';
   document.getElementById('navUsers').style.display=isAdmin?'':'none';
   document.getElementById('navTech').style.display=(isAdmin||isMgr)?'':'none';
+  document.getElementById('btnSaveDef').style.display=isAdmin?'':'none';
   renderDash();
   updSync();
 }
@@ -768,9 +770,13 @@ function openNewJobModal(){
       <input class="fc" id="jCuCustom" placeholder="Or type new customer name..." style="display:none;margin-top:6px">
       <button class="btn btn-sm btn-s" onclick="toggleJobCustomCust()" style="margin-top:6px;font-size:var(--fs-xs)" id="jCuToggle">+ New customer</button>
     </div>
+    <div class="fg"><label>Machine Category</label>
+      <select class="fc" id="jMaCat" onchange="onJobCatChange()"><option value="">— Select customer first —</option></select>
+      <div id="jMaCatInfo" style="display:none;margin-top:6px;padding:8px 12px;background:var(--pus);color:var(--pu);border-radius:var(--r);font-size:var(--fs-sm);font-weight:600"></div>
+    </div>
     <div class="fr">
       <div class="fg"><label>Machine Model</label>
-        <select class="fc" id="jMaMd" onchange="onJobModelChange()"><option value="">— Select customer first —</option></select>
+        <select class="fc" id="jMaMd" onchange="onJobModelChange()"><option value="">— Select category first —</option></select>
         <input class="fc" id="jMaMdCustom" placeholder="Type model..." style="display:none;margin-top:6px">
       </div>
       <div class="fg"><label>Serial Number</label>
@@ -790,8 +796,10 @@ function openNewJobModal(){
 function toggleJobCustomCust(){
   const sel=document.getElementById('jCu'),inp=document.getElementById('jCuCustom'),btn=document.getElementById('jCuToggle');
   if(inp.style.display==='none'){inp.style.display='';sel.style.display='none';inp.focus();btn.textContent='← Back to list';
+    document.getElementById('jMaCat').innerHTML='<option value="">All</option>';
     document.getElementById('jMaMd').innerHTML='<option value="">—</option><option value="__custom__">✏ Type model...</option>';
     document.getElementById('jMa').innerHTML='<option value="">—</option><option value="__custom__">✏ Type serial...</option>';
+    document.getElementById('jMaCatInfo').style.display='none';
     setCustomToggle('jMaMd','jMaMdCustom');setCustomToggle('jMa','jMaCustom');
   }else{inp.style.display='none';sel.style.display='';btn.textContent='+ New customer';}
 }
@@ -805,23 +813,60 @@ function setCustomToggle(selId,custId){
 function onJobCustChange(){
   const custName=document.getElementById('jCu').value;
   const custMachines=(DB.machines||[]).filter(m=>m.customer===custName);
-  const rptMachines=DB.reports.filter(r=>r.customer===custName&&r.model).reduce((acc,r)=>{if(!acc.find(x=>x.model===r.model))acc.push({model:r.model,serial:r.serial});return acc;},[]);
-  const models=new Set();
-  custMachines.forEach(m=>models.add(m.model));
-  rptMachines.forEach(m=>models.add(m.model));
-  const mdSel=document.getElementById('jMaMd');
-  mdSel.innerHTML='<option value="">— Select model —</option>'+[...models].map(m=>`<option>${E(m)}</option>`).join('')+'<option value="__custom__">✏ Type new model...</option>';
-  mdSel.style.display='';document.getElementById('jMaMdCustom').style.display='none';
-  setCustomToggle('jMaMd','jMaMdCustom');
-  mdSel.onchange=function(){if(this.value==='__custom__'){this.style.display='none';document.getElementById('jMaMdCustom').style.display='';document.getElementById('jMaMdCustom').focus();document.getElementById('jMa').innerHTML='<option value="">—</option><option value="__custom__">✏ Type serial...</option>';setCustomToggle('jMa','jMaCustom');}else{onJobModelChange();}};
+  
+  // Populate categories for this customer's machines
+  const cats=new Set();
+  custMachines.forEach(m=>{cats.add(m.category||'Uncategorized');});
+  const catSel=document.getElementById('jMaCat');
+  catSel.innerHTML='<option value="">— All categories —</option>'+[...cats].sort().map(c=>`<option>${E(c)}</option>`).join('');
+  document.getElementById('jMaCatInfo').style.display='none';
+  
+  // Populate models (all categories initially)
+  populateJobModels(custName,'');
+  
+  // Reset serial
   document.getElementById('jMa').innerHTML='<option value="">— Select model first —</option>';
   document.getElementById('jMaCustom').style.display='none';document.getElementById('jMa').style.display='';
+}
+
+function onJobCatChange(){
+  const custName=document.getElementById('jCu').value;
+  const cat=document.getElementById('jMaCat').value;
+  const info=document.getElementById('jMaCatInfo');
+  if(cat){info.textContent='📂 '+cat;info.style.display='block';}
+  else{info.style.display='none';}
+  populateJobModels(custName,cat);
+  document.getElementById('jMa').innerHTML='<option value="">— Select model first —</option>';
+}
+
+function populateJobModels(custName,category){
+  let custMachines=(DB.machines||[]).filter(m=>m.customer===custName);
+  if(category)custMachines=custMachines.filter(m=>(m.category||'Uncategorized')===category);
+  const rptMachines=DB.reports.filter(r=>r.customer===custName&&r.model).reduce((acc,r)=>{if(!acc.find(x=>x.model===r.model))acc.push({model:r.model,serial:r.serial,category:''});return acc;},[]);
+  
+  // Unique models with category info
+  const modelMap={};
+  custMachines.forEach(m=>{modelMap[m.model]=m.category||'';});
+  if(!category)rptMachines.forEach(m=>{if(!modelMap[m.model])modelMap[m.model]='';});
+  
+  const mdSel=document.getElementById('jMaMd');
+  const modelEntries=Object.entries(modelMap);
+  mdSel.innerHTML='<option value="">— Select model —</option>'+modelEntries.map(([model,cat])=>`<option value="${E(model)}">${E(model)}${cat?' ['+E(cat)+']':''}</option>`).join('')+'<option value="__custom__">✏ Type new model...</option>';
+  mdSel.style.display='';document.getElementById('jMaMdCustom').style.display='none';
+  mdSel.onchange=function(){if(this.value==='__custom__'){this.style.display='none';document.getElementById('jMaMdCustom').style.display='';document.getElementById('jMaMdCustom').focus();document.getElementById('jMa').innerHTML='<option value="">—</option><option value="__custom__">✏ Type serial...</option>';setCustomToggle('jMa','jMaCustom');}else{onJobModelChange();}};
 }
 
 function onJobModelChange(){
   const custName=document.getElementById('jCu').value;
   const model=document.getElementById('jMaMd').value;
   if(!model||model==='__custom__')return;
+  
+  // Show category for selected model
+  const machineWithCat=(DB.machines||[]).find(m=>m.customer===custName&&m.model===model&&m.category);
+  const info=document.getElementById('jMaCatInfo');
+  if(machineWithCat?.category){info.textContent='📂 '+machineWithCat.category;info.style.display='block';}
+  
+  // Populate serials
   const serials=new Set();
   (DB.machines||[]).filter(m=>m.customer===custName&&m.model===model).forEach(m=>serials.add(m.serial));
   DB.reports.filter(r=>r.customer===custName&&r.model===model&&r.serial).forEach(r=>serials.add(r.serial));
@@ -2499,18 +2544,65 @@ function mergeSerials(serial){
   setTimeout(()=>showDuplicateCheck(),500);
 }
 
-// ===== RESET =====
+// ===== DEFAULT DATABASE & RESET =====
+function saveAsDefault(){
+  if(!confirm('Save current database as the DEFAULT?\n\nWhen you or anyone clicks "Reset", it will restore to this exact state.'))return;
+  // Save to Firebase under a separate path
+  const snapshot=JSON.parse(JSON.stringify(DB));
+  try{localStorage.setItem('ocrm4_default',JSON.stringify(snapshot));}catch(e){}
+  if(USE_FB&&fbDB){
+    fbDB.ref('octoCRM_v4_default').set(snapshot).then(()=>{
+      toast('Default database saved! ✓','success');
+    }).catch(e=>{toast('Saved locally. Firebase error: '+e.message,'info');});
+  }else{
+    toast('Default database saved locally.','success');
+  }
+}
+
 function resetAllData(){
-  if(!confirm('This will DELETE all reports, jobs, customers, and settings.\n\nAre you sure?'))return;
-  if(!confirm('FINAL WARNING: All data will be permanently erased from this device AND the cloud database.\n\nProceed?'))return;
-  // Clear localStorage
-  localStorage.removeItem('ocrm4');
-  localStorage.removeItem('ocrm4_session');
-  // Clear Firebase
+  if(!confirm('Reset database to the last saved DEFAULT?\n\nAll changes since the last "Save as Default" will be lost.'))return;
+  if(!confirm('FINAL WARNING: This will replace ALL current data with the default database.\n\nProceed?'))return;
+  
+  // Try loading default from Firebase first, then localStorage
+  let restored=false;
+  
+  if(USE_FB&&fbDB){
+    fbDB.ref('octoCRM_v4_default').once('value').then(s=>{
+      const def=s.val();
+      if(def&&def.users){
+        DB=def;
+        if(!Array.isArray(DB.users)||!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
+        saveDB();
+        localStorage.removeItem('ocrm4_session');
+        toast('Database restored to default!','success');
+        setTimeout(()=>location.reload(),500);
+      }else{
+        tryLocalDefault();
+      }
+    }).catch(()=>{tryLocalDefault();});
+  }else{
+    tryLocalDefault();
+  }
+}
+
+function tryLocalDefault(){
   try{
-    if(typeof firebase!=='undefined'&&firebase.apps&&firebase.apps.length){
-      firebase.database().ref('octoCRM_v4').remove().then(()=>{location.reload();}).catch(()=>{location.reload();});
-    }else{location.reload();}
+    const s=localStorage.getItem('ocrm4_default');
+    if(s){
+      DB=JSON.parse(s);
+      if(!Array.isArray(DB.users)||!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
+      saveDB();
+      localStorage.removeItem('ocrm4_session');
+      toast('Database restored to default!','success');
+      setTimeout(()=>location.reload(),500);
+    }else{
+      // No default saved — do a full wipe
+      if(!confirm('No default database found. Do a FULL WIPE instead?\n\nThis will clear everything and start completely fresh.'))return;
+      localStorage.removeItem('ocrm4');
+      localStorage.removeItem('ocrm4_session');
+      if(USE_FB&&fbDB)fbDB.ref('octoCRM_v4').remove().then(()=>location.reload()).catch(()=>location.reload());
+      else location.reload();
+    }
   }catch(e){location.reload();}
 }
 
