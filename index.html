@@ -420,6 +420,8 @@ function loadDB(){
   if(!Array.isArray(DB.users))DB.users=[];
   if(!Array.isArray(DB.machines))DB.machines=[];
   if(!Array.isArray(DB.agents))DB.agents=[];
+  if(!Array.isArray(DB.deletedCusts))DB.deletedCusts=[];
+  if(!Array.isArray(DB.deletedMachines))DB.deletedMachines=[];
   if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;
 
   // Always ensure default users exist
@@ -688,7 +690,13 @@ function closePnl(){document.getElementById('detPnl').classList.remove('open')}
 document.getElementById('globalModal').addEventListener('click',e=>{if(e.target.id==='globalModal')closeModal()});
 
 function getMachs(){const m={};DB.reports.forEach(r=>{if(!r.serial)return;if(!m[r.serial])m[r.serial]={serial:r.serial,model:r.model,customer:r.customer,reports:[],lastService:r.date,issues:[]};m[r.serial].reports.push(r);if(r.date>m[r.serial].lastService){m[r.serial].lastService=r.date;m[r.serial].customer=r.customer;}if(r.status!=='Completed')m[r.serial].issues.push(r)});return Object.values(m)}
-function getAllCusts(){const m={};DB.custs.forEach(c=>{m[c.name]={...c}});DB.reports.forEach(r=>{const n=r.customer?.trim();if(!n)return;if(!m[n])m[n]={id:null,name:n,address:'',contact:'',phone:'',email:'',agent:''};if(r.contact&&!m[n].contact)m[n].contact=r.contact;if(r.contactNum&&!m[n].phone)m[n].phone=r.contactNum});return Object.values(m).sort((a,b)=>a.name.localeCompare(b.name))}
+function getAllCusts(){
+  const blocked=new Set(DB.deletedCusts||[]);
+  const m={};
+  DB.custs.forEach(c=>{if(!blocked.has(c.name))m[c.name]={...c}});
+  DB.reports.forEach(r=>{const n=r.customer?.trim();if(!n||blocked.has(n))return;if(!m[n])m[n]={id:null,name:n,address:'',contact:'',phone:'',email:'',agent:''};if(r.contact&&!m[n].contact)m[n].contact=r.contact;if(r.contactNum&&!m[n].phone)m[n].phone=r.contactNum});
+  return Object.values(m).sort((a,b)=>a.name.localeCompare(b.name));
+}
 
 function statusSelect(id,current,type){
   const opts=type==='job'?['Open','Assigned','In Progress','Completed']:['Completed','Pending Follow-Up','In Progress','Requires Parts'];
@@ -1342,9 +1350,10 @@ function previewCR(){const d=getCRData();const fakeId=Date.now();DB.reports.push
 
 // ===== MACHINES (from DB.machines + report history) =====
 function getAllMachinesDB(){
+  const blocked=new Set(DB.deletedMachines||[]);
   const m={};
-  (DB.machines||[]).forEach(mc=>{m[mc.serial]={...mc,reports:[],lastService:'',issues:[]};});
-  DB.reports.forEach(r=>{if(!r.serial)return;if(!m[r.serial])m[r.serial]={serial:r.serial,model:r.model,customer:r.customer,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:'',maintFrequency:'',reports:[],lastService:'',issues:[]};m[r.serial].reports.push(r);if(!m[r.serial].lastService||r.date>m[r.serial].lastService)m[r.serial].lastService=r.date;if(r.status!=='Completed')m[r.serial].issues.push(r);});
+  (DB.machines||[]).forEach(mc=>{if(!blocked.has(mc.serial))m[mc.serial]={...mc,reports:[],lastService:'',issues:[]};});
+  DB.reports.forEach(r=>{if(!r.serial||blocked.has(r.serial))return;if(!m[r.serial])m[r.serial]={serial:r.serial,model:r.model,customer:r.customer,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:'',maintFrequency:'',category:'',reports:[],lastService:'',issues:[]};m[r.serial].reports.push(r);if(!m[r.serial].lastService||r.date>m[r.serial].lastService)m[r.serial].lastService=r.date;if(r.status!=='Completed')m[r.serial].issues.push(r);});
   return Object.values(m);
 }
 let curMachCat='all';
@@ -1464,9 +1473,11 @@ function saveMachine(){
 
 function delMachine(serial){
   const rptCount=DB.reports.filter(r=>r.serial===serial).length;
-  if(!confirm(`Delete machine "${serial}"?${rptCount?'\n\n⚠ '+rptCount+' service report(s) reference this machine.':''}`))return;
+  if(!confirm(`Delete machine "${serial}"?${rptCount?'\n\n⚠ '+rptCount+' report(s) reference this machine. Reports will be kept for records.':''}`))return;
   DB.machines=(DB.machines||[]).filter(m=>m.serial!==serial);
-  saveDB();renderMachines();toast('Machine deleted.','info');
+  if(!Array.isArray(DB.deletedMachines))DB.deletedMachines=[];
+  if(!DB.deletedMachines.includes(serial))DB.deletedMachines.push(serial);
+  saveDB();renderMachines();renderDash();toast('Machine deleted.','info');
 }
 
 function viewMachineCust(custName){
@@ -1491,7 +1502,7 @@ function renderCustCards(cs){
     const custMachines=(DB.machines||[]).filter(m=>m.customer===c.name);
     const rptSerials=[...new Set(reps.filter(r=>r.serial).map(r=>r.serial))];
     const allSerials=[...new Set([...custMachines.map(m=>m.serial),...rptSerials])];
-    return`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(c.name)}</span><div style="display:flex;gap:6px">${canEdit()?`<button class="btn btn-sm btn-s" onclick="editCust('${E(c.name)}')">Edit</button>`:''}${canDelete()?`<button class="btn btn-sm btn-d" onclick="delCust(${c.id||0},'${E(c.name)}')">Delete</button>`:''}</div></div>
+    return`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(c.name)}</span><div style="display:flex;gap:6px">${canEdit()?`<button class="btn btn-sm btn-s" onclick="editCust(this.dataset.n)" data-n="${E(c.name)}">Edit</button>`:''}${canDelete()?`<button class="btn btn-sm btn-d" onclick="delCust(this.dataset.n)" data-n="${E(c.name)}">Delete</button>`:''}</div></div>
     <div class="rpt-card-row"><span class="rc-label">Address</span><span class="rc-val" style="max-width:65%">${E(c.address||'—')}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Contact</span><span class="rc-val">${E(c.contact||'—')}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Phone</span><span class="rc-val">${c.phone?`<a href="tel:${c.phone}" style="color:var(--ac);text-decoration:none">${E(c.phone)}</a>`:'—'}</span></div>
@@ -1502,11 +1513,31 @@ function renderCustCards(cs){
   }).join('')||'<div class="es"><p>No customers.</p></div>';
 }
 
-function delCust(id,name){
+function delCust(nameOrEl){
+  const name=typeof nameOrEl==='string'?nameOrEl:nameOrEl;
+  if(!name)return;
   const machCount=(DB.machines||[]).filter(m=>m.customer===name).length;
-  if(!confirm(`Delete "${name}"?${machCount?'\n\n⚠ This customer has '+machCount+' linked machine(s).':''}`))return;
-  DB.custs=DB.custs.filter(c=>c.id!==id&&c.name!==name);
-  saveDB();renderCusts();toast('Customer deleted.','info');
+  const rptCount=DB.reports.filter(r=>r.customer===name).length;
+  
+  let msg=`Delete customer "${name}"?`;
+  if(machCount)msg+=`\n\n⚠ ${machCount} machine(s) linked.`;
+  if(rptCount)msg+=`\n⚠ ${rptCount} report(s) reference this customer.`;
+  if(machCount||rptCount)msg+=`\n\nThe customer and all linked machines will be removed. Reports will be kept for records.`;
+  
+  if(!confirm(msg))return;
+  
+  // Remove from DB.custs
+  DB.custs=DB.custs.filter(c=>c.name!==name);
+  
+  // Remove linked machines
+  if(DB.machines)DB.machines=DB.machines.filter(m=>m.customer!==name);
+  
+  // Add to blocklist so getAllCusts doesn't recreate from reports
+  if(!Array.isArray(DB.deletedCusts))DB.deletedCusts=[];
+  if(!DB.deletedCusts.includes(name))DB.deletedCusts.push(name);
+  
+  saveDB();renderCusts();renderDash();
+  toast(`"${name}" deleted${machCount?' + '+machCount+' machine(s)':''}.`,'info');
 }
 
 function viewCustMachines(custName){
@@ -2072,19 +2103,21 @@ function renderDataMgmt(){
         <button class="btn btn-p btn-sm" onclick="exportCSV('reports')">Reports (${DB.reports.length})</button>
         <button class="btn btn-p btn-sm" onclick="exportCSV('jobs')">Jobs (${DB.jobs.length})</button>
         <button class="btn btn-p btn-sm" onclick="exportCSV('technicians')">Technicians (${DB.techs.length})</button>
-        <button class="btn btn-s btn-sm" onclick="exportAllCSV()">📦 Export All (ZIP)</button>
+        <button class="btn btn-p btn-sm" onclick="exportCSV('agents')">Agents (${(DB.agents||[]).length})</button>
+        <button class="btn btn-s btn-sm" onclick="exportAllCSV()">📦 Export All</button>
       </div>
     </div>
     
-    <div class="oc"><h3>📥 Import from CSV</h3><p>Upload a CSV file to add or update records. The first row must be column headers. Existing records with the same ID will be updated; new records will be added.</p>
+    <div class="oc"><h3>📥 Import from CSV</h3><p>Upload a CSV file to add or update records. The first row must be column headers.</p>
       <div class="fg" style="margin-top:12px">
         <label>Data Type</label>
         <select class="fc" id="impType">
           <option value="customers">Customers</option>
-          <option value="machines">Machines</option>
+          <option value="machines">Machines (incl. category)</option>
           <option value="reports">Reports</option>
           <option value="jobs">Jobs</option>
           <option value="technicians">Technicians</option>
+          <option value="agents">Agents / Companies</option>
         </select>
       </div>
       <div class="fg">
@@ -2135,18 +2168,20 @@ function exportCSV(table){
       headers=['id','name','address','contact','phone','email','agent'];
       rows=DB.custs;break;
     case 'machines':
-      headers=['id','serial','model','customer','location','installDate','warranty','purchaseRental','serviceContract','maintFrequency'];
+      headers=['id','serial','model','category','customer','location','installDate','warranty','purchaseRental','serviceContract','maintFrequency'];
       rows=DB.machines||[];break;
     case 'reports':
       headers=['id','company','jobNo','date','customer','contact','contactNum','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit'];
       rows=DB.reports;break;
     case 'jobs':
-      headers=['id','title','customer','machine','type','priority','date','time','status','desc'];
-      rows=DB.jobs.map(j=>({...j,techNames:getJobTechNames(j)}));
-      headers.push('techNames');break;
+      headers=['id','title','customer','machine','model','type','priority','date','time','status','desc','techNames'];
+      rows=DB.jobs.map(j=>({...j,techNames:getJobTechNames(j)}));break;
     case 'technicians':
       headers=['id','name','phone','email','spec'];
       rows=DB.techs;break;
+    case 'agents':
+      headers=['id','name','type','address','contact','phone','email'];
+      rows=DB.agents||[];break;
     default:return;
   }
   
@@ -2157,18 +2192,19 @@ function exportCSV(table){
 
 function exportAllCSV(){
   const ts=new Date().toISOString().split('T')[0];
-  ['customers','machines','reports','jobs','technicians'].forEach(t=>exportCSV(t));
+  ['customers','machines','reports','jobs','technicians','agents'].forEach(t=>exportCSV(t));
   toast('All tables exported.','success');
 }
 
 function downloadTemplate(){
   const type=document.getElementById('impType').value;
   const templates={
-    customers:'id,name,address,contact,phone,email,agent\n,Example Corp,123 Main St,John Doe,+6512345678,john@example.com,Redbox Global Solutions',
-    machines:'id,serial,model,customer,location,installDate,warranty,purchaseRental,serviceContract,maintFrequency\n,SN12345,ET300PPS,Example Corp,123 Main St,2024-01-15,12 months,Purchase,Nil,',
+    customers:'id,name,address,contact,phone,email,agent\n,Example Corp,123 Main St,John Doe,+6512345678,john@example.com,Redbox Global Solutions Pte Ltd',
+    machines:'id,serial,model,category,customer,location,installDate,warranty,purchaseRental,serviceContract,maintFrequency\n,SN12345,ET300PPS,Stretch Wrapping Machines,Example Corp,123 Main St,2024-01-15,12 months,Purchase,Nil,',
     reports:'id,company,jobNo,date,customer,contact,contactNum,model,serial,engineer,type,timeStart,timeEnd,remarks,recommendations,status,nextVisit\n,octopack,SR-99999,2026-04-15,Example Corp,John,+65123,ET300PPS,SN12345,Colin Tan,Preventive Maintenance,09:00,11:00,Performed PM,All OK,Completed,',
-    jobs:'id,title,customer,machine,type,priority,date,time,status,desc\n,PM Service Example,Example Corp,SN12345,Preventive Maintenance,Medium,2026-05-01,09:00,Open,Routine PM check',
-    technicians:'id,name,phone,email,spec\n,New Tech,+6599999999,tech@company.com,General'
+    jobs:'id,title,customer,machine,model,type,priority,date,time,status,desc\n,PM Service Example,Example Corp,SN12345,ET300PPS,Preventive Maintenance,Medium,2026-05-01,09:00,Open,Routine PM check',
+    technicians:'id,name,phone,email,spec\n,New Tech,+6599999999,tech@company.com,General',
+    agents:'id,name,type,address,contact,phone,email\n,New Agent Co,Agent,123 Street,Mr Smith,+6512345678,agent@company.com'
   };
   downloadFile(templates[type]||'',`octocrm_${type}_template.csv`);
   toast('Template downloaded.','success');
@@ -2233,8 +2269,8 @@ function importCSV(){
             if(!obj.serial)return;
             if(!Array.isArray(DB.machines))DB.machines=[];
             const existing=DB.machines.find(m=>m.serial===obj.serial);
-            if(existing){Object.assign(existing,{model:obj.model||existing.model,customer:obj.customer||existing.customer,location:obj.location||existing.location,installDate:obj.installdate||existing.installDate,warranty:obj.warranty||existing.warranty,purchaseRental:obj.purchaserental||existing.purchaseRental,serviceContract:obj.servicecontract||existing.serviceContract,maintFrequency:obj.maintfrequency||existing.maintFrequency});updated++;}
-            else{DB.machines.push({id:DB.nM++,serial:obj.serial,model:obj.model||'',customer:obj.customer||'',location:obj.location||'',installDate:obj.installdate||'',warranty:obj.warranty||'12 months',purchaseRental:obj.purchaserental||'Purchase',serviceContract:obj.servicecontract||'Nil',maintFrequency:obj.maintfrequency||''});added++;}
+            if(existing){Object.assign(existing,{model:obj.model||existing.model,category:obj.category||existing.category,customer:obj.customer||existing.customer,location:obj.location||existing.location,installDate:obj.installdate||existing.installDate,warranty:obj.warranty||existing.warranty,purchaseRental:obj.purchaserental||existing.purchaseRental,serviceContract:obj.servicecontract||existing.serviceContract,maintFrequency:obj.maintfrequency||existing.maintFrequency});updated++;}
+            else{DB.machines.push({id:DB.nM++,serial:obj.serial,model:obj.model||'',category:obj.category||'',customer:obj.customer||'',location:obj.location||'',installDate:obj.installdate||'',warranty:obj.warranty||'12 months',purchaseRental:obj.purchaserental||'Purchase',serviceContract:obj.servicecontract||'Nil',maintFrequency:obj.maintfrequency||''});added++;}
             break;
           }
           case 'reports':{
@@ -2254,6 +2290,14 @@ function importCSV(){
             const existing=DB.techs.find(t=>t.name===obj.name);
             if(existing){Object.assign(existing,{phone:obj.phone||existing.phone,email:obj.email||existing.email,spec:obj.spec||existing.spec});updated++;}
             else{DB.techs.push({id:DB.nT++,name:obj.name,phone:obj.phone||'',email:obj.email||'',spec:obj.spec||'General'});added++;}
+            break;
+          }
+          case 'agents':{
+            if(!obj.name)return;
+            if(!Array.isArray(DB.agents))DB.agents=[];
+            const existing=DB.agents.find(a=>a.name===obj.name);
+            if(existing){Object.assign(existing,{type:obj.type||existing.type,address:obj.address||existing.address,contact:obj.contact||existing.contact,phone:obj.phone||existing.phone,email:obj.email||existing.email});updated++;}
+            else{DB.agents.push({id:DB.nA++,name:obj.name,type:obj.type||'Agent',address:obj.address||'',contact:obj.contact||'',phone:obj.phone||'',email:obj.email||''});added++;}
             break;
           }
         }
