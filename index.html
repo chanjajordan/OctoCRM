@@ -721,14 +721,14 @@ function renderDash(){
       <div class="sc"><div class="si" style="background:var(--pus);color:var(--pu)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div class="sv">${cs.length}</div><div class="sl">Customers</div></div>
     </div>
     ${outstandingRpts.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--er)"><div class="th"><h3 style="color:var(--er)">⚠ Outstanding Reports</h3><button class="btn btn-sm btn-s" onclick="showPage('reports')">View All →</button></div>
-    ${outstandingRpts.slice(0,5).map(r=>`<div class="rpt-card"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span>${stBd(r.status)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(r.model)} / ${E(r.serial)}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(r.date)}</span></div></div>`).join('')}</div>`:''}
+    ${outstandingRpts.slice(0,5).map(r=>`<div class="rpt-card" onclick="viewRptPreview(${r.id})" style="cursor:pointer"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span>${stBd(r.status)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(r.model)} / ${E(r.serial)}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(r.date)}</span></div></div>`).join('')}</div>`:''}
     ${defectiveMachines.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--wn)"><div class="th"><h3 style="color:var(--wn)">🔧 Defective Machines</h3><button class="btn btn-sm btn-s" onclick="showPage('machines')">View All →</button></div>
-    ${defectiveMachines.slice(0,5).map(m=>`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(m.serial)}</span><span class="bd bd-er">${(m.issues||[]).length} issue(s)</span></div><div class="rpt-card-row"><span class="rc-label">Model</span><span class="rc-val">${E(m.model)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(m.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Last Issue</span><span class="rc-val">${E(m.issues[m.issues.length-1]?.status||'')}</span></div></div>`).join('')}</div>`:''}
+    ${defectiveMachines.slice(0,5).map(m=>`<div class="rpt-card" onclick="viewMachineDetail('${E(m.serial)}')" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(m.serial)}</span><span class="bd bd-er">${(m.issues||[]).length} issue(s)</span></div><div class="rpt-card-row"><span class="rc-label">Model</span><span class="rc-val">${E(m.model)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(m.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Last Issue</span><span class="rc-val">${E(m.issues[m.issues.length-1]?.status||'')}</span></div></div>`).join('')}</div>`:''}
     <div class="tw" style="margin-bottom:16px"><div class="th"><h3>Active Jobs</h3><button class="btn btn-sm btn-s" onclick="showPage('jobs')">View All →</button></div>
-    ${aj.length?aj.slice(0,5).map(j=>{ return`<div class="rpt-card" onclick="showPage('jobs')"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title?.substring(0,40))}</span>${prBd(j.priority)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Technician(s)</span><span class="rc-val">${E(getJobTechNames(j))}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div><div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${jsBd(j.status)}</span></div></div>`}).join(''):'<div class="es" style="padding:24px"><p>No active jobs.</p></div>'}
+    ${aj.length?aj.slice(0,5).map(j=>{const mi=getJobMachineInfo(j);const addr=getJobAddress(j);return`<div class="rpt-card" onclick="viewJobDetail(${j.id})" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title?.substring(0,40))}</span>${prBd(j.priority)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(mi.model||j.machine||'—')}${mi.category?' <span class="bd bd-pu" style="font-size:9px;padding:2px 6px;margin-left:4px">'+E(mi.category)+'</span>':''}</span></div><div class="rpt-card-row"><span class="rc-label">Technician(s)</span><span class="rc-val">${E(getJobTechNames(j))}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div>${addr?`<div class="rpt-card-row"><span class="rc-label">📍</span><span class="rc-val"><button class="btn btn-sm btn-ok" style="padding:2px 10px;min-height:26px;font-size:11px" onclick="event.stopPropagation();navigateTo('${E(addr)}')">🧭 Navigate</button></span></div>`:''}<div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${jsBd(j.status)}</span></div></div>`}).join(''):'<div class="es" style="padding:24px"><p>No active jobs.</p></div>'}
     </div>
     <div class="tw"><div class="th"><h3>Recent Reports</h3></div>
-    ${DB.reports.length?[...DB.reports].sort((a,b)=>b.id-a.id).slice(0,5).map(r=>`<div class="rpt-card" onclick="showPage('reports')"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span><span class="bd" style="background:${CO[r.company]?.color||'var(--ac)'}15;color:${CO[r.company]?.color||'var(--ac)'};font-size:11px">${E(r.company)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${stBd(r.status)}</span></div></div>`).join(''):'<div class="es" style="padding:24px"><p>No reports yet.</p></div>'}
+    ${DB.reports.length?[...DB.reports].sort((a,b)=>b.id-a.id).slice(0,5).map(r=>`<div class="rpt-card" onclick="viewRptPreview(${r.id})" style="cursor:pointer"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span><span class="bd" style="background:${CO[r.company]?.color||'var(--ac)'}15;color:${CO[r.company]?.color||'var(--ac)'};font-size:11px">${E(r.company)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${stBd(r.status)}</span></div></div>`).join(''):'<div class="es" style="padding:24px"><p>No reports yet.</p></div>'}
     </div>`;
   document.getElementById('repCt').textContent=DB.reports.length;
   document.getElementById('jobCt').textContent=aj.length;
@@ -744,8 +744,9 @@ function renderJobs(){
   document.getElementById('jobsContent').innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px"><h2 style="font-size:var(--fs-xl)">Job Board</h2><div style="display:flex;gap:8px"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search jobs..." oninput="renderJobs()"></div><button class="btn btn-p btn-sm" onclick="openNewJobModal()">+ Job</button></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${['all','Open','Assigned','In Progress','Completed'].map(f=>`<button class="fc-chip${curJF===f?' active':''}" onclick="curJF='${f}';renderJobs()">${f==='all'?'All':f}</button>`).join('')}</div>
-    ${jobs.length?jobs.map(j=>{ return`<div class="jc"><div class="jc-h"><div><h4>${E(j.title)}</h4><span style="font-size:var(--fs-xs);color:var(--t3)">JOB-${String(j.id).padStart(4,'0')}</span></div><div style="display:flex;gap:6px">${prBd(j.priority)}</div></div>
-      <div class="jc-m"><span>🏢 ${E(j.customer||'—')}</span><span>⚙️ ${E(j.machine||'—')}</span><span>📅 ${E(j.date||'TBD')}</span><span>👥 ${E(getJobTechNames(j))}</span></div>
+    ${jobs.length?jobs.map(j=>{const mi=getJobMachineInfo(j);const addr=getJobAddress(j);return`<div class="jc"><div class="jc-h"><div><h4>${E(j.title)}</h4><span style="font-size:var(--fs-xs);color:var(--t3)">JOB-${String(j.id).padStart(4,'0')}</span></div><div style="display:flex;gap:6px">${prBd(j.priority)}</div></div>
+      <div class="jc-m"><span>🏢 ${E(j.customer||'—')}</span><span>⚙️ ${E(mi.model||j.machine||'—')}${mi.category?' ['+E(mi.category)+']':''}</span><span>📅 ${E(j.date||'TBD')}</span><span>👥 ${E(getJobTechNames(j))}</span></div>
+      ${addr?`<div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap"><span style="font-size:var(--fs-sm);color:var(--t2)">📍 ${E(addr)}</span><button class="btn btn-sm btn-ok" style="padding:4px 12px;min-height:32px;font-size:12px" onclick="event.stopPropagation();navigateTo('${E(addr)}')">🧭 Navigate</button></div>`:''}
       ${j.desc?`<div class="jc-d">${E(j.desc)}</div>`:''}
       <div style="margin-bottom:12px"><label style="font-size:var(--fs-xs);font-weight:600;color:var(--t3);display:block;margin-bottom:4px">STATUS</label>${statusSelect(j.id,j.status,'job')}</div>
       <div class="jc-a">
@@ -755,6 +756,51 @@ function renderJobs(){
       </div>
       ${j.waSent?'<div style="margin-top:8px;font-size:var(--fs-xs);color:var(--wa)">✓✓ WhatsApp sent</div>':''}
     </div>`}).join(''):'<div class="es"><p>No jobs found.</p></div>'}`;
+}
+
+function getJobMachineInfo(j){
+  if(!j.machine&&!j.model)return{};
+  const m=(DB.machines||[]).find(x=>x.serial===j.machine);
+  if(m)return{model:m.model,serial:m.serial,category:m.category||''};
+  if(j.model)return{model:j.model,serial:j.machine||'',category:''};
+  return{};
+}
+
+function getJobAddress(j){
+  const cust=DB.custs.find(c=>c.name===j.customer);
+  if(cust?.address)return cust.address;
+  const m=(DB.machines||[]).find(x=>x.serial===j.machine);
+  if(m?.location)return m.location;
+  return'';
+}
+
+function navigateTo(address){
+  if(!address){toast('No address available.','error');return;}
+  const encoded=encodeURIComponent(address);
+  // Detect platform
+  const isIOS=/iPad|iPhone|iPod/.test(navigator.userAgent);
+  const isAndroid=/Android/.test(navigator.userAgent);
+  
+  if(isIOS||isAndroid){
+    // Mobile: offer choice
+    openModal('Navigate to',`
+      <p style="font-size:var(--fs);margin-bottom:16px">📍 <strong>${E(address)}</strong></p>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <button class="btn btn-p" onclick="window.open('https://www.google.com/maps/dir/?api=1&destination=${encoded}','_blank');closeModal()">
+          <span style="font-size:20px">🗺</span> Open in Google Maps
+        </button>
+        <button class="btn btn-s" onclick="window.open('https://waze.com/ul?q=${encoded}&navigate=yes','_blank');closeModal()">
+          <span style="font-size:20px">🚗</span> Open in Waze
+        </button>
+        ${isIOS?`<button class="btn btn-s" onclick="window.open('maps://maps.apple.com/?daddr=${encoded}','_blank');closeModal()">
+          <span style="font-size:20px">🍎</span> Open in Apple Maps
+        </button>`:''}
+      </div>
+    `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button>`);
+  }else{
+    // Desktop: open Google Maps directly
+    window.open('https://www.google.com/maps/dir/?api=1&destination='+encoded,'_blank');
+  }
 }
 
 function updateJobSt(id,st){const j=DB.jobs.find(x=>x.id===id);if(j){j.status=st;saveDB();toast(`Job → ${st}`,'success');}}
@@ -935,6 +981,53 @@ function sendJWA(jid){
 }
 
 function delJob(id){if(DB.jobs.length<=1){toast('Cannot delete the last job.','error');return;}if(!confirm('Delete?'))return;DB.jobs=DB.jobs.filter(j=>j.id!==id);saveDB();renderJobs();renderDash();toast('Deleted.','info');}
+
+function viewJobDetail(id){
+  const j=DB.jobs.find(x=>x.id===id);if(!j)return;
+  const techNames=getJobTechNames(j);
+  const cust=DB.custs.find(c=>c.name===j.customer)||getAllCusts().find(c=>c.name===j.customer);
+  const machine=(DB.machines||[]).find(m=>m.serial===j.machine);
+  const mi=getJobMachineInfo(j);
+  const addr=getJobAddress(j);
+  
+  const html=`<div style="padding:4px 0">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <div><span style="font-size:var(--fs-xs);color:var(--t3)">JOB-${String(j.id).padStart(4,'0')}</span></div>
+      <div style="display:flex;gap:6px">${prBd(j.priority)}${jsBd(j.status)}</div>
+    </div>
+    
+    <div style="margin-bottom:20px">
+      <label style="font-size:var(--fs-xs);font-weight:600;color:var(--t3);display:block;margin-bottom:4px">STATUS</label>
+      ${statusSelect(j.id,j.status,'job')}
+    </div>
+    
+    <div class="ds"><h4>Job Details</h4>
+      <div class="dr"><span class="lb">Customer</span><span class="vl">${E(j.customer||'—')}</span></div>
+      ${addr?`<div class="dr"><span class="lb">Address</span><span class="vl">${E(addr)}</span></div>`:''}
+      ${cust?.contact?`<div class="dr"><span class="lb">Contact</span><span class="vl">${E(cust.contact)}${cust.phone?' — '+E(cust.phone):''}</span></div>`:''}
+      <div class="dr"><span class="lb">Machine</span><span class="vl">${E(mi.model||j.machine||'—')}${mi.serial&&mi.model?' (S/N: '+E(mi.serial)+')':''}</span></div>
+      ${mi.category?`<div class="dr"><span class="lb">Category</span><span class="vl"><span class="bd bd-pu">${E(mi.category)}</span></span></div>`:''}
+      <div class="dr"><span class="lb">Type</span><span class="vl">${E(j.type)}</span></div>
+      <div class="dr"><span class="lb">Date</span><span class="vl">${E(j.date||'TBD')}${j.time?' at '+E(j.time):''}</span></div>
+      <div class="dr"><span class="lb">Technician(s)</span><span class="vl">${E(techNames)}</span></div>
+      ${j.waSent?'<div class="dr"><span class="lb">WhatsApp</span><span class="vl" style="color:var(--wa)">✓✓ Sent</span></div>':''}
+    </div>
+    
+    ${addr?`<div style="margin-bottom:20px"><button class="btn btn-ok" style="width:100%" onclick="navigateTo('${E(addr)}')">🧭 Navigate to ${E(j.customer)}</button></div>`:''}
+    
+    ${j.desc?`<div class="ds"><h4>Instructions</h4><div style="padding:12px;background:var(--input);border-radius:var(--r);border-left:3px solid var(--ac);font-size:var(--fs-sm);white-space:pre-line;line-height:1.6">${E(j.desc)}</div></div>`:''}
+  </div>`;
+  
+  let footer=`<button class="btn btn-s" onclick="closeModal()">Close</button>`;
+  if(j.status!=='Completed'){
+    const ids=j.techIds||[j.techId].filter(Boolean);
+    if(ids.length)footer+=`<button class="btn btn-wa" onclick="closeModal();sendJWA(${j.id})">📱 WhatsApp</button>`;
+  }
+  if(canEdit())footer+=`<button class="btn btn-s" onclick="closeModal();editJob(${j.id})">✏ Edit</button>`;
+  footer+=`<button class="btn btn-p" onclick="closeModal();showPage('jobs')">View All Jobs</button>`;
+  
+  openModal(j.title,html,footer);
+}
 
 // ===== REPORTS =====
 function renderReports(){
@@ -1546,6 +1639,30 @@ function viewMachineCust(custName){
     const input=document.getElementById('cSrch');
     if(input){input.value=custName;filterCusts();}
   },100);
+}
+
+function viewMachineDetail(serial){
+  const m=getAllMachinesDB().find(x=>x.serial===serial);if(!m)return;
+  const issues=(m.issues||[]);
+  const html=`<div style="padding:4px 0">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <span style="font-size:var(--fs-xl);font-weight:700">${E(m.serial)}</span>
+      <div style="display:flex;gap:6px">${m.category?`<span class="bd bd-pu">${E(m.category)}</span>`:''}<span class="bd ${issues.length?'bd-er':'bd-ok'}">${issues.length?issues.length+' issue(s)':'OK'}</span></div>
+    </div>
+    <div class="ds"><h4>Machine Info</h4>
+      <div class="dr"><span class="lb">Model</span><span class="vl">${E(m.model)}</span></div>
+      <div class="dr"><span class="lb">Customer</span><span class="vl">${E(m.customer)}</span></div>
+      ${m.location?`<div class="dr"><span class="lb">Location</span><span class="vl">${E(m.location)}</span></div>`:''}
+      ${m.installDate?`<div class="dr"><span class="lb">Installed</span><span class="vl">${E(m.installDate)}</span></div>`:''}
+      <div class="dr"><span class="lb">Warranty</span><span class="vl">${E(m.warranty||'—')}</span></div>
+      <div class="dr"><span class="lb">Type</span><span class="vl">${E(m.purchaseRental||'—')}</span></div>
+      <div class="dr"><span class="lb">Contract</span><span class="vl">${E(m.serviceContract||'—')}</span></div>
+      <div class="dr"><span class="lb">Total Services</span><span class="vl">${(m.reports||[]).length}</span></div>
+      ${m.lastService?`<div class="dr"><span class="lb">Last Service</span><span class="vl">${E(m.lastService)}</span></div>`:''}
+    </div>
+    ${issues.length?`<div class="ds"><h4 style="color:var(--er)">⚠ Outstanding Issues</h4>${issues.map(r=>`<div style="padding:10px 0;border-bottom:1px solid var(--bdr);font-size:var(--fs-sm)"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px"><strong>${E(r.jobNo)}</strong>${stBd(r.status)}</div><div style="color:var(--t2);margin-top:4px">${E(r.date)} — ${E(r.engineer||'')}</div>${r.remarks?`<div style="color:var(--t2);margin-top:4px;font-style:italic">${E(r.remarks.substring(0,120))}${r.remarks.length>120?'...':''}</div>`:''}</div>`).join('')}</div>`:''}
+  </div>`;
+  openModal('Machine — '+m.serial,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>${canEdit()?`<button class="btn btn-s" onclick="closeModal();editMachine('${E(m.serial)}')">✏ Edit</button>`:''}<button class="btn btn-p" onclick="closeModal();showPage('machines')">All Machines</button>`);
 }
 
 // ===== CUSTOMERS (with Agent field) =====
