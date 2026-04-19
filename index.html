@@ -2744,28 +2744,165 @@ setTimeout(()=>{if(checkPDFLibs())console.log('PDF libs ready');else console.war
 function buildReportHTMLForPDF(r){
   const co=CO[r.company]||CO.octopack;
   const photos=r.photos||[];
-  return`<div id="pdfContent" style="background:#fff;color:#000;padding:32px;font-family:Arial,Helvetica,sans-serif;font-size:12px;width:700px;line-height:1.4">
-    <div style="display:flex;justify-content:space-between;border-bottom:2px solid #333;padding-bottom:14px;margin-bottom:14px">
-      <div><div style="font-size:17px;font-weight:bold;color:${co.color}">${co.name}</div><div style="font-size:10px;color:#555;margin-top:4px;line-height:1.5">${co.addr}<br>Tel: ${co.tel} | Email: ${co.email}<br>UEN/GST: ${co.uen}</div></div>
-      <div style="text-align:right"><div style="font-size:16px;font-weight:bold">FIELD SERVICE REPORT</div><div style="font-size:13px;margin-top:6px"><strong>JOB NO.: ${r.jobNo||''}</strong></div></div>
+  const cust=DB.custs.find(c=>c.name===r.customer);
+  const custAddr=cust?.address||'';
+  const docNo=r.jobNo||('SR-'+String(r.id).padStart(6,'0'));
+  const machine=(DB.machines||[]).find(m=>m.serial===r.serial);
+  const machCat=machine?.category||'';
+  const engNames=(r.engineers||[r.engineer]).filter(Boolean).join(', ');
+  
+  return`<div id="pdfContent" style="background:#fff;color:#000;padding:28px 32px;font-family:Arial,Helvetica,sans-serif;font-size:11px;width:700px;line-height:1.4">
+    <!-- HEADER: Company Letterhead -->
+    <div style="display:flex;justify-content:space-between;border-bottom:3px solid ${co.color};padding-bottom:12px;margin-bottom:0">
+      <div>
+        <div style="font-size:18px;font-weight:bold;color:${co.color};letter-spacing:0.5px">${co.name}</div>
+        <div style="font-size:9.5px;color:#444;margin-top:4px;line-height:1.6">
+          ${co.addr}<br>
+          Tel: ${co.tel} &nbsp;|&nbsp; Email: ${co.email}<br>
+          UEN: ${co.uen} &nbsp;|&nbsp; GST Reg No.: ${co.uen}
+        </div>
+      </div>
+      <div style="text-align:right">
+        <div style="font-size:16px;font-weight:bold;color:${co.color};border:2px solid ${co.color};padding:6px 14px;display:inline-block">SERVICE REPORT</div>
+      </div>
     </div>
-    <table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:8px">
-      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left;width:22%">Customer / Address</th><td style="border:1px solid #aaa;padding:6px 8px">${r.customer||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left;width:18%">Contact Person</th><td style="border:1px solid #aaa;padding:6px 8px">${r.contact||''}</td></tr>
-      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Report Date</th><td style="border:1px solid #aaa;padding:6px 8px">${r.date||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Contact Number</th><td style="border:1px solid #aaa;padding:6px 8px">${r.contactNum||''}</td></tr>
-      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Serviced By</th><td style="border:1px solid #aaa;padding:6px 8px">${r.engineer||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">PO No.</th><td style="border:1px solid #aaa;padding:6px 8px">${r.poNo||'—'}</td></tr>
-      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Equipment / Model</th><td style="border:1px solid #aaa;padding:6px 8px">${r.model||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Time Start</th><td style="border:1px solid #aaa;padding:6px 8px">${r.timeStart||''}</td></tr>
-      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Serial No.</th><td style="border:1px solid #aaa;padding:6px 8px;font-weight:bold">${r.serial||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Time End</th><td style="border:1px solid #aaa;padding:6px 8px">${r.timeEnd||''}</td></tr>
-      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Type of Call</th><td colspan="3" style="border:1px solid #aaa;padding:6px 8px;font-weight:bold">${r.type||''}</td></tr>
-      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left;vertical-align:top">Issues / Remarks</th><td colspan="3" style="border:1px solid #aaa;padding:6px 8px;white-space:pre-line;min-height:60px">${r.remarks||''}</td></tr>
-      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left;vertical-align:top">Recommendations</th><td colspan="3" style="border:1px solid #aaa;padding:6px 8px;white-space:pre-line">${r.recommendations||''}</td></tr>
-      <tr><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Status</th><td style="border:1px solid #aaa;padding:6px 8px;font-weight:bold">${r.status||''}</td><th style="border:1px solid #aaa;padding:6px 8px;background:#f0f0f0;text-align:left">Next Visit</th><td style="border:1px solid #aaa;padding:6px 8px">${r.nextVisit||'—'}</td></tr>
+    
+    <!-- DOCUMENT INFO BAR -->
+    <table style="width:100%;border-collapse:collapse;margin-bottom:10px;background:#f8f8f8;border:1px solid #ccc">
+      <tr>
+        <td style="padding:7px 10px;font-size:10px;border-right:1px solid #ccc"><strong>Document No.:</strong> ${docNo}</td>
+        <td style="padding:7px 10px;font-size:10px;border-right:1px solid #ccc"><strong>Date of Service:</strong> ${r.date||''}</td>
+        <td style="padding:7px 10px;font-size:10px;border-right:1px solid #ccc"><strong>PO No.:</strong> ${r.poNo||'N/A'}</td>
+        <td style="padding:7px 10px;font-size:10px"><strong>Page:</strong> 1 of 1</td>
+      </tr>
     </table>
-    ${photos.length?`<div style="margin-top:10px;border-top:1px solid #ccc;padding-top:8px"><strong style="font-size:11px">Photos (${photos.length})</strong><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${photos.map(p=>`<img src="${p.dataUrl}" style="width:90px;height:68px;object-fit:cover;border-radius:4px;border:1px solid #ccc">`).join('')}</div></div>`:''}
-    <div style="display:flex;justify-content:space-between;margin-top:24px;padding-top:14px;border-top:2px solid #333">
-      <div style="text-align:center;width:42%">${r.engSig?`<img src="${r.engSig}" style="max-height:45px;margin-bottom:4px"><br>`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:10px;color:#666">SERVICE ENGINEER SIGNATURE</div></div>
-      <div style="text-align:center;width:42%">${r.custSig?`<img src="${r.custSig}" style="max-height:45px;margin-bottom:4px"><br>`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:10px;color:#666">CUSTOMER: ${r.sigName||''}<br>NAME & SIGNATURE</div></div>
+    
+    <!-- SECTION 1: Customer & Service Info -->
+    <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:8px">
+      <tr style="background:#f0f0f0"><td colspan="4" style="border:1px solid #aaa;padding:5px 8px;font-weight:bold;font-size:11px;color:${co.color}">SECTION 1 — CUSTOMER INFORMATION</td></tr>
+      <tr>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left;width:20%">Customer Name</th>
+        <td style="border:1px solid #aaa;padding:5px 8px;font-weight:bold" colspan="3">${r.customer||''}</td>
+      </tr>
+      <tr>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left">Site Address</th>
+        <td style="border:1px solid #aaa;padding:5px 8px" colspan="3">${custAddr||r.customer||''}</td>
+      </tr>
+      <tr>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left">Contact Person</th>
+        <td style="border:1px solid #aaa;padding:5px 8px">${r.contact||''}</td>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left;width:18%">Contact No.</th>
+        <td style="border:1px solid #aaa;padding:5px 8px">${r.contactNum||''}</td>
+      </tr>
+    </table>
+    
+    <!-- SECTION 2: Equipment & Service Details -->
+    <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:8px">
+      <tr style="background:#f0f0f0"><td colspan="4" style="border:1px solid #aaa;padding:5px 8px;font-weight:bold;font-size:11px;color:${co.color}">SECTION 2 — EQUIPMENT & SERVICE DETAILS</td></tr>
+      <tr>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left;width:20%">Equipment / Model</th>
+        <td style="border:1px solid #aaa;padding:5px 8px;font-weight:bold">${r.model||''}</td>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left;width:18%">Serial No.</th>
+        <td style="border:1px solid #aaa;padding:5px 8px;font-weight:bold">${r.serial||''}</td>
+      </tr>
+      ${machCat?`<tr>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left">Machine Category</th>
+        <td style="border:1px solid #aaa;padding:5px 8px" colspan="3">${machCat}</td>
+      </tr>`:''}
+      <tr>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left">Type of Service</th>
+        <td style="border:1px solid #aaa;padding:5px 8px;font-weight:bold">${r.type||''}</td>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left">Service Status</th>
+        <td style="border:1px solid #aaa;padding:5px 8px;font-weight:bold">${r.status||''}</td>
+      </tr>
+      <tr>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left">Service Engineer(s)</th>
+        <td style="border:1px solid #aaa;padding:5px 8px">${engNames}</td>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left">Next Visit</th>
+        <td style="border:1px solid #aaa;padding:5px 8px">${r.nextVisit||'N/A'}</td>
+      </tr>
+      <tr>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left">Time Start</th>
+        <td style="border:1px solid #aaa;padding:5px 8px">${r.timeStart||''}</td>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left">Time End</th>
+        <td style="border:1px solid #aaa;padding:5px 8px">${r.timeEnd||''}</td>
+      </tr>
+    </table>
+    
+    <!-- SECTION 3: Work Performed -->
+    <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:8px">
+      <tr style="background:#f0f0f0"><td colspan="2" style="border:1px solid #aaa;padding:5px 8px;font-weight:bold;font-size:11px;color:${co.color}">SECTION 3 — DESCRIPTION OF WORK PERFORMED</td></tr>
+      <tr>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left;vertical-align:top;width:20%">Issues / Work Done</th>
+        <td style="border:1px solid #aaa;padding:8px;white-space:pre-line;min-height:80px;line-height:1.5">${r.remarks||'N/A'}</td>
+      </tr>
+      <tr>
+        <th style="border:1px solid #aaa;padding:5px 8px;background:#fafafa;text-align:left;vertical-align:top">Recommendations /<br>Follow-up Actions</th>
+        <td style="border:1px solid #aaa;padding:8px;white-space:pre-line;line-height:1.5">${r.recommendations||'N/A'}</td>
+      </tr>
+    </table>
+    
+    <!-- SECTION 4: Photos -->
+    ${photos.length?`<table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:8px">
+      <tr style="background:#f0f0f0"><td style="border:1px solid #aaa;padding:5px 8px;font-weight:bold;font-size:11px;color:${co.color}">SECTION 4 — PHOTOGRAPHIC EVIDENCE (${photos.length})</td></tr>
+      <tr><td style="border:1px solid #aaa;padding:8px"><div style="display:flex;flex-wrap:wrap;gap:6px">${photos.map(p=>`<img src="${p.dataUrl}" style="width:100px;height:75px;object-fit:cover;border-radius:3px;border:1px solid #ccc">`).join('')}</div></td></tr>
+    </table>`:''}
+    
+    <!-- SECTION 5: Acknowledgement & Signatures -->
+    <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:6px">
+      <tr style="background:#f0f0f0"><td colspan="2" style="border:1px solid #aaa;padding:5px 8px;font-weight:bold;font-size:11px;color:${co.color}">SECTION ${photos.length?5:4} — ACKNOWLEDGEMENT & SIGNATURES</td></tr>
+      <tr><td colspan="2" style="border:1px solid #aaa;padding:8px;font-size:9.5px;line-height:1.5;color:#333">
+        I/We hereby acknowledge that the service described above has been performed to my/our satisfaction. 
+        The information stated in this Service Report is true and accurate to the best of our knowledge. 
+        Any parts replaced remain the property of ${co.name} unless otherwise agreed in writing.
+      </td></tr>
+      <tr>
+        <td style="border:1px solid #aaa;padding:12px 8px;width:50%;vertical-align:top;text-align:center">
+          ${r.engSig?`<img src="${r.engSig}" style="max-height:50px;margin-bottom:4px"><br>`:'<div style="height:50px"></div>'}
+          <div style="border-top:1px solid #333;padding-top:5px;margin-top:4px">
+            <div style="font-size:10px;font-weight:bold">${engNames||'________________'}</div>
+            <div style="font-size:9px;color:#666">Service Engineer — ${co.name}</div>
+            <div style="font-size:9px;color:#666">Date: ${r.date||'________________'}</div>
+          </div>
+        </td>
+        <td style="border:1px solid #aaa;padding:12px 8px;width:50%;vertical-align:top;text-align:center">
+          ${r.custSig?`<img src="${r.custSig}" style="max-height:50px;margin-bottom:4px"><br>`:'<div style="height:50px"></div>'}
+          <div style="border-top:1px solid #333;padding-top:5px;margin-top:4px">
+            <div style="font-size:10px;font-weight:bold">${r.sigName||'________________'}</div>
+            <div style="font-size:9px;color:#666">Customer Representative — ${r.customer||''}</div>
+            <div style="font-size:9px;color:#666">Date: ${r.date||'________________'}</div>
+          </div>
+        </td>
+      </tr>
+    </table>
+    
+    <!-- TERMS & CONDITIONS -->
+    <div style="border:1px solid #ccc;padding:8px;margin-bottom:6px;background:#fafafa;font-size:8.5px;color:#555;line-height:1.5">
+      <strong style="font-size:9px;color:#333">TERMS & CONDITIONS</strong><br>
+      1. All services are performed in accordance with the terms of the service agreement or purchase order referenced above.<br>
+      2. ${co.name} shall not be liable for any loss or damage arising from the use or inability to use the equipment after service, except where caused by gross negligence.<br>
+      3. Warranty on parts replaced is as per manufacturer's standard warranty unless otherwise stated in the service agreement.<br>
+      4. This document serves as a record of service performed and is not a tax invoice. A separate tax invoice will be issued for any billable services.<br>
+      5. Any dispute arising from this service shall be governed by the laws of the Republic of Singapore.
     </div>
-    <div style="text-align:center;margin-top:16px;font-size:9px;color:#999;border-top:1px solid #ddd;padding-top:6px">${co.tag}</div>
+    
+    <!-- FOOTER: Compliance & Retention Notice -->
+    <div style="border-top:2px solid ${co.color};padding-top:8px;margin-top:4px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div style="font-size:8.5px;color:#666;line-height:1.5">
+          <strong>${co.name}</strong> &nbsp;|&nbsp; UEN: ${co.uen} &nbsp;|&nbsp; GST Reg: ${co.uen}<br>
+          ${co.addr}
+        </div>
+        <div style="text-align:right;font-size:8.5px;color:#666">
+          Document: ${docNo}<br>
+          Generated: ${new Date().toISOString().split('T')[0]}
+        </div>
+      </div>
+      <div style="text-align:center;margin-top:6px;padding:5px;background:#fff3cd;border:1px solid #ffc107;border-radius:3px;font-size:8.5px;color:#856404;font-weight:bold">
+        ⚠ This document must be retained for a minimum of 5 years in accordance with IRAS record-keeping requirements (Section 46 GST Act).
+      </div>
+      <div style="text-align:center;margin-top:4px;font-size:8px;color:#aaa">${co.tag} &nbsp;|&nbsp; OctoCRM Field Service Management</div>
+    </div>
   </div>`;
 }
 
