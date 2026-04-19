@@ -1795,9 +1795,86 @@ function delUser(id){if(DB.users.length<=1){toast('Cannot delete the last user.'
 let calY,calM;
 function calPrev(){calM--;if(calM<0){calM=11;calY--;}renderCal();}
 function calNext(){calM++;if(calM>11){calM=0;calY++;}renderCal();}
-function renderCal(){if(calY===undefined){const n=new Date();calY=n.getFullYear();calM=n.getMonth();}const mo=['January','February','March','April','May','June','July','August','September','October','November','December'];const fd=new Date(calY,calM,1).getDay(),dm=new Date(calY,calM+1,0).getDate(),td=new Date();const ev={};function ae(dt,d){if(!dt)return;if(!ev[dt])ev[dt]=[];ev[dt].push(d);}DB.reports.forEach(r=>{ae(r.date,{l:r.customer?.substring(0,16),bg:'var(--oks)',c:'var(--ok)'});ae(r.nextVisit,{l:'🔔 '+r.customer?.substring(0,12),bg:'var(--wns)',c:'var(--wn)'});});DB.jobs.forEach(j=>{if(j.status!=='Completed')ae(j.date,{l:'🔧 '+j.title?.substring(0,14),bg:'var(--acs)',c:'var(--ac)'});});
+function renderCal(){if(calY===undefined){const n=new Date();calY=n.getFullYear();calM=n.getMonth();}const mo=['January','February','March','April','May','June','July','August','September','October','November','December'];const fd=new Date(calY,calM,1).getDay(),dm=new Date(calY,calM+1,0).getDate(),td=new Date();const ev={};function ae(dt,d){if(!dt)return;if(!ev[dt])ev[dt]=[];ev[dt].push(d);}DB.reports.forEach(r=>{ae(r.date,{type:'report',l:r.customer?.substring(0,16),bg:'var(--oks)',c:'var(--ok)',data:r});ae(r.nextVisit,{type:'visit',l:'🔔 '+r.customer?.substring(0,12),bg:'var(--wns)',c:'var(--wn)',data:r});});DB.jobs.forEach(j=>{if(j.status!=='Completed')ae(j.date,{type:'job',l:'🔧 '+j.title?.substring(0,14),bg:'var(--acs)',c:'var(--ac)',data:j});});
 let h=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><button class="btn btn-s btn-sm" onclick="calPrev()">← Prev</button><h3 style="font-size:var(--fs-lg);font-weight:700">${mo[calM]} ${calY}</h3><button class="btn btn-s btn-sm" onclick="calNext()">Next →</button></div><div class="cg">`;
-['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>{h+=`<div class="ch-h">${d}</div>`;});const pd=new Date(calY,calM,0).getDate();for(let i=fd-1;i>=0;i--)h+=`<div class="cd om"><div class="dn">${pd-i}</div></div>`;for(let d=1;d<=dm;d++){const ds=`${calY}-${String(calM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;const it=td.getFullYear()===calY&&td.getMonth()===calM&&td.getDate()===d;const de=ev[ds]||[];h+=`<div class="cd ${it?'today':''}"><div class="dn">${d}</div>${de.slice(0,2).map(e=>`<div class="ce" style="background:${e.bg};color:${e.c}">${E(e.l)}</div>`).join('')}${de.length>2?`<div style="font-size:9px;color:var(--t3)">+${de.length-2}</div>`:''}</div>`;}const tt=fd+dm;for(let i=1;i<=(7-(tt%7))%7;i++)h+=`<div class="cd om"><div class="dn">${i}</div></div>`;h+='</div>';document.getElementById('calendarContent').innerHTML=h;}
+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>{h+=`<div class="ch-h">${d}</div>`;});const pd=new Date(calY,calM,0).getDate();for(let i=fd-1;i>=0;i--)h+=`<div class="cd om"><div class="dn">${pd-i}</div></div>`;for(let d=1;d<=dm;d++){const ds=`${calY}-${String(calM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;const it=td.getFullYear()===calY&&td.getMonth()===calM&&td.getDate()===d;const de=ev[ds]||[];h+=`<div class="cd ${it?'today':''}" ${de.length?`onclick="showCalDay('${ds}')" style="cursor:pointer"`:''} ><div class="dn">${d}</div>${de.slice(0,2).map(e=>`<div class="ce" style="background:${e.bg};color:${e.c}">${E(e.l)}</div>`).join('')}${de.length>2?`<div style="font-size:9px;color:var(--t3)">+${de.length-2} more</div>`:''}</div>`;}const tt=fd+dm;for(let i=1;i<=(7-(tt%7))%7;i++)h+=`<div class="cd om"><div class="dn">${i}</div></div>`;h+='</div>';document.getElementById('calendarContent').innerHTML=h;}
+
+function showCalDay(ds){
+  const dayJobs=DB.jobs.filter(j=>j.date===ds&&j.status!=='Completed');
+  const dayReports=DB.reports.filter(r=>r.date===ds);
+  const dayVisits=DB.reports.filter(r=>r.nextVisit===ds);
+  if(!dayJobs.length&&!dayReports.length&&!dayVisits.length)return;
+  
+  const parts=ds.split('-');
+  const dayLabel=new Date(parts[0],parts[1]-1,parts[2]).toLocaleDateString('en-SG',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  
+  let html='';
+  
+  if(dayJobs.length){
+    html+=`<div class="ds"><h4 style="color:var(--ac)">🔧 Jobs (${dayJobs.length})</h4>`;
+    dayJobs.forEach(j=>{
+      const techNames=getJobTechNames(j);
+      const mi=getJobMachineInfo(j);
+      const addr=getJobAddress(j);
+      html+=`<div style="padding:12px;margin-bottom:10px;background:var(--acs);border-radius:var(--r);border-left:4px solid var(--ac)">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <strong style="font-size:var(--fs)">${E(j.title)}</strong>
+          <div style="display:flex;gap:4px">${prBd(j.priority)}${jsBd(j.status)}</div>
+        </div>
+        <div style="margin-top:8px;font-size:var(--fs-sm);color:var(--t2);line-height:1.7">
+          <div>🏢 <strong>${E(j.customer||'—')}</strong></div>
+          ${addr?`<div>📍 ${E(addr)}</div>`:''}
+          <div>⚙️ ${E(mi.model||j.machine||'—')}${mi.serial?' (S/N: '+E(mi.serial)+')':''}${mi.category?' — <span style="color:var(--pu);font-weight:600">'+E(mi.category)+'</span>':''}</div>
+          <div>📌 ${E(j.type||'—')}</div>
+          ${j.time?`<div>⏰ ${E(j.time)}</div>`:''}
+          <div>👥 ${E(techNames)}</div>
+          ${j.desc?`<div style="margin-top:6px;padding:8px;background:var(--bg);border-radius:var(--r);font-style:italic">📝 ${E(j.desc.substring(0,150))}${j.desc.length>150?'...':''}</div>`:''}
+        </div>
+        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-s" onclick="closeModal();viewJobDetail(${j.id})">View Details</button>
+          ${addr?`<button class="btn btn-sm btn-ok" onclick="closeModal();navigateTo('${E(addr)}')">🧭 Navigate</button>`:''}
+          <button class="btn btn-sm btn-wa" onclick="closeModal();sendJWA(${j.id})">📱 WhatsApp</button>
+        </div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+  
+  if(dayReports.length){
+    html+=`<div class="ds"><h4 style="color:var(--ok)">📋 Reports (${dayReports.length})</h4>`;
+    dayReports.forEach(r=>{
+      html+=`<div style="padding:12px;margin-bottom:10px;background:var(--oks);border-radius:var(--r);border-left:4px solid var(--ok)">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <strong>${E(r.jobNo)}</strong>${stBd(r.status)}
+        </div>
+        <div style="margin-top:6px;font-size:var(--fs-sm);color:var(--t2);line-height:1.7">
+          <div>🏢 ${E(r.customer||'')} — ${E(r.contact||'')}</div>
+          <div>⚙️ ${E(r.model||'')} (S/N: ${E(r.serial||'')})</div>
+          <div>📌 ${E(r.type||'')} &nbsp;|&nbsp; 🕐 ${E(r.timeStart||'')}-${E(r.timeEnd||'')}</div>
+          <div>👷 ${E(r.engineer||'')}</div>
+          ${r.remarks?`<div style="margin-top:4px;font-style:italic">📝 ${E(r.remarks.substring(0,120))}${r.remarks.length>120?'...':''}</div>`:''}
+        </div>
+        <div style="margin-top:8px"><button class="btn btn-sm btn-s" onclick="closeModal();viewRptPreview(${r.id})">View Report</button></div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+  
+  if(dayVisits.length){
+    html+=`<div class="ds"><h4 style="color:var(--wn)">🔔 Scheduled Follow-up Visits (${dayVisits.length})</h4>`;
+    dayVisits.forEach(r=>{
+      html+=`<div style="padding:12px;margin-bottom:10px;background:var(--wns);border-radius:var(--r);border-left:4px solid var(--wn)">
+        <div><strong>${E(r.customer||'')}</strong> — ${E(r.model||'')} (${E(r.serial||'')})</div>
+        <div style="font-size:var(--fs-sm);color:var(--t2);margin-top:4px">Previous: ${E(r.jobNo)} on ${E(r.date||'')} by ${E(r.engineer||'')}</div>
+        ${r.recommendations?`<div style="font-size:var(--fs-sm);margin-top:4px;font-style:italic">💡 ${E(r.recommendations.substring(0,120))}${r.recommendations.length>120?'...':''}</div>`:''}
+        <div style="margin-top:8px"><button class="btn btn-sm btn-s" onclick="closeModal();viewRptPreview(${r.id})">View Original Report</button></div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+  
+  openModal('📅 '+dayLabel,html,`<button class="btn btn-s" onclick="closeModal()">Close</button><button class="btn btn-p" onclick="closeModal();openNewJobModal()">+ New Job</button>`);
+}
 
 // ===== SCAN (AI-powered using Claude API) =====
 function renderScan(){
