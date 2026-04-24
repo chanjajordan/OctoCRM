@@ -313,6 +313,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
   <button class="ni" data-page="outlook" onclick="showPage('outlook')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Outlook Sync</button>
   <button class="ni" data-page="data-mgmt" onclick="showPage('data-mgmt')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Data Import/Export</button>
   <button class="ni" data-page="agents" onclick="showPage('agents')" id="navAgents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>Agents / Companies</button>
+  <button class="ni" data-page="pos" onclick="showPage('pos')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="9" y1="11" x2="13" y2="11"/></svg>PO Tracker</button>
   <div class="sb-foot">
     <div class="sb-user"><div class="sb-user-av" id="sbAvatar">A</div><div class="sb-user-info"><div class="sb-user-name" id="sbUserName">Admin</div><div class="sb-user-role" id="sbUserRole">Administrator</div></div></div>
     <button class="btn btn-s btn-sm" style="width:100%" onclick="doLogout()">Sign Out</button>
@@ -348,6 +349,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
 <div class="ct pg" id="page-outlook"><div id="outlookContent"></div></div>
 <div class="ct pg" id="page-data-mgmt"><div id="dataMgmtContent"></div></div>
 <div class="ct pg" id="page-agents"><div id="agentsContent"></div></div>
+<div class="ct pg" id="page-pos"><div id="posContent"></div></div>
 
 </div></div>
 
@@ -423,7 +425,8 @@ function loadDB(){
   if(!Array.isArray(DB.agents))DB.agents=[];
   if(!Array.isArray(DB.deletedCusts))DB.deletedCusts=[];
   if(!Array.isArray(DB.deletedMachines))DB.deletedMachines=[];
-  if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;
+  if(!Array.isArray(DB.pos))DB.pos=[];
+  if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;if(!DB.nP)DB.nP=1;
 
   // Always ensure default users exist
   if(!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
@@ -632,7 +635,7 @@ function showPage(p){
   document.querySelectorAll('.ni').forEach(e=>e.classList.remove('active'));
   const pg=document.getElementById('page-'+p);if(pg)pg.classList.add('active');
   const nv=document.querySelector(`.ni[data-page="${p}"]`);if(nv)nv.classList.add('active');
-  const t={dashboard:'Dashboard',jobs:'Job Board',reports:'Service Reports','create-report':'Create Report',machines:'Machines',customers:'Customers',calendar:'Calendar',scan:'Scan Report',technicians:'Technicians',users:'User Management',outlook:'Outlook Sync','data-mgmt':'Data Import/Export',agents:'Agents / Companies'};
+  const t={dashboard:'Dashboard',jobs:'Job Board',reports:'Service Reports','create-report':'Create Report',machines:'Machines',customers:'Customers',calendar:'Calendar',scan:'Scan Report',technicians:'Technicians',users:'User Management',outlook:'Outlook Sync','data-mgmt':'Data Import/Export',agents:'Agents / Companies',pos:'PO Tracker'};
   document.getElementById('pageTitle').textContent=t[p]||p;
   closePnl();closeSidebar();
   document.querySelectorAll('.mob-tab').forEach(t=>t.classList.toggle('active',t.dataset.mp===p));
@@ -650,6 +653,7 @@ function showPage(p){
   else if(p==='outlook')renderOutlook();
   else if(p==='data-mgmt')renderDataMgmt();
   else if(p==='agents')renderAgents();
+  else if(p==='pos')renderPOs();
 }
 
 function refreshPage(){
@@ -687,7 +691,8 @@ function prBd(p){const m={'Low':'bd-tl','Medium':'bd-ac','High':'bd-wn','Urgent'
 function tyBd(t){const m={'Preventive Maintenance':'bd-ok','Corrective Maintenance':'bd-wn','Breakdown Call':'bd-er','Installation':'bd-ac','Inspection':'bd-pu','Emergency':'bd-er'};return`<span class="bd ${m[t]||'bd-ac'}">${E(t)}</span>`}
 function toast(msg,type='info'){const c=document.getElementById('toastC'),t=document.createElement('div');t.className=`ts ${type}`;const i={success:'✓',error:'✕',info:'ℹ'};t.innerHTML=`<span style="font-weight:700;font-size:18px">${i[type]||'ℹ'}</span><span>${msg}</span>`;c.appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300)},3e3)}
 function openModal(title,bodyHTML,footerHTML){const mc=document.getElementById('globalModalContent');mc.innerHTML=`<div class="mh"><h2>${title}</h2><button class="btn-i" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="mb">${bodyHTML}</div>${footerHTML?`<div class="mf">${footerHTML}</div>`:''}`;document.getElementById('globalModal').classList.add('open')}
-function closeModal(){document.getElementById('globalModal').classList.remove('open')}
+function closeModal(keepContent){document.getElementById('globalModal').classList.remove('open');if(!keepContent)setTimeout(()=>{if(!document.getElementById('globalModal').classList.contains('open'))document.getElementById('globalModalContent').innerHTML='';},350);}
+function switchModal(fn){document.getElementById('globalModal').classList.remove('open');setTimeout(()=>{fn();},50);}
 function closePnl(){document.getElementById('detPnl').classList.remove('open')}
 document.getElementById('globalModal').addEventListener('click',e=>{if(e.target.id==='globalModal')closeModal()});
 
@@ -711,21 +716,25 @@ function renderDash(){
   const aj=DB.jobs.filter(j=>j.status!=='Completed'),ms=getMachs(),cs=getAllCusts();
   const outstandingRpts=DB.reports.filter(r=>r.status!=='Completed');
   const defectiveMachines=getAllMachinesDB().filter(m=>(m.issues||[]).length>0);
+  const outstandingPOs=(DB.pos||[]).filter(p=>p.status==='Outstanding');
   document.getElementById('dashContent').innerHTML=`
     <div class="sg">
       <div class="sc"><div class="si" style="background:var(--acs);color:var(--ac)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div><div class="sv">${DB.reports.length}</div><div class="sl">Total Reports</div></div>
       <div class="sc" onclick="showPage('reports')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><div class="sv" style="color:var(--er)">${outstandingRpts.length}</div><div class="sl">Outstanding Reports</div></div>
       <div class="sc"><div class="si" style="background:var(--wns);color:var(--wn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></div><div class="sv">${aj.length}</div><div class="sl">Active Jobs</div></div>
+      <div class="sc" onclick="curPOF='Outstanding';showPage('pos')" style="cursor:pointer"><div class="si" style="background:var(--wns);color:var(--wn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="9" y1="11" x2="13" y2="11"/></svg></div><div class="sv" style="color:${outstandingPOs.length?'var(--wn)':'var(--t1)'}">${outstandingPOs.length}</div><div class="sl">Outstanding POs</div></div>
       <div class="sc" onclick="showPage('machines')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="sv" style="color:var(--er)">${defectiveMachines.length}</div><div class="sl">Defective Machines</div></div>
       <div class="sc"><div class="si" style="background:var(--oks);color:var(--ok)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="1"/></svg></div><div class="sv">${getAllMachinesDB().length}</div><div class="sl">Total Machines</div></div>
       <div class="sc"><div class="si" style="background:var(--pus);color:var(--pu)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div><div class="sv">${cs.length}</div><div class="sl">Customers</div></div>
     </div>
+    ${outstandingPOs.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--wn)"><div class="th"><h3 style="color:var(--wn)">📄 Outstanding POs (${outstandingPOs.length})</h3><button class="btn btn-sm btn-s" onclick="curPOF='Outstanding';showPage('pos')">View All →</button></div>
+    ${outstandingPOs.slice(0,5).map(p=>{const total=(p.items||[]).reduce((s,i)=>s+(parseFloat(i.amount)||0),0);return`<div class="rpt-card" onclick="viewPODetail(${p.id})" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(p.poNo)}</span><span class="bd bd-wn">Outstanding</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(p.customer||'—')}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(p.date||'—')}</span></div>${total?`<div class="rpt-card-row"><span class="rc-label">Total</span><span class="rc-val" style="font-weight:700">$${total.toFixed(2)}</span></div>`:''}</div>`}).join('')}</div>`:''}
     ${outstandingRpts.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--er)"><div class="th"><h3 style="color:var(--er)">⚠ Outstanding Reports</h3><button class="btn btn-sm btn-s" onclick="showPage('reports')">View All →</button></div>
     ${outstandingRpts.slice(0,5).map(r=>`<div class="rpt-card" onclick="viewRptPreview(${r.id})" style="cursor:pointer"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span>${stBd(r.status)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(r.model)} / ${E(r.serial)}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(r.date)}</span></div></div>`).join('')}</div>`:''}
     ${defectiveMachines.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--wn)"><div class="th"><h3 style="color:var(--wn)">🔧 Defective Machines</h3><button class="btn btn-sm btn-s" onclick="showPage('machines')">View All →</button></div>
     ${defectiveMachines.slice(0,5).map(m=>`<div class="rpt-card" onclick="viewMachineDetail('${E(m.serial)}')" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(m.serial)}</span><span class="bd bd-er">${(m.issues||[]).length} issue(s)</span></div><div class="rpt-card-row"><span class="rc-label">Model</span><span class="rc-val">${E(m.model)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(m.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Last Issue</span><span class="rc-val">${E(m.issues[m.issues.length-1]?.status||'')}</span></div></div>`).join('')}</div>`:''}
     <div class="tw" style="margin-bottom:16px"><div class="th"><h3>Active Jobs</h3><button class="btn btn-sm btn-s" onclick="showPage('jobs')">View All →</button></div>
-    ${aj.length?aj.slice(0,5).map(j=>{const mi=getJobMachineInfo(j);const addr=getJobAddress(j);return`<div class="rpt-card" onclick="viewJobDetail(${j.id})" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title?.substring(0,40))}</span>${prBd(j.priority)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(mi.model||j.machine||'—')}${mi.category?' <span class="bd bd-pu" style="font-size:9px;padding:2px 6px;margin-left:4px">'+E(mi.category)+'</span>':''}</span></div><div class="rpt-card-row"><span class="rc-label">Technician(s)</span><span class="rc-val">${E(getJobTechNames(j))}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div>${addr?`<div class="rpt-card-row"><span class="rc-label">📍</span><span class="rc-val"><button class="btn btn-sm btn-ok" style="padding:2px 10px;min-height:26px;font-size:11px" onclick="event.stopPropagation();navigateTo('${E(addr)}')">🧭 Navigate</button></span></div>`:''}<div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${jsBd(j.status)}</span></div></div>`}).join(''):'<div class="es" style="padding:24px"><p>No active jobs.</p></div>'}
+    ${aj.length?aj.slice(0,5).map(j=>{const addr=getJobAddress(j);return`<div class="rpt-card" onclick="viewJobDetail(${j.id})" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title?.substring(0,40))}</span>${prBd(j.priority)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Machine(s)</span><span class="rc-val">${getJobMachineText(j)}</span></div><div class="rpt-card-row"><span class="rc-label">Technician(s)</span><span class="rc-val">${E(getJobTechNames(j))}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div>${addr?`<div class="rpt-card-row"><span class="rc-label">📍</span><span class="rc-val"><button class="btn btn-sm btn-ok" style="padding:2px 10px;min-height:26px;font-size:11px" onclick="event.stopPropagation();navigateTo('${E(addr)}')">🧭 Navigate</button></span></div>`:''}<div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${jsBd(j.status)}</span></div></div>`}).join(''):'<div class="es" style="padding:24px"><p>No active jobs.</p></div>'}
     </div>
     <div class="tw"><div class="th"><h3>Recent Reports</h3></div>
     ${DB.reports.length?[...DB.reports].sort((a,b)=>b.id-a.id).slice(0,5).map(r=>`<div class="rpt-card" onclick="viewRptPreview(${r.id})" style="cursor:pointer"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span><span class="bd" style="background:${CO[r.company]?.color||'var(--ac)'}15;color:${CO[r.company]?.color||'var(--ac)'};font-size:11px">${E(r.company)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${stBd(r.status)}</span></div></div>`).join(''):'<div class="es" style="padding:24px"><p>No reports yet.</p></div>'}
@@ -751,6 +760,7 @@ function renderJobs(){
       <div style="margin-bottom:12px"><label style="font-size:var(--fs-xs);font-weight:600;color:var(--t3);display:block;margin-bottom:4px">STATUS</label>${statusSelect(j.id,j.status,'job')}</div>
       <div class="jc-a">
         ${j.status!=='Completed'?`<button class="btn btn-sm btn-wa" onclick="sendJWA(${j.id})">📱 WhatsApp</button>`:''}
+        <button class="btn btn-sm btn-p" onclick="createReportFromJob(${j.id})">📋 Report</button>
         ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editJob(${j.id})">Edit</button>`:''}
         ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delJob(${j.id})">Delete</button>`:''}
       </div>
@@ -759,11 +769,24 @@ function renderJobs(){
 }
 
 function getJobMachineInfo(j){
-  if(!j.machine&&!j.model)return{};
+  const machines=j.machines||[];
+  if(machines.length){
+    return machines.map(mi=>{
+      const m=(DB.machines||[]).find(x=>x.serial===mi.serial);
+      return{model:mi.model||m?.model||'',serial:mi.serial||'',category:m?.category||''};
+    });
+  }
+  if(!j.machine&&!j.model)return[];
   const m=(DB.machines||[]).find(x=>x.serial===j.machine);
-  if(m)return{model:m.model,serial:m.serial,category:m.category||''};
-  if(j.model)return{model:j.model,serial:j.machine||'',category:''};
-  return{};
+  if(m)return[{model:m.model,serial:m.serial,category:m.category||''}];
+  if(j.model)return[{model:j.model,serial:j.machine||'',category:''}];
+  return[];
+}
+
+function getJobMachineText(j){
+  const mis=getJobMachineInfo(j);
+  if(!mis.length)return'—';
+  return mis.map(mi=>E(mi.model)+(mi.serial?' ('+E(mi.serial)+')':'')+(mi.category?' ['+E(mi.category)+']':'')).join(', ');
 }
 
 function getJobAddress(j){
@@ -816,19 +839,9 @@ function openNewJobModal(){
       <input class="fc" id="jCuCustom" placeholder="Or type new customer name..." style="display:none;margin-top:6px">
       <button class="btn btn-sm btn-s" onclick="toggleJobCustomCust()" style="margin-top:6px;font-size:var(--fs-xs)" id="jCuToggle">+ New customer</button>
     </div>
-    <div class="fg"><label>Machine Category</label>
-      <select class="fc" id="jMaCat" onchange="onJobCatChange()"><option value="">— Select customer first —</option></select>
-      <div id="jMaCatInfo" style="display:none;margin-top:6px;padding:8px 12px;background:var(--pus);color:var(--pu);border-radius:var(--r);font-size:var(--fs-sm);font-weight:600"></div>
-    </div>
-    <div class="fr">
-      <div class="fg"><label>Machine Model</label>
-        <select class="fc" id="jMaMd" onchange="onJobModelChange()"><option value="">— Select category first —</option></select>
-        <input class="fc" id="jMaMdCustom" placeholder="Type model..." style="display:none;margin-top:6px">
-      </div>
-      <div class="fg"><label>Serial Number</label>
-        <select class="fc" id="jMa"><option value="">— Select model first —</option></select>
-        <input class="fc" id="jMaCustom" placeholder="Type serial..." style="display:none;margin-top:6px">
-      </div>
+    <div class="fg"><label>Machine(s)</label>
+      <div id="jMachList"></div>
+      <button class="btn btn-sm btn-s" onclick="addJobMachine()" style="margin-top:8px" id="jAddMachBtn">+ Add machine</button>
     </div>
     <div class="fg"><label>Technician(s) — select one or more</label>
       <div id="jTeChecks" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${DB.techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="jTeChk" value="${t.id}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
@@ -842,12 +855,90 @@ function openNewJobModal(){
 function toggleJobCustomCust(){
   const sel=document.getElementById('jCu'),inp=document.getElementById('jCuCustom'),btn=document.getElementById('jCuToggle');
   if(inp.style.display==='none'){inp.style.display='';sel.style.display='none';inp.focus();btn.textContent='← Back to list';
-    document.getElementById('jMaCat').innerHTML='<option value="">All</option>';
-    document.getElementById('jMaMd').innerHTML='<option value="">—</option><option value="__custom__">✏ Type model...</option>';
-    document.getElementById('jMa').innerHTML='<option value="">—</option><option value="__custom__">✏ Type serial...</option>';
-    document.getElementById('jMaCatInfo').style.display='none';
-    setCustomToggle('jMaMd','jMaMdCustom');setCustomToggle('jMa','jMaCustom');
+    document.getElementById('jMachList').innerHTML='';
   }else{inp.style.display='none';sel.style.display='';btn.textContent='+ New customer';}
+}
+
+let jMachIdx=0;
+function addJobMachine(preset){
+  const p=preset||{};
+  const custName=document.getElementById('jCu')?.value||document.getElementById('jCuCustom')?.value||'';
+  const custMachines=(DB.machines||[]).filter(m=>m.customer===custName);
+  const idx=jMachIdx++;
+  const container=document.getElementById('jMachList');
+  const div=document.createElement('div');
+  div.dataset.jmi=idx;
+  div.style.cssText='padding:12px;margin-bottom:8px;background:var(--input);border:1px solid var(--bdr);border-radius:var(--r);position:relative';
+  
+  // Build model options grouped by category
+  const catModels={};
+  custMachines.forEach(m=>{const cat=m.category||'Other';if(!catModels[cat])catModels[cat]=new Set();catModels[cat].add(m.model);});
+  let modelOpts='<option value="">— Select model —</option>';
+  Object.entries(catModels).sort().forEach(([cat,models])=>{
+    modelOpts+=`<optgroup label="${E(cat)}">`;
+    [...models].forEach(m=>{modelOpts+=`<option value="${E(m)}"${m===p.model?' selected':''}>${E(m)}</option>`;});
+    modelOpts+=`</optgroup>`;
+  });
+  modelOpts+='<option value="__custom__">✏ Type model...</option>';
+  
+  div.innerHTML=`${container.children.length>0?'<button class="btn btn-sm btn-d" onclick="this.closest(\'[data-jmi]\').remove()" style="position:absolute;right:8px;top:8px;min-height:28px;padding:2px 8px">✕</button>':''}
+    <div class="fr">
+      <div class="fg"><label style="font-size:var(--fs-xs)">Model</label><select class="fc jmModel" onchange="onJMModelChange(this,${idx})">${modelOpts}</select><input class="fc jmModelC" placeholder="Type model..." style="display:none;margin-top:4px" value="${E(p.model&&!custMachines.find(m=>m.model===p.model)?p.model:'')}"></div>
+      <div class="fg"><label style="font-size:var(--fs-xs)">Serial</label><select class="fc jmSerial"><option value="">—</option></select><input class="fc jmSerialC" placeholder="Type serial..." style="display:none;margin-top:4px" value="${E(p.serial||'')}"></div>
+    </div>
+    <div class="jmCatBadge" style="margin-top:4px;font-size:var(--fs-xs);color:var(--pu);font-weight:600"></div>`;
+  container.appendChild(div);
+  
+  // Wire up model select
+  const mdSel=div.querySelector('.jmModel');
+  const mdCust=div.querySelector('.jmModelC');
+  mdSel.onchange=function(){
+    if(this.value==='__custom__'){this.style.display='none';mdCust.style.display='';mdCust.focus();
+      const srSel=div.querySelector('.jmSerial');srSel.innerHTML='<option value="">—</option>';
+      const srC=div.querySelector('.jmSerialC');srC.style.display='';srSel.style.display='none';
+    }else{onJMModelChange(this,idx);}
+  };
+  
+  // If preset, trigger serial population
+  if(p.model&&custMachines.find(m=>m.model===p.model)){
+    setTimeout(()=>{onJMModelChange(mdSel,idx);
+      if(p.serial){setTimeout(()=>{const srSel=div.querySelector('.jmSerial');const opt=[...srSel.options].find(o=>o.value===p.serial);if(opt)srSel.value=p.serial;else{div.querySelector('.jmSerialC').value=p.serial;div.querySelector('.jmSerialC').style.display='';srSel.style.display='none';}},50);}
+    },50);
+  }else if(p.model){
+    mdSel.style.display='none';mdCust.style.display='';mdCust.value=p.model;
+    if(p.serial){div.querySelector('.jmSerialC').style.display='';div.querySelector('.jmSerial').style.display='none';div.querySelector('.jmSerialC').value=p.serial;}
+  }
+}
+
+function onJMModelChange(sel,idx){
+  const div=sel.closest('[data-jmi]');if(!div)return;
+  const custName=document.getElementById('jCu')?.value||'';
+  const model=sel.value;
+  if(!model||model==='__custom__')return;
+  // Show category
+  const machWithCat=(DB.machines||[]).find(m=>m.customer===custName&&m.model===model&&m.category);
+  const badge=div.querySelector('.jmCatBadge');
+  if(machWithCat?.category)badge.textContent='📂 '+machWithCat.category;else badge.textContent='';
+  // Populate serials
+  const serials=new Set();
+  (DB.machines||[]).filter(m=>m.customer===custName&&m.model===model).forEach(m=>serials.add(m.serial));
+  const srSel=div.querySelector('.jmSerial');const srC=div.querySelector('.jmSerialC');
+  srSel.innerHTML='<option value="">— Select —</option>'+[...serials].map(s=>`<option>${E(s)}</option>`).join('')+'<option value="__custom__">✏ Type...</option>';
+  srSel.style.display='';srC.style.display='none';
+  if(serials.size===1)srSel.value=[...serials][0];
+  srSel.onchange=function(){if(this.value==='__custom__'){this.style.display='none';srC.style.display='';srC.focus();}};
+}
+
+function getJobMachines(){
+  const machines=[];
+  document.querySelectorAll('#jMachList [data-jmi]').forEach(div=>{
+    const mdSel=div.querySelector('.jmModel');const mdC=div.querySelector('.jmModelC');
+    const srSel=div.querySelector('.jmSerial');const srC=div.querySelector('.jmSerialC');
+    const model=(mdSel&&mdSel.style.display!=='none'&&mdSel.value&&mdSel.value!=='__custom__')?mdSel.value:(mdC?.value.trim()||'');
+    const serial=(srSel&&srSel.style.display!=='none'&&srSel.value&&srSel.value!=='__custom__')?srSel.value:(srC?.value.trim()||'');
+    if(model||serial)machines.push({model,serial});
+  });
+  return machines;
 }
 
 function setCustomToggle(selId,custId){
@@ -857,70 +948,10 @@ function setCustomToggle(selId,custId){
 }
 
 function onJobCustChange(){
-  const custName=document.getElementById('jCu').value;
-  const custMachines=(DB.machines||[]).filter(m=>m.customer===custName);
-  
-  // Populate categories for this customer's machines
-  const cats=new Set();
-  custMachines.forEach(m=>{cats.add(m.category||'Uncategorized');});
-  const catSel=document.getElementById('jMaCat');
-  catSel.innerHTML='<option value="">— All categories —</option>'+[...cats].sort().map(c=>`<option>${E(c)}</option>`).join('');
-  document.getElementById('jMaCatInfo').style.display='none';
-  
-  // Populate models (all categories initially)
-  populateJobModels(custName,'');
-  
-  // Reset serial
-  document.getElementById('jMa').innerHTML='<option value="">— Select model first —</option>';
-  document.getElementById('jMaCustom').style.display='none';document.getElementById('jMa').style.display='';
-}
-
-function onJobCatChange(){
-  const custName=document.getElementById('jCu').value;
-  const cat=document.getElementById('jMaCat').value;
-  const info=document.getElementById('jMaCatInfo');
-  if(cat){info.textContent='📂 '+cat;info.style.display='block';}
-  else{info.style.display='none';}
-  populateJobModels(custName,cat);
-  document.getElementById('jMa').innerHTML='<option value="">— Select model first —</option>';
-}
-
-function populateJobModels(custName,category){
-  let custMachines=(DB.machines||[]).filter(m=>m.customer===custName);
-  if(category)custMachines=custMachines.filter(m=>(m.category||'Uncategorized')===category);
-  const rptMachines=DB.reports.filter(r=>r.customer===custName&&r.model).reduce((acc,r)=>{if(!acc.find(x=>x.model===r.model))acc.push({model:r.model,serial:r.serial,category:''});return acc;},[]);
-  
-  // Unique models with category info
-  const modelMap={};
-  custMachines.forEach(m=>{modelMap[m.model]=m.category||'';});
-  if(!category)rptMachines.forEach(m=>{if(!modelMap[m.model])modelMap[m.model]='';});
-  
-  const mdSel=document.getElementById('jMaMd');
-  const modelEntries=Object.entries(modelMap);
-  mdSel.innerHTML='<option value="">— Select model —</option>'+modelEntries.map(([model,cat])=>`<option value="${E(model)}">${E(model)}${cat?' ['+E(cat)+']':''}</option>`).join('')+'<option value="__custom__">✏ Type new model...</option>';
-  mdSel.style.display='';document.getElementById('jMaMdCustom').style.display='none';
-  mdSel.onchange=function(){if(this.value==='__custom__'){this.style.display='none';document.getElementById('jMaMdCustom').style.display='';document.getElementById('jMaMdCustom').focus();document.getElementById('jMa').innerHTML='<option value="">—</option><option value="__custom__">✏ Type serial...</option>';setCustomToggle('jMa','jMaCustom');}else{onJobModelChange();}};
-}
-
-function onJobModelChange(){
-  const custName=document.getElementById('jCu').value;
-  const model=document.getElementById('jMaMd').value;
-  if(!model||model==='__custom__')return;
-  
-  // Show category for selected model
-  const machineWithCat=(DB.machines||[]).find(m=>m.customer===custName&&m.model===model&&m.category);
-  const info=document.getElementById('jMaCatInfo');
-  if(machineWithCat?.category){info.textContent='📂 '+machineWithCat.category;info.style.display='block';}
-  
-  // Populate serials
-  const serials=new Set();
-  (DB.machines||[]).filter(m=>m.customer===custName&&m.model===model).forEach(m=>serials.add(m.serial));
-  DB.reports.filter(r=>r.customer===custName&&r.model===model&&r.serial).forEach(r=>serials.add(r.serial));
-  const srSel=document.getElementById('jMa');
-  srSel.innerHTML='<option value="">— Select serial —</option>'+[...serials].map(s=>`<option>${E(s)}</option>`).join('')+'<option value="__custom__">✏ Type serial...</option>';
-  if(serials.size===1)srSel.value=[...serials][0];
-  srSel.style.display='';document.getElementById('jMaCustom').style.display='none';
-  setCustomToggle('jMa','jMaCustom');
+  // Clear and re-add machine slot
+  jMachIdx=0;
+  document.getElementById('jMachList').innerHTML='';
+  addJobMachine();
 }
 
 function getJobFieldVal(selId,custId){const s=document.getElementById(selId),c=document.getElementById(custId);if(c&&c.style.display!=='none'&&c.value.trim())return c.value.trim();if(s&&s.value&&s.value!=='__custom__')return s.value;return'';}
@@ -929,11 +960,13 @@ function getSelectedTechIds(){return[...document.querySelectorAll('.jTeChk:check
 
 function editJob(id){const j=DB.jobs.find(x=>x.id===id);if(!j)return;openNewJobModal();setTimeout(()=>{
   document.getElementById('eJId').value=j.id;document.getElementById('jTi').value=j.title||'';document.getElementById('jPr').value=j.priority;
-  document.getElementById('jCu').value=j.customer||'';onJobCustChange();
-  setTimeout(()=>{
-    if(j.model){const mdSel=document.getElementById('jMaMd');if([...mdSel.options].find(o=>o.value===j.model))mdSel.value=j.model;else{document.getElementById('jMaMdCustom').value=j.model;document.getElementById('jMaMdCustom').style.display='';mdSel.style.display='none';}onJobModelChange();}
-    setTimeout(()=>{if(j.machine){const srSel=document.getElementById('jMa');if([...srSel.options].find(o=>o.value===j.machine))srSel.value=j.machine;else{document.getElementById('jMaCustom').value=j.machine;document.getElementById('jMaCustom').style.display='';srSel.style.display='none';}}},50);
-  },50);
+  document.getElementById('jCu').value=j.customer||'';
+  // Populate machines
+  jMachIdx=0;document.getElementById('jMachList').innerHTML='';
+  const machines=j.machines||[];
+  if(machines.length){machines.forEach(m=>addJobMachine(m));}
+  else if(j.machine||j.model){addJobMachine({model:j.model||'',serial:j.machine||''});}
+  else{addJobMachine();}
   document.getElementById('jTy').value=j.type;document.getElementById('jDt').value=j.date||'';document.getElementById('jTm').value=j.time||'';document.getElementById('jDs').value=j.desc||'';
   const ids=j.techIds||[j.techId].filter(Boolean);
   document.querySelectorAll('.jTeChk').forEach(c=>{c.checked=ids.includes(parseInt(c.value));});
@@ -944,9 +977,8 @@ function saveJob(){
   const eid=eidEl?eidEl.value:'';
   const techIds=getSelectedTechIds();
   const customer=getJobFieldVal('jCu','jCuCustom');
-  const model=getJobFieldVal('jMaMd','jMaMdCustom');
-  const serial=getJobFieldVal('jMa','jMaCustom');
-  const d={title:document.getElementById('jTi').value.trim(),customer:customer,machine:serial,model:model,techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
+  const machines=getJobMachines();
+  const d={title:document.getElementById('jTi').value.trim(),customer:customer,machines:machines,machine:machines[0]?.serial||'',model:machines[0]?.model||'',techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
   if(!d.title){toast('Enter title.','error');return;}
   if(eid&&eid!==''){const i=DB.jobs.findIndex(j=>j.id===parseInt(eid));if(i>=0)DB.jobs[i]={...DB.jobs[i],...d};}
   else{d.id=DB.nJ++;d.createdAt=new Date().toISOString();d.waSent=false;DB.jobs.push(d);}
@@ -1023,10 +1055,125 @@ function viewJobDetail(id){
     const ids=j.techIds||[j.techId].filter(Boolean);
     if(ids.length)footer+=`<button class="btn btn-wa" onclick="closeModal();sendJWA(${j.id})">📱 WhatsApp</button>`;
   }
-  if(canEdit())footer+=`<button class="btn btn-s" onclick="closeModal();editJob(${j.id})">✏ Edit</button>`;
-  footer+=`<button class="btn btn-p" onclick="closeModal();showPage('jobs')">View All Jobs</button>`;
+  if(canEdit())footer+=`<button class="btn btn-s" onclick="switchModal(()=>editJob(${j.id}))">✏ Edit</button>`;
+  footer+=`<button class="btn btn-p" onclick="closeModal();createReportFromJob(${j.id})">📋 Create Report</button>`;
+  footer+=`<button class="btn btn-s" onclick="closeModal();showPage('jobs')">All Jobs</button>`;
   
   openModal(j.title,html,footer);
+}
+
+function createReportFromJob(jobId){
+  const j=DB.jobs.find(x=>x.id===jobId);if(!j){toast('Job not found.','error');return;}
+  const cust=DB.custs.find(c=>c.name===j.customer);
+  const machine=(DB.machines||[]).find(m=>m.serial===j.machine);
+  const mi=getJobMachineInfo(j);
+  const techNames=(j.techIds||[j.techId].filter(Boolean)).map(id=>{const t=DB.techs.find(x=>x.id===id);return t?t.name:null;}).filter(Boolean);
+  
+  // Store prefill data globally so renderCreateReport can use it
+  window._prefillReport={
+    jobId:j.id,
+    poNo:j.poNo||'',
+    customer:j.customer||'',
+    contact:cust?.contact||'',
+    contactNum:cust?.phone||'',
+    contacts:cust?.contacts||[],
+    model:mi.model||j.model||'',
+    serial:j.machine||'',
+    type:j.type||'Preventive Maintenance',
+    engineers:techNames,
+    desc:j.desc||'',
+    date:j.date||new Date().toISOString().split('T')[0]
+  };
+  
+  showPage('create-report');
+  
+  // Wait for the page to render, then fill in the fields
+  setTimeout(()=>{
+    const pf=window._prefillReport;if(!pf)return;
+    
+    // PO No
+    const poEl=document.getElementById('crPO');if(poEl)poEl.value=pf.poNo;
+    
+    // Date
+    const dtEl=document.getElementById('crDt');if(dtEl&&pf.date)dtEl.value=pf.date;
+    
+    // Customer
+    const cuSel=document.getElementById('crCu');
+    if(cuSel&&pf.customer){
+      const opt=[...cuSel.options].find(o=>o.value===pf.customer);
+      if(opt){cuSel.value=pf.customer;onCustChange();}
+      else{
+        // Customer not in dropdown — use custom field
+        cuSel.style.display='none';
+        const cuCustom=document.getElementById('crCuCustom');
+        if(cuCustom){cuCustom.style.display='';cuCustom.value=pf.customer;}
+      }
+    }
+    
+    // After onCustChange populates contact/model dropdowns, fill those in
+    setTimeout(()=>{
+      // Contact person
+      if(pf.contact){
+        const cnSel=document.getElementById('crCn');
+        if(cnSel){
+          const opt=[...cnSel.options].find(o=>o.value===pf.contact);
+          if(opt)cnSel.value=pf.contact;
+          else{cnSel.style.display='none';const ci=document.getElementById('crCnCustom');if(ci){ci.style.display='';ci.value=pf.contact;}}
+        }
+      }
+      
+      // Contact number
+      if(pf.contactNum){
+        const cpSel=document.getElementById('crCp');
+        if(cpSel){
+          const opt=[...cpSel.options].find(o=>o.value===pf.contactNum);
+          if(opt)cpSel.value=pf.contactNum;
+          else{cpSel.style.display='none';const ci=document.getElementById('crCpCustom');if(ci){ci.style.display='';ci.value=pf.contactNum;}}
+        }
+      }
+      
+      // Model
+      if(pf.model){
+        const mdSel=document.getElementById('crMd');
+        if(mdSel){
+          const opt=[...mdSel.options].find(o=>o.value===pf.model);
+          if(opt){mdSel.value=pf.model;onModelChange();}
+          else{mdSel.style.display='none';const ci=document.getElementById('crMdCustom');if(ci){ci.style.display='';ci.value=pf.model;}}
+        }
+      }
+      
+      // Serial — after model change populates serial dropdown
+      setTimeout(()=>{
+        if(pf.serial){
+          const srSel=document.getElementById('crSr');
+          if(srSel){
+            const opt=[...srSel.options].find(o=>o.value===pf.serial);
+            if(opt)srSel.value=pf.serial;
+            else{srSel.style.display='none';const ci=document.getElementById('crSrCustom');if(ci){ci.style.display='';ci.value=pf.serial;}}
+          }
+        }
+      },100);
+      
+      // Type
+      const tyEl=document.getElementById('crTy');if(tyEl&&pf.type)tyEl.value=pf.type;
+      
+      // Engineers — check the right checkboxes
+      if(pf.engineers&&pf.engineers.length){
+        document.querySelectorAll('.crEnChk').forEach(chk=>{
+          chk.checked=pf.engineers.includes(chk.value);
+        });
+      }
+      
+      // Remarks / description from job
+      if(pf.desc){
+        const rmEl=document.getElementById('crRm');
+        if(rmEl)rmEl.value=pf.desc;
+      }
+      
+      window._prefillReport=null;
+      toast('Report pre-filled from job. Review and save.','success');
+    },200);
+  },300);
 }
 
 // ===== REPORTS =====
@@ -1662,7 +1809,7 @@ function viewMachineDetail(serial){
     </div>
     ${issues.length?`<div class="ds"><h4 style="color:var(--er)">⚠ Outstanding Issues</h4>${issues.map(r=>`<div style="padding:10px 0;border-bottom:1px solid var(--bdr);font-size:var(--fs-sm)"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px"><strong>${E(r.jobNo)}</strong>${stBd(r.status)}</div><div style="color:var(--t2);margin-top:4px">${E(r.date)} — ${E(r.engineer||'')}</div>${r.remarks?`<div style="color:var(--t2);margin-top:4px;font-style:italic">${E(r.remarks.substring(0,120))}${r.remarks.length>120?'...':''}</div>`:''}</div>`).join('')}</div>`:''}
   </div>`;
-  openModal('Machine — '+m.serial,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>${canEdit()?`<button class="btn btn-s" onclick="closeModal();editMachine('${E(m.serial)}')">✏ Edit</button>`:''}<button class="btn btn-p" onclick="closeModal();showPage('machines')">All Machines</button>`);
+  openModal('Machine — '+m.serial,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>${canEdit()?`<button class="btn btn-s" onclick="switchModal(()=>editMachine('${E(m.serial)}'))">✏ Edit</button>`:''}<button class="btn btn-p" onclick="closeModal();showPage('machines')">All Machines</button>`);
 }
 
 // ===== CUSTOMERS (with Agent field) =====
@@ -1680,9 +1827,9 @@ function renderCustCards(cs){
     const allSerials=[...new Set([...custMachines.map(m=>m.serial),...rptSerials])];
     return`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(c.name)}</span><div style="display:flex;gap:6px">${canEdit()?`<button class="btn btn-sm btn-s" onclick="editCust(this.dataset.n)" data-n="${E(c.name)}">Edit</button>`:''}${canDelete()?`<button class="btn btn-sm btn-d" onclick="delCust(this.dataset.n)" data-n="${E(c.name)}">Delete</button>`:''}</div></div>
     <div class="rpt-card-row"><span class="rc-label">Address</span><span class="rc-val" style="max-width:65%">${E(c.address||'—')}</span></div>
-    <div class="rpt-card-row"><span class="rc-label">Contact</span><span class="rc-val">${E(c.contact||'—')}</span></div>
-    <div class="rpt-card-row"><span class="rc-label">Phone</span><span class="rc-val">${c.phone?`<a href="tel:${c.phone}" style="color:var(--ac);text-decoration:none">${E(c.phone)}</a>`:'—'}</span></div>
-    <div class="rpt-card-row"><span class="rc-label">Email</span><span class="rc-val">${c.email?`<a href="mailto:${c.email}" style="color:var(--ac);text-decoration:none">${E(c.email)}</a>`:'—'}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Contact(s)</span><span class="rc-val">${(()=>{const cts=c.contacts||[];if(cts.length>1)return cts.map(ct=>`<div style="margin-bottom:4px">${E(ct.name||'')}${ct.phone?' — <a href="tel:'+ct.phone+'" style="color:var(--ac);text-decoration:none">'+E(ct.phone)+'</a>':''}${ct.email?' — <a href="mailto:'+ct.email+'" style="color:var(--ac);text-decoration:none;font-size:var(--fs-xs)">'+E(ct.email)+'</a>':''}</div>`).join('');return E(c.contact||'—');})()}</span></div>
+    ${(!(c.contacts||[]).length||((c.contacts||[]).length<=1))?`<div class="rpt-card-row"><span class="rc-label">Phone</span><span class="rc-val">${c.phone?`<a href="tel:${c.phone}" style="color:var(--ac);text-decoration:none">${E(c.phone)}</a>`:'—'}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Email</span><span class="rc-val">${c.email?`<a href="mailto:${c.email}" style="color:var(--ac);text-decoration:none">${E(c.email)}</a>`:'—'}</span></div>`:''}
     <div class="rpt-card-row"><span class="rc-label">Agent</span><span class="rc-val" style="color:var(--pu);font-weight:600">${E(c.agent||'—')}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Machines</span><span class="rc-val"><button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="viewCustMachines('${E(c.name)}')">${allSerials.length} machine${allSerials.length!==1?'s':''} →</button></span></div>
     <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val">${reps.length}</span></div></div>`;
@@ -1728,49 +1875,69 @@ function viewCustMachines(custName){
   
   const html=combined.length?combined.map(m=>`<div style="padding:12px 0;border-bottom:1px solid var(--bdr)">
     <div style="display:flex;justify-content:space-between;align-items:center"><strong>${E(m.serial)}</strong>
-    <div style="display:flex;gap:6px">${canEdit()?`<button class="btn btn-sm btn-s" onclick="closeModal();editMachine('${E(m.serial)}')">Edit</button>`:''}</div></div>
+    <div style="display:flex;gap:6px">${canEdit()?`<button class="btn btn-sm btn-s" onclick="switchModal(()=>editMachine('${E(m.serial)}'))">Edit</button>`:''}</div></div>
     <div style="font-size:var(--fs-sm);color:var(--t2);margin-top:4px">${E(m.model)} ${m.location?'• '+E(m.location):''} ${m.installDate?'• Installed '+E(m.installDate):''}</div>
   </div>`).join(''):'<p style="color:var(--t3)">No machines linked to this customer.</p>';
   
-  openModal(`Machines — ${custName}`,html+`<div style="margin-top:16px"><button class="btn btn-p btn-sm" onclick="closeModal();openMachineModal({customer:'${E(custName)}'})">+ Add Machine</button></div>`,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
+  openModal(`Machines — ${custName}`,html+`<div style="margin-top:16px"><button class="btn btn-p btn-sm" onclick="switchModal(()=>openMachineModal({customer:'${E(custName)}'}))">+ Add Machine</button></div>`,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
 }
 function openCustModal(data){
   const d=data||{};
   const agents=DB.agents||[];
+  const contacts=d.contacts||[];
+  if(!contacts.length&&(d.contact||d.phone)){contacts.push({name:d.contact||'',phone:d.phone||'',email:d.email||''});}
+  if(!contacts.length)contacts.push({name:'',phone:'',email:''});
   openModal(d.name?'Edit Customer':'Add Customer',`
     <input type="hidden" id="eCId" value="${d.id||''}">
     <div class="fg"><label>Customer Name</label><input class="fc" id="cNm" value="${E(d.name||'')}"></div>
     <div class="fg"><label>Address</label><input class="fc" id="cAd" value="${E(d.address||'')}"></div>
-    <div class="fr"><div class="fg"><label>Contact Person</label><input class="fc" id="cCo" value="${E(d.contact||'')}"></div><div class="fg"><label>Phone</label><input class="fc" id="cPh" value="${E(d.phone||'')}" placeholder="+65..."></div></div>
-    <div class="fr"><div class="fg"><label>Email</label><input class="fc" id="cEm" value="${E(d.email||'')}"></div>
+    <div class="fg"><label>Contact Person(s)</label>
+      <div id="cContacts">${contacts.map((ct,i)=>`<div class="fr" style="margin-bottom:8px;align-items:flex-end" data-ci="${i}">
+        <div class="fg" style="flex:2"><label style="font-size:var(--fs-xs)">Name</label><input class="fc cCtName" value="${E(ct.name||'')}" placeholder="Contact name"></div>
+        <div class="fg" style="flex:2"><label style="font-size:var(--fs-xs)">Phone</label><input class="fc cCtPhone" value="${E(ct.phone||'')}" placeholder="+65..."></div>
+        <div class="fg" style="flex:2"><label style="font-size:var(--fs-xs)">Email</label><input class="fc cCtEmail" value="${E(ct.email||'')}" placeholder="email@..."></div>
+        ${i>0?'<button class="btn btn-sm btn-d" onclick="this.closest(\'[data-ci]\').remove()" style="min-height:40px;margin-bottom:2px">✕</button>':'<div style="width:44px"></div>'}
+      </div>`).join('')}</div>
+      <button class="btn btn-sm btn-s" onclick="addCustContact()" style="margin-top:4px">+ Add another contact</button>
+    </div>
     <div class="fg"><label>Agent / Company</label>
       <select class="fc" id="cAg">
         <option value="">— None —</option>
         ${agents.map(a=>`<option value="${E(a.name)}"${a.name===d.agent?' selected':''}>${E(a.name)} ${a.type?'('+E(a.type)+')':''}</option>`).join('')}
       </select>
       <div style="margin-top:6px;font-size:var(--fs-xs)"><a href="#" onclick="event.preventDefault();closeModal();showPage('agents')" style="color:var(--ac)">Manage agents/companies →</a></div>
-    </div></div>
+    </div>
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveCust()">Save</button>`);
 }
-function editCust(nm){const c=DB.custs.find(x=>x.name===nm)||getAllCusts().find(x=>x.name===nm);openCustModal(c||{});}
+function addCustContact(){
+  const container=document.getElementById('cContacts');const idx=container.children.length;
+  const div=document.createElement('div');div.className='fr';div.style.cssText='margin-bottom:8px;align-items:flex-end';div.dataset.ci=idx;
+  div.innerHTML=`<div class="fg" style="flex:2"><label style="font-size:var(--fs-xs)">Name</label><input class="fc cCtName" placeholder="Contact name"></div>
+    <div class="fg" style="flex:2"><label style="font-size:var(--fs-xs)">Phone</label><input class="fc cCtPhone" placeholder="+65..."></div>
+    <div class="fg" style="flex:2"><label style="font-size:var(--fs-xs)">Email</label><input class="fc cCtEmail" placeholder="email@..."></div>
+    <button class="btn btn-sm btn-d" onclick="this.closest('[data-ci]').remove()" style="min-height:40px;margin-bottom:2px">✕</button>`;
+  container.appendChild(div);
+}
+function editCust(nm){const c=DB.custs.find(x=>x.name===nm)||getAllCusts().find(x=>x.name===nm);openCustModal(c||{name:nm});}
 function saveCust(){
+  const saveBtn=document.querySelector('.mf .btn-p');
+  if(saveBtn){if(saveBtn.dataset.saving==='1')return;saveBtn.dataset.saving='1';saveBtn.textContent='Saving...';}
   const eidEl=document.getElementById('eCId');const eid=eidEl?eidEl.value:'';
-  const d={name:document.getElementById('cNm').value.trim(),address:document.getElementById('cAd').value.trim(),contact:document.getElementById('cCo').value.trim(),phone:document.getElementById('cPh').value.trim(),email:document.getElementById('cEm').value.trim(),agent:document.getElementById('cAg').value.trim()};
-  if(!d.name){toast('Name required.','error');return;}
+  const contacts=[];
+  document.querySelectorAll('#cContacts [data-ci]').forEach(row=>{
+    const name=row.querySelector('.cCtName')?.value.trim()||'';
+    const phone=row.querySelector('.cCtPhone')?.value.trim()||'';
+    const email=row.querySelector('.cCtEmail')?.value.trim()||'';
+    if(name||phone||email)contacts.push({name,phone,email});
+  });
+  const d={name:document.getElementById('cNm').value.trim(),address:document.getElementById('cAd').value.trim(),contact:contacts[0]?.name||'',phone:contacts[0]?.phone||'',email:contacts[0]?.email||'',contacts:contacts,agent:document.getElementById('cAg').value.trim()};
+  if(!d.name){toast('Name required.','error');if(saveBtn){saveBtn.dataset.saving='';saveBtn.textContent='Save';}return;}
   if(eid&&eid!==''){
     const i=DB.custs.findIndex(c=>c.id===parseInt(eid));
-    if(i>=0){
-      const oldName=DB.custs[i].name;
-      DB.custs[i]={...DB.custs[i],...d};
-      // If name changed, update linked machines and reports
-      if(oldName!==d.name){
-        (DB.machines||[]).forEach(m=>{if(m.customer===oldName)m.customer=d.name;});
-        DB.reports.forEach(r=>{if(r.customer===oldName)r.customer=d.name;});
-        DB.jobs.forEach(j=>{if(j.customer===oldName)j.customer=d.name;});
-      }
+    if(i>=0){const oldName=DB.custs[i].name;DB.custs[i]={...DB.custs[i],...d};
+      if(oldName!==d.name){(DB.machines||[]).forEach(m=>{if(m.customer===oldName)m.customer=d.name;});DB.reports.forEach(r=>{if(r.customer===oldName)r.customer=d.name;});DB.jobs.forEach(j=>{if(j.customer===oldName)j.customer=d.name;});}
     }else{d.id=DB.nC++;DB.custs.push(d);}
-  }
-  else{d.id=DB.nC++;DB.custs.push(d);}
+  }else{d.id=DB.nC++;DB.custs.push(d);}
   saveDB();closeModal();renderCusts();toast('Saved.','success');
 }
 
@@ -2276,6 +2443,231 @@ let lbP=[],lbI=0;
 function openLBx(photos,idx){lbP=photos;lbI=idx;document.getElementById('lbImg').src=photos[idx].dataUrl;document.getElementById('lbCaption').textContent=(photos[idx].caption||'')+(photos[idx].timestamp?' — '+photos[idx].timestamp:'');document.getElementById('lbCount').textContent=`${idx+1} / ${photos.length}`;document.getElementById('photoLB').classList.add('open');}
 function closeLB(){document.getElementById('photoLB').classList.remove('open');}
 function lbNav(dir){lbI+=dir;if(lbI<0)lbI=lbP.length-1;if(lbI>=lbP.length)lbI=0;document.getElementById('lbImg').src=lbP[lbI].dataUrl;document.getElementById('lbCaption').textContent=(lbP[lbI].caption||'');document.getElementById('lbCount').textContent=`${lbI+1} / ${lbP.length}`;}
+
+// ===== PO TRACKER =====
+let curPOF='all';
+function renderPOs(){
+  if(!Array.isArray(DB.pos))DB.pos=[];
+  // Fix: ensure all POs have valid numeric ids and dedup
+  if(DB.pos.length){
+    const seen=new Set();
+    DB.pos=DB.pos.filter(p=>{
+      if(!p.id||isNaN(p.id)||seen.has(p.id)){
+        if(!p.id||isNaN(p.id)){p.id=Date.now()+Math.floor(Math.random()*1000);}
+        else return false; // duplicate id
+      }
+      seen.add(p.id);return true;
+    });
+    DB.nP=Math.max(...DB.pos.map(p=>p.id||0))+1;
+  }
+  const s=(document.querySelector('#page-pos .sx input')?.value||'').toLowerCase();
+  let pos=[...DB.pos].sort((a,b)=>b.id-a.id);
+  if(curPOF!=='all')pos=pos.filter(p=>p.status===curPOF);
+  if(s)pos=pos.filter(p=>(p.poNo+p.customer+p.description+(p.items||[]).map(i=>i.desc).join('')).toLowerCase().includes(s));
+  const outCount=DB.pos.filter(p=>p.status==='Outstanding').length;
+  const compCount=DB.pos.filter(p=>p.status==='Completed').length;
+  
+  document.getElementById('posContent').innerHTML=`<div class="tw">
+    <div class="th"><h3>Purchase Orders (${DB.pos.length})</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search POs..." oninput="renderPOs()"></div>
+        <button class="btn btn-p btn-sm" onclick="openPOModal()">+ Add PO</button>
+        <button class="btn btn-sm btn-s" onclick="scanPO()">📸 Scan PO</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      <button class="fc-chip${curPOF==='all'?' active':''}" onclick="curPOF='all';renderPOs()">All (${DB.pos.length})</button>
+      <button class="fc-chip${curPOF==='Outstanding'?' active':''}" onclick="curPOF='Outstanding';renderPOs()" style="${outCount?'border-color:var(--er);color:var(--er)':''}">Outstanding (${outCount})</button>
+      <button class="fc-chip${curPOF==='Completed'?' active':''}" onclick="curPOF='Completed';renderPOs()">Completed (${compCount})</button>
+      <button class="fc-chip${curPOF==='Cancelled'?' active':''}" onclick="curPOF='Cancelled';renderPOs()">Cancelled (${DB.pos.filter(p=>p.status==='Cancelled').length})</button>
+    </div>
+    ${pos.length?pos.map(p=>{
+      const items=p.items||[];
+      const total=items.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+      return`<div class="rpt-card">
+        <div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(p.poNo)}</span>
+          <div style="display:flex;gap:6px"><span class="bd ${p.status==='Outstanding'?'bd-er':p.status==='Completed'?'bd-ok':'bd-wn'}">${E(p.status)}</span></div>
+        </div>
+        <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(p.customer||'—')}</span></div>
+        <div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(p.date||'—')}</span></div>
+        <div class="rpt-card-row"><span class="rc-label">Items</span><span class="rc-val">${items.length} item${items.length!==1?'s':''}</span></div>
+        ${total?`<div class="rpt-card-row"><span class="rc-label">Total</span><span class="rc-val" style="font-weight:700">$${total.toFixed(2)}</span></div>`:''}
+        ${p.description?`<div class="rpt-card-row"><span class="rc-label">Description</span><span class="rc-val" style="max-width:65%;font-size:var(--fs-sm)">${E(p.description.substring(0,80))}${p.description.length>80?'...':''}</span></div>`:''}
+        <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-s" onclick="viewPODetail(${p.id})">View</button>
+          ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editPO(${p.id})">Edit</button>`:''}
+          ${canDelete()&&DB.pos.length>1?`<button class="btn btn-sm btn-d" onclick="delPO(${p.id})">Delete</button>`:''}
+        </div>
+      </div>`;
+    }).join(''):'<div class="es"><p>No purchase orders found.</p></div>'}
+  </div>`;
+}
+
+function openPOModal(data){
+  const d=data||{};const cs=getAllCusts();
+  const items=d.items||[{desc:'',qty:'',unit:'',amount:''}];
+  openModal(d.poNo?'Edit PO — '+d.poNo:'Add Purchase Order',`
+    <input type="hidden" id="ePOId" value="${d.id||''}">
+    <div class="fr"><div class="fg"><label>PO Number</label><input class="fc" id="pPoNo" value="${E(d.poNo||'')}"></div><div class="fg"><label>Date</label><input class="fc" type="date" id="pDt" value="${E(d.date||'')}"></div></div>
+    <div class="fg"><label>Customer</label><select class="fc" id="pCu"><option value="">— Select —</option>${cs.map(c=>`<option${c.name===d.customer?' selected':''}>${E(c.name)}</option>`).join('')}</select></div>
+    <div class="fg"><label>Description</label><textarea class="fc" id="pDs" placeholder="PO description...">${E(d.description||'')}</textarea></div>
+    <div class="fg"><label>Line Items</label>
+      <div id="poItems">${items.map((it,i)=>`<div class="fr" style="margin-bottom:6px;align-items:flex-end" data-pi="${i}">
+        <div class="fg" style="flex:3"><label style="font-size:var(--fs-xs)">Description</label><input class="fc piDesc" value="${E(it.desc||'')}" placeholder="Item description"></div>
+        <div class="fg" style="flex:1"><label style="font-size:var(--fs-xs)">Qty</label><input class="fc piQty" value="${E(it.qty||'')}" placeholder="1"></div>
+        <div class="fg" style="flex:1"><label style="font-size:var(--fs-xs)">Unit</label><input class="fc piUnit" value="${E(it.unit||'')}" placeholder="pcs"></div>
+        <div class="fg" style="flex:1.5"><label style="font-size:var(--fs-xs)">Amount ($)</label><input class="fc piAmt" type="number" step="0.01" value="${it.amount||''}" placeholder="0.00"></div>
+        ${i>0?'<button class="btn btn-sm btn-d" onclick="this.closest(\'[data-pi]\').remove()" style="min-height:40px;margin-bottom:2px">✕</button>':'<div style="width:44px"></div>'}
+      </div>`).join('')}</div>
+      <button class="btn btn-sm btn-s" onclick="addPOItem()" style="margin-top:4px">+ Add item</button>
+    </div>
+    <div class="fg"><label>Status</label><select class="fc" id="pSt"><option${d.status==='Outstanding'?' selected':''}>Outstanding</option><option${d.status==='Completed'?' selected':''}>Completed</option><option${d.status==='Cancelled'?' selected':''}>Cancelled</option></select></div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="savePO()">Save</button>`);
+}
+function addPOItem(){
+  const c=document.getElementById('poItems');const idx=c.children.length;
+  const div=document.createElement('div');div.className='fr';div.style.cssText='margin-bottom:6px;align-items:flex-end';div.dataset.pi=idx;
+  div.innerHTML=`<div class="fg" style="flex:3"><label style="font-size:var(--fs-xs)">Description</label><input class="fc piDesc" placeholder="Item description"></div>
+    <div class="fg" style="flex:1"><label style="font-size:var(--fs-xs)">Qty</label><input class="fc piQty" placeholder="1"></div>
+    <div class="fg" style="flex:1"><label style="font-size:var(--fs-xs)">Unit</label><input class="fc piUnit" placeholder="pcs"></div>
+    <div class="fg" style="flex:1.5"><label style="font-size:var(--fs-xs)">Amount ($)</label><input class="fc piAmt" type="number" step="0.01" placeholder="0.00"></div>
+    <button class="btn btn-sm btn-d" onclick="this.closest('[data-pi]').remove()" style="min-height:40px;margin-bottom:2px">✕</button>`;
+  c.appendChild(div);
+}
+function savePO(){
+  // Prevent double-click
+  const saveBtn=document.querySelector('.mf .btn-p');
+  if(saveBtn){if(saveBtn.dataset.saving==='1')return;saveBtn.dataset.saving='1';saveBtn.textContent='Saving...';}
+  const eidEl=document.getElementById('ePOId');const eid=eidEl?eidEl.value:'';
+  const items=[];
+  document.querySelectorAll('#poItems [data-pi]').forEach(row=>{
+    const desc=row.querySelector('.piDesc')?.value.trim()||'';
+    const qty=row.querySelector('.piQty')?.value.trim()||'';
+    const unit=row.querySelector('.piUnit')?.value.trim()||'';
+    const amount=row.querySelector('.piAmt')?.value||'';
+    if(desc||qty||amount)items.push({desc,qty,unit,amount:parseFloat(amount)||0});
+  });
+  const d={poNo:document.getElementById('pPoNo').value.trim(),date:document.getElementById('pDt').value,customer:document.getElementById('pCu').value,description:document.getElementById('pDs').value.trim(),items:items,status:document.getElementById('pSt').value};
+  if(!d.poNo){toast('PO number required.','error');if(saveBtn)saveBtn.dataset.saving='';saveBtn.textContent='Save';return;}
+  if(!Array.isArray(DB.pos))DB.pos=[];
+  if(!DB.nP||isNaN(DB.nP))DB.nP=Math.max(0,...DB.pos.map(p=>p.id||0))+1;
+  if(eid&&eid!==''){const i=DB.pos.findIndex(p=>p.id===parseInt(eid));if(i>=0)DB.pos[i]={...DB.pos[i],...d};}
+  else{
+    d.id=DB.nP++;d.createdAt=new Date().toISOString();DB.pos.push(d);
+    // Auto-create a job from this new PO
+    const itemDescs=(items||[]).map(i=>i.desc).filter(Boolean).join(', ');
+    const newJob={
+      id:DB.nJ++,
+      title:'PO: '+(d.poNo||'')+(d.customer?' — '+d.customer:''),
+      customer:d.customer||'',
+      machine:'',model:'',
+      techIds:[],techId:null,
+      type:'Preventive Maintenance',
+      priority:'Medium',
+      date:d.date||'',time:'',
+      desc:'PO No.: '+d.poNo+'\n'+(d.description||'')+'\n\nItems:\n'+((items||[]).map((it,i)=>(i+1)+'. '+it.desc+(it.qty?' x'+it.qty:'')+(it.amount?' — $'+it.amount.toFixed(2):'')).join('\n')||'N/A'),
+      status:'Open',
+      poNo:d.poNo,
+      poId:d.id,
+      createdAt:new Date().toISOString(),
+      waSent:false
+    };
+    DB.jobs.push(newJob);
+    toast('Job auto-created from PO.','info');
+  }
+  saveDB();closeModal();renderPOs();toast('PO saved.','success');
+}
+function editPO(id){const p=(DB.pos||[]).find(x=>x.id===id);if(p)openPOModal(p);}
+function delPO(id){if(DB.pos.length<=1){toast('Cannot delete the last PO.','error');return;}if(!confirm('Delete this PO?'))return;DB.pos=DB.pos.filter(p=>p.id!==id);saveDB();renderPOs();toast('Deleted.','info');}
+
+function viewPODetail(id){
+  const p=(DB.pos||[]).find(x=>x.id===id);if(!p)return;
+  const items=p.items||[];
+  const total=items.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+  const html=`<div style="padding:4px 0">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
+      <div><span style="font-size:var(--fs-xs);color:var(--t3)">PO-${String(p.id).padStart(4,'0')}</span></div>
+      <span class="bd ${p.status==='Outstanding'?'bd-er':p.status==='Completed'?'bd-ok':'bd-wn'}">${E(p.status)}</span>
+    </div>
+    <div class="ds"><h4>PO Details</h4>
+      <div class="dr"><span class="lb">PO Number</span><span class="vl" style="font-weight:700">${E(p.poNo)}</span></div>
+      <div class="dr"><span class="lb">Customer</span><span class="vl">${E(p.customer||'—')}</span></div>
+      <div class="dr"><span class="lb">Date</span><span class="vl">${E(p.date||'—')}</span></div>
+      ${p.description?`<div class="dr"><span class="lb">Description</span><span class="vl" style="white-space:pre-line">${E(p.description)}</span></div>`:''}
+    </div>
+    ${items.length?`<div class="ds"><h4>Line Items</h4>
+      <div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:var(--fs-sm)">
+        <tr style="background:var(--bg)"><th style="padding:8px;text-align:left;border-bottom:2px solid var(--bdr)">#</th><th style="padding:8px;text-align:left;border-bottom:2px solid var(--bdr)">Description</th><th style="padding:8px;text-align:center;border-bottom:2px solid var(--bdr)">Qty</th><th style="padding:8px;text-align:center;border-bottom:2px solid var(--bdr)">Unit</th><th style="padding:8px;text-align:right;border-bottom:2px solid var(--bdr)">Amount</th></tr>
+        ${items.map((it,i)=>`<tr><td style="padding:6px 8px;border-bottom:1px solid var(--bdr)">${i+1}</td><td style="padding:6px 8px;border-bottom:1px solid var(--bdr)">${E(it.desc)}</td><td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--bdr)">${E(it.qty)}</td><td style="padding:6px 8px;text-align:center;border-bottom:1px solid var(--bdr)">${E(it.unit)}</td><td style="padding:6px 8px;text-align:right;border-bottom:1px solid var(--bdr)">$${(parseFloat(it.amount)||0).toFixed(2)}</td></tr>`).join('')}
+        <tr style="font-weight:bold"><td colspan="4" style="padding:8px;text-align:right;border-top:2px solid var(--bdr)">TOTAL</td><td style="padding:8px;text-align:right;border-top:2px solid var(--bdr)">$${total.toFixed(2)}</td></tr>
+      </table></div>
+    </div>`:''}
+  </div>`;
+  openModal('PO — '+p.poNo,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>${canEdit()?`<button class="btn btn-s" onclick="switchModal(()=>editPO(${p.id}))">✏ Edit</button>`:''}`);
+}
+
+async function scanPO(){
+  const apiKey=localStorage.getItem('ocrm4_gemini_key');
+  if(!apiKey){toast('Set your Gemini API key in Scan Report page first.','error');return;}
+  openModal('📸 Scan Purchase Order',`
+    <p style="color:var(--t2);margin-bottom:12px">Upload a photo or PDF of a Purchase Order. Gemini AI will extract all details.</p>
+    <div class="fg"><input type="file" accept="image/*,application/pdf" id="poScanFile" class="fc" style="padding:12px"></div>
+    <div id="poScanStatus" style="display:none;padding:16px;text-align:center"></div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="processPOScan()">🤖 Scan with AI</button>`);
+}
+
+async function processPOScan(){
+  const apiKey=localStorage.getItem('ocrm4_gemini_key');
+  const file=document.getElementById('poScanFile')?.files[0];
+  if(!file){toast('Select a file.','error');return;}
+  const statusEl=document.getElementById('poScanStatus');
+  statusEl.style.display='block';statusEl.innerHTML='<strong>🤖 Reading PO with Gemini AI...</strong>';
+  
+  const reader=new FileReader();
+  reader.onload=async function(e){
+    const base64=e.target.result.split(',')[1];
+    const isPDF=file.type==='application/pdf';
+    const mimeType=isPDF?'application/pdf':(file.type.startsWith('image/png')?'image/png':'image/jpeg');
+    
+    const prompt=`You are reading a Purchase Order (PO) document. Extract ALL information and return ONLY a valid JSON object:
+{
+  "poNo": "The PO number",
+  "date": "In YYYY-MM-DD format",
+  "customer": "Customer/buyer company name",
+  "description": "Brief description of the PO",
+  "items": [
+    {"desc": "Item description", "qty": "quantity", "unit": "unit of measure", "amount": 0.00}
+  ],
+  "total": 0.00
+}
+CRITICAL: Return ONLY the raw JSON object. No markdown, no backticks, no explanation.`;
+    
+    try{
+      const resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+apiKey,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:mimeType,data:base64}},{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:3000}})
+      });
+      if(!resp.ok)throw new Error('API error: '+resp.status);
+      const data=await resp.json();
+      const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+      if(!text)throw new Error('Empty response');
+      const clean=text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+      const parsed=JSON.parse(clean);
+      
+      statusEl.innerHTML='<strong style="color:var(--ok)">✅ PO extracted successfully!</strong>';
+      const scannedData={poNo:parsed.poNo||'',date:parsed.date||'',customer:parsed.customer||'',description:parsed.description||'',items:parsed.items||[{desc:'',qty:'',unit:'',amount:''}],status:'Outstanding'};
+      setTimeout(()=>{
+        closeModal();
+        // Wait for closeModal content clear (300ms) before opening new modal
+        setTimeout(()=>{openPOModal(scannedData);},400);
+      },500);
+    }catch(err){
+      console.error('PO scan error:',err);
+      statusEl.innerHTML=`<strong style="color:var(--er)">❌ ${err.message}</strong><br><span style="font-size:var(--fs-sm)">Try a clearer image or PDF.</span>`;
+    }
+  };
+  reader.readAsDataURL(file);
+}
 
 // ===== AGENTS / COMPANIES =====
 function renderAgents(){
