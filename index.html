@@ -753,8 +753,8 @@ function renderJobs(){
   document.getElementById('jobsContent').innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px"><h2 style="font-size:var(--fs-xl)">Job Board</h2><div style="display:flex;gap:8px"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search jobs..." oninput="renderJobs()"></div><button class="btn btn-p btn-sm" onclick="openNewJobModal()">+ Job</button></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${['all','Open','Assigned','In Progress','Completed'].map(f=>`<button class="fc-chip${curJF===f?' active':''}" onclick="curJF='${f}';renderJobs()">${f==='all'?'All':f}</button>`).join('')}</div>
-    ${jobs.length?jobs.map(j=>{const mi=getJobMachineInfo(j);const addr=getJobAddress(j);return`<div class="jc"><div class="jc-h"><div><h4>${E(j.title)}</h4><span style="font-size:var(--fs-xs);color:var(--t3)">JOB-${String(j.id).padStart(4,'0')}</span></div><div style="display:flex;gap:6px">${prBd(j.priority)}</div></div>
-      <div class="jc-m"><span>🏢 ${E(j.customer||'—')}</span><span>⚙️ ${E(mi.model||j.machine||'—')}${mi.category?' ['+E(mi.category)+']':''}</span><span>📅 ${E(j.date||'TBD')}</span><span>👥 ${E(getJobTechNames(j))}</span></div>
+    ${jobs.length?jobs.map(j=>{const addr=getJobAddress(j);return`<div class="jc"><div class="jc-h"><div><h4>${E(j.title)}</h4><span style="font-size:var(--fs-xs);color:var(--t3)">JOB-${String(j.id).padStart(4,'0')}</span></div><div style="display:flex;gap:6px">${prBd(j.priority)}</div></div>
+      <div class="jc-m"><span>🏢 ${E(j.customer||'—')}</span><span>⚙️ ${getJobMachineText(j)}</span><span>📅 ${E(j.date||'TBD')}</span><span>👥 ${E(getJobTechNames(j))}</span></div>
       ${addr?`<div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap"><span style="font-size:var(--fs-sm);color:var(--t2)">📍 ${E(addr)}</span><button class="btn btn-sm btn-ok" style="padding:4px 12px;min-height:32px;font-size:12px" onclick="event.stopPropagation();navigateTo('${E(addr)}')">🧭 Navigate</button></div>`:''}
       ${j.desc?`<div class="jc-d">${E(j.desc)}</div>`:''}
       <div style="margin-bottom:12px"><label style="font-size:var(--fs-xs);font-weight:600;color:var(--t3);display:block;margin-bottom:4px">STATUS</label>${statusSelect(j.id,j.status,'job')}</div>
@@ -1018,9 +1018,10 @@ function viewJobDetail(id){
   const j=DB.jobs.find(x=>x.id===id);if(!j)return;
   const techNames=getJobTechNames(j);
   const cust=DB.custs.find(c=>c.name===j.customer)||getAllCusts().find(c=>c.name===j.customer);
-  const machine=(DB.machines||[]).find(m=>m.serial===j.machine);
-  const mi=getJobMachineInfo(j);
+  const mis=getJobMachineInfo(j);
   const addr=getJobAddress(j);
+  
+  const machineRows=mis.length?mis.map(mi=>`<div class="dr"><span class="lb">Machine</span><span class="vl">${E(mi.model)}${mi.serial?' (S/N: '+E(mi.serial)+')':''}${mi.category?' — <span class="bd bd-pu" style="font-size:9px;padding:2px 6px">'+E(mi.category)+'</span>':''}</span></div>`).join(''):'<div class="dr"><span class="lb">Machine</span><span class="vl">—</span></div>';
   
   const html=`<div style="padding:4px 0">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">
@@ -1037,8 +1038,8 @@ function viewJobDetail(id){
       <div class="dr"><span class="lb">Customer</span><span class="vl">${E(j.customer||'—')}</span></div>
       ${addr?`<div class="dr"><span class="lb">Address</span><span class="vl">${E(addr)}</span></div>`:''}
       ${cust?.contact?`<div class="dr"><span class="lb">Contact</span><span class="vl">${E(cust.contact)}${cust.phone?' — '+E(cust.phone):''}</span></div>`:''}
-      <div class="dr"><span class="lb">Machine</span><span class="vl">${E(mi.model||j.machine||'—')}${mi.serial&&mi.model?' (S/N: '+E(mi.serial)+')':''}</span></div>
-      ${mi.category?`<div class="dr"><span class="lb">Category</span><span class="vl"><span class="bd bd-pu">${E(mi.category)}</span></span></div>`:''}
+      ${machineRows}
+      ${j.poNo?`<div class="dr"><span class="lb">PO No.</span><span class="vl">${E(j.poNo)}</span></div>`:''}
       <div class="dr"><span class="lb">Type</span><span class="vl">${E(j.type)}</span></div>
       <div class="dr"><span class="lb">Date</span><span class="vl">${E(j.date||'TBD')}${j.time?' at '+E(j.time):''}</span></div>
       <div class="dr"><span class="lb">Technician(s)</span><span class="vl">${E(techNames)}</span></div>
@@ -1065,8 +1066,7 @@ function viewJobDetail(id){
 function createReportFromJob(jobId){
   const j=DB.jobs.find(x=>x.id===jobId);if(!j){toast('Job not found.','error');return;}
   const cust=DB.custs.find(c=>c.name===j.customer);
-  const machine=(DB.machines||[]).find(m=>m.serial===j.machine);
-  const mi=getJobMachineInfo(j);
+  const mis=getJobMachineInfo(j);
   const techNames=(j.techIds||[j.techId].filter(Boolean)).map(id=>{const t=DB.techs.find(x=>x.id===id);return t?t.name:null;}).filter(Boolean);
   
   // Store prefill data globally so renderCreateReport can use it
@@ -1077,8 +1077,9 @@ function createReportFromJob(jobId){
     contact:cust?.contact||'',
     contactNum:cust?.phone||'',
     contacts:cust?.contacts||[],
-    model:mi.model||j.model||'',
-    serial:j.machine||'',
+    model:mis[0]?.model||j.model||'',
+    serial:mis[0]?.serial||j.machine||'',
+    machines:mis,
     type:j.type||'Preventive Maintenance',
     engineers:techNames,
     desc:j.desc||'',
@@ -1132,27 +1133,15 @@ function createReportFromJob(jobId){
         }
       }
       
-      // Model
-      if(pf.model){
-        const mdSel=document.getElementById('crMd');
-        if(mdSel){
-          const opt=[...mdSel.options].find(o=>o.value===pf.model);
-          if(opt){mdSel.value=pf.model;onModelChange();}
-          else{mdSel.style.display='none';const ci=document.getElementById('crMdCustom');if(ci){ci.style.display='';ci.value=pf.model;}}
-        }
+      // Machines — add all from job
+      crMachIdx=0;
+      document.getElementById('crMachList').innerHTML='';
+      const prefillMachines=pf.machines||[];
+      if(prefillMachines.length){
+        prefillMachines.forEach(m=>addCrMachine(m));
+      }else if(pf.model){
+        addCrMachine({model:pf.model,serial:pf.serial||''});
       }
-      
-      // Serial — after model change populates serial dropdown
-      setTimeout(()=>{
-        if(pf.serial){
-          const srSel=document.getElementById('crSr');
-          if(srSel){
-            const opt=[...srSel.options].find(o=>o.value===pf.serial);
-            if(opt)srSel.value=pf.serial;
-            else{srSel.style.display='none';const ci=document.getElementById('crSrCustom');if(ci){ci.style.display='';ci.value=pf.serial;}}
-          }
-        }
-      },100);
       
       // Type
       const tyEl=document.getElementById('crTy');if(tyEl&&pf.type)tyEl.value=pf.type;
@@ -1192,7 +1181,7 @@ function renderRptCards(reps){
     return`<div class="rpt-card">
       <div class="rpt-card-top"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="rpt-card-jobno">${E(x.jobNo)}</span><span class="bd" style="background:${co.color}10;color:${co.color};font-size:11px">${E(x.company)}</span>${x.signed?'<span class="bd bd-ok" style="font-size:10px">✓ Signed</span>':''}${pc?`<span class="bd bd-ac" style="font-size:10px">📷 ${pc}</span>`:''}</div><span style="font-size:var(--fs-xs);color:var(--t3)">${E(x.date)}</span></div>
       <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(x.customer)}</span></div>
-      <div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(x.model)} / ${E(x.serial)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Machine(s)</span><span class="rc-val">${E(x.model)} / ${E(x.serial)}</span></div>
       <div class="rpt-card-row"><span class="rc-label">Type</span><span class="rc-val">${tyBd(x.type)}</span></div>
       <div class="rpt-card-row"><span class="rc-label">Engineer</span><span class="rc-val">${E(x.engineer||'—')}</span></div>
       <div class="rpt-card-row" style="align-items:center"><span class="rc-label">Status</span><span class="rc-val">${statusSelect(x.id,x.status,'rpt')}</span></div>
@@ -1323,19 +1312,9 @@ function renderCreateReport(){
         </div>
       </div>
       
-      <div class="fr">
-        <div class="fg"><label>Equipment Model</label>
-          <select class="fc" id="crMd" onchange="onModelChange()">
-            <option value="">— Select customer first —</option>
-          </select>
-          <input class="fc" id="crMdCustom" placeholder="Or type model" style="display:none;margin-top:6px">
-        </div>
-        <div class="fg"><label>Serial Number</label>
-          <select class="fc" id="crSr">
-            <option value="">— Select model first —</option>
-          </select>
-          <input class="fc" id="crSrCustom" placeholder="Or type serial" style="display:none;margin-top:6px">
-        </div>
+      <div class="fg"><label>Machine(s)</label>
+        <div id="crMachList"></div>
+        <button class="btn btn-sm btn-s" onclick="addCrMachine()" style="margin-top:8px">+ Add machine</button>
       </div>
       
       <div class="fg"><label>Serviced By (Technician) — select one or more</label>
@@ -1402,7 +1381,8 @@ function onCustChange(){
   // Contact person dropdown
   const cnSel=document.getElementById('crCn');
   const contacts=new Set();
-  if(cust?.contact)contacts.add(cust.contact);
+  if(cust?.contacts?.length)cust.contacts.forEach(ct=>{if(ct.name)contacts.add(ct.name);});
+  else if(cust?.contact)contacts.add(cust.contact);
   DB.reports.filter(r=>r.customer===custName&&r.contact).forEach(r=>contacts.add(r.contact));
   cnSel.innerHTML='<option value="">— Select —</option>'+[...contacts].map(c=>`<option value="${E(c)}">${E(c)}</option>`).join('')+'<option value="__custom__">✏ Type new...</option>';
   cnSel.style.display='';document.getElementById('crCnCustom').style.display='none';
@@ -1411,7 +1391,8 @@ function onCustChange(){
   // Contact number dropdown
   const cpSel=document.getElementById('crCp');
   const phones=new Set();
-  if(cust?.phone)phones.add(cust.phone);
+  if(cust?.contacts?.length)cust.contacts.forEach(ct=>{if(ct.phone)phones.add(ct.phone);});
+  else if(cust?.phone)phones.add(cust.phone);
   DB.reports.filter(r=>r.customer===custName&&r.contactNum).forEach(r=>phones.add(r.contactNum));
   cpSel.innerHTML='<option value="">— Select —</option>'+[...phones].map(p=>`<option value="${E(p)}">${E(p)}</option>`).join('')+'<option value="__custom__">✏ Type new...</option>';
   cpSel.style.display='';document.getElementById('crCpCustom').style.display='none';
@@ -1420,60 +1401,94 @@ function onCustChange(){
   // Email auto-fill
   if(cust?.email)document.getElementById('crEml').value=cust.email;
   
-  // Refresh email picker chips
   updateEmailPickers();
   
-  // Machines for this customer
-  const custMachines=(DB.machines||[]).filter(m=>m.customer===custName);
-  const reportMachines=DB.reports.filter(r=>r.customer===custName&&r.model&&r.serial).map(r=>({model:r.model,serial:r.serial}));
-  const allMachines=[...custMachines,...reportMachines];
-  
-  // Unique models
-  const models=new Set();
-  allMachines.forEach(m=>models.add(m.model));
-  
-  const mdSel=document.getElementById('crMd');
-  if(models.size>0){
-    mdSel.innerHTML='<option value="">— Select model —</option>'+[...models].map(m=>`<option value="${E(m)}">${E(m)}</option>`).join('')+'<option value="__custom__">✏ Type custom model...</option>';
-  }else{
-    mdSel.innerHTML='<option value="">No machines found</option><option value="__custom__">✏ Type custom model...</option>';
-  }
-  mdSel.style.display='';document.getElementById('crMdCustom').style.display='none';
-  
-  mdSel.onchange=function(){
-    if(this.value==='__custom__'){this.style.display='none';document.getElementById('crMdCustom').style.display='';document.getElementById('crMdCustom').focus();
-      document.getElementById('crSr').innerHTML='<option value="">— Type serial below —</option><option value="__custom__">✏ Type serial...</option>';
-      document.getElementById('crSr').onchange=function(){if(this.value==='__custom__'){this.style.display='none';document.getElementById('crSrCustom').style.display='';document.getElementById('crSrCustom').focus();}};
-    }else{onModelChange();}
-  };
-  
-  // Reset serial
-  document.getElementById('crSr').innerHTML='<option value="">— Select model first —</option>';
-  document.getElementById('crSrCustom').style.display='none';
-  document.getElementById('crSr').style.display='';
+  // Reset and add one machine slot
+  crMachIdx=0;
+  document.getElementById('crMachList').innerHTML='';
+  addCrMachine();
 }
 
-function onModelChange(){
-  const custName=document.getElementById('crCu').value;
-  const model=document.getElementById('crMd').value;
-  if(!model||model==='__custom__')return;
+let crMachIdx=0;
+function addCrMachine(preset){
+  const p=preset||{};
+  const custName=document.getElementById('crCu')?.value||document.getElementById('crCuCustom')?.value||'';
+  const custMachines=(DB.machines||[]).filter(m=>m.customer===custName);
+  const idx=crMachIdx++;
+  const container=document.getElementById('crMachList');
+  const div=document.createElement('div');
+  div.dataset.crmi=idx;
+  div.style.cssText='padding:12px;margin-bottom:8px;background:var(--input);border:1px solid var(--bdr);border-radius:var(--r);position:relative';
   
-  const custMachines=(DB.machines||[]).filter(m=>m.customer===custName&&m.model===model);
-  const reportMachines=DB.reports.filter(r=>r.customer===custName&&r.model===model&&r.serial).map(r=>({serial:r.serial}));
-  const serials=new Set();
-  custMachines.forEach(m=>serials.add(m.serial));
-  reportMachines.forEach(m=>serials.add(m.serial));
+  // Build model options grouped by category
+  const catModels={};
+  custMachines.forEach(m=>{const cat=m.category||'Other';if(!catModels[cat])catModels[cat]=new Set();catModels[cat].add(m.model);});
+  // Also add models from reports
+  DB.reports.filter(r=>r.customer===custName&&r.model).forEach(r=>{if(!Object.values(catModels).some(s=>s.has(r.model))){if(!catModels['Other'])catModels['Other']=new Set();catModels['Other'].add(r.model);}});
   
-  const srSel=document.getElementById('crSr');
-  if(serials.size>0){
-    srSel.innerHTML='<option value="">— Select serial —</option>'+[...serials].map(s=>`<option value="${E(s)}">${E(s)}</option>`).join('')+'<option value="__custom__">✏ Type custom serial...</option>';
-    // Auto-select if only one
-    if(serials.size===1)srSel.value=[...serials][0];
-  }else{
-    srSel.innerHTML='<option value="">No serials found</option><option value="__custom__">✏ Type serial...</option>';
+  let modelOpts='<option value="">— Select model —</option>';
+  Object.entries(catModels).sort().forEach(([cat,models])=>{
+    modelOpts+=`<optgroup label="${E(cat)}">`;
+    [...models].forEach(m=>{modelOpts+=`<option value="${E(m)}"${m===p.model?' selected':''}>${E(m)}</option>`;});
+    modelOpts+=`</optgroup>`;
+  });
+  modelOpts+='<option value="__custom__">✏ Type model...</option>';
+  
+  div.innerHTML=`${container.children.length>0?'<button class="btn btn-sm btn-d" onclick="this.closest(\'[data-crmi]\').remove()" style="position:absolute;right:8px;top:8px;min-height:28px;padding:2px 8px">✕</button>':''}
+    <div class="fr">
+      <div class="fg"><label style="font-size:var(--fs-xs)">Model</label><select class="fc crmiModel">${modelOpts}</select><input class="fc crmiModelC" placeholder="Type model..." style="display:none;margin-top:4px" value="${E(p.model&&!custMachines.find(m=>m.model===p.model)?p.model:'')}"></div>
+      <div class="fg"><label style="font-size:var(--fs-xs)">Serial</label><select class="fc crmiSerial"><option value="">—</option></select><input class="fc crmiSerialC" placeholder="Type serial..." style="display:none;margin-top:4px" value="${E(p.serial||'')}"></div>
+    </div>
+    <div class="crmiCatBadge" style="margin-top:4px;font-size:var(--fs-xs);color:var(--pu);font-weight:600"></div>`;
+  container.appendChild(div);
+  
+  // Wire up model select
+  const mdSel=div.querySelector('.crmiModel');const mdC=div.querySelector('.crmiModelC');
+  mdSel.onchange=function(){
+    if(this.value==='__custom__'){this.style.display='none';mdC.style.display='';mdC.focus();
+      const srSel=div.querySelector('.crmiSerial');srSel.innerHTML='<option value="">—</option>';
+      const srC=div.querySelector('.crmiSerialC');srC.style.display='';srSel.style.display='none';
+    }else{onCrMiModelChange(this);}
+  };
+  
+  // If preset, trigger serial population
+  if(p.model&&custMachines.find(m=>m.model===p.model)){
+    setTimeout(()=>{onCrMiModelChange(mdSel);
+      if(p.serial)setTimeout(()=>{const srSel=div.querySelector('.crmiSerial');const opt=[...srSel.options].find(o=>o.value===p.serial);if(opt)srSel.value=p.serial;else{div.querySelector('.crmiSerialC').value=p.serial;div.querySelector('.crmiSerialC').style.display='';srSel.style.display='none';}},50);
+    },50);
+  }else if(p.model){
+    mdSel.style.display='none';mdC.style.display='';mdC.value=p.model;
+    if(p.serial){div.querySelector('.crmiSerialC').style.display='';div.querySelector('.crmiSerial').style.display='none';div.querySelector('.crmiSerialC').value=p.serial;}
   }
-  srSel.style.display='';document.getElementById('crSrCustom').style.display='none';
-  srSel.onchange=function(){if(this.value==='__custom__'){this.style.display='none';document.getElementById('crSrCustom').style.display='';document.getElementById('crSrCustom').focus();}};
+}
+
+function onCrMiModelChange(sel){
+  const div=sel.closest('[data-crmi]');if(!div)return;
+  const custName=document.getElementById('crCu')?.value||'';
+  const model=sel.value;if(!model||model==='__custom__')return;
+  const machWithCat=(DB.machines||[]).find(m=>m.customer===custName&&m.model===model&&m.category);
+  const badge=div.querySelector('.crmiCatBadge');
+  if(machWithCat?.category)badge.textContent='📂 '+machWithCat.category;else badge.textContent='';
+  const serials=new Set();
+  (DB.machines||[]).filter(m=>m.customer===custName&&m.model===model).forEach(m=>serials.add(m.serial));
+  DB.reports.filter(r=>r.customer===custName&&r.model===model&&r.serial).forEach(r=>serials.add(r.serial));
+  const srSel=div.querySelector('.crmiSerial');const srC=div.querySelector('.crmiSerialC');
+  srSel.innerHTML='<option value="">— Select —</option>'+[...serials].map(s=>`<option>${E(s)}</option>`).join('')+'<option value="__custom__">✏ Type...</option>';
+  srSel.style.display='';srC.style.display='none';
+  if(serials.size===1)srSel.value=[...serials][0];
+  srSel.onchange=function(){if(this.value==='__custom__'){this.style.display='none';srC.style.display='';srC.focus();}};
+}
+
+function getCrMachines(){
+  const machines=[];
+  document.querySelectorAll('#crMachList [data-crmi]').forEach(div=>{
+    const mdSel=div.querySelector('.crmiModel');const mdC=div.querySelector('.crmiModelC');
+    const srSel=div.querySelector('.crmiSerial');const srC=div.querySelector('.crmiSerialC');
+    const model=(mdSel&&mdSel.style.display!=='none'&&mdSel.value&&mdSel.value!=='__custom__')?mdSel.value:(mdC?.value.trim()||'');
+    const serial=(srSel&&srSel.style.display!=='none'&&srSel.value&&srSel.value!=='__custom__')?srSel.value:(srC?.value.trim()||'');
+    if(model||serial)machines.push({model,serial});
+  });
+  return machines;
 }
 
 function toggleCustomCust(){
@@ -1571,6 +1586,7 @@ function getSelectedEngineers(){
 function getCRData(){
   const sc=document.getElementById('sigC'),se=document.getElementById('sigE');
   const engineers=getSelectedEngineers();
+  const machines=getCrMachines();
   return{
     company:document.getElementById('crCo').value,
     jobNo:document.getElementById('crJN').value.trim(),
@@ -1579,8 +1595,9 @@ function getCRData(){
     contact:getFieldVal('crCn','crCnCustom'),
     contactNum:getFieldVal('crCp','crCpCustom'),
     poNo:document.getElementById('crPO').value.trim(),
-    model:getFieldVal('crMd','crMdCustom'),
-    serial:getFieldVal('crSr','crSrCustom'),
+    model:machines.map(m=>m.model).join(', '),
+    serial:machines.map(m=>m.serial).join(', '),
+    machines:machines,
     engineer:engineers.join(', '),
     engineers:engineers,
     type:document.getElementById('crTy').value,
@@ -1981,7 +1998,6 @@ function showCalDay(ds){
     html+=`<div class="ds"><h4 style="color:var(--ac)">🔧 Jobs (${dayJobs.length})</h4>`;
     dayJobs.forEach(j=>{
       const techNames=getJobTechNames(j);
-      const mi=getJobMachineInfo(j);
       const addr=getJobAddress(j);
       html+=`<div style="padding:12px;margin-bottom:10px;background:var(--acs);border-radius:var(--r);border-left:4px solid var(--ac)">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
@@ -1991,7 +2007,7 @@ function showCalDay(ds){
         <div style="margin-top:8px;font-size:var(--fs-sm);color:var(--t2);line-height:1.7">
           <div>🏢 <strong>${E(j.customer||'—')}</strong></div>
           ${addr?`<div>📍 ${E(addr)}</div>`:''}
-          <div>⚙️ ${E(mi.model||j.machine||'—')}${mi.serial?' (S/N: '+E(mi.serial)+')':''}${mi.category?' — <span style="color:var(--pu);font-weight:600">'+E(mi.category)+'</span>':''}</div>
+          <div>⚙️ ${getJobMachineText(j)}</div>
           <div>📌 ${E(j.type||'—')}</div>
           ${j.time?`<div>⏰ ${E(j.time)}</div>`:''}
           <div>👥 ${E(techNames)}</div>
@@ -2750,6 +2766,7 @@ function renderDataMgmt(){
         <button class="btn btn-p btn-sm" onclick="exportCSV('jobs')">Jobs (${DB.jobs.length})</button>
         <button class="btn btn-p btn-sm" onclick="exportCSV('technicians')">Technicians (${DB.techs.length})</button>
         <button class="btn btn-p btn-sm" onclick="exportCSV('agents')">Agents (${(DB.agents||[]).length})</button>
+        <button class="btn btn-p btn-sm" onclick="exportCSV('pos')">POs (${(DB.pos||[]).length})</button>
         <button class="btn btn-s btn-sm" onclick="exportAllCSV()">📦 Export All</button>
       </div>
     </div>
@@ -2758,12 +2775,13 @@ function renderDataMgmt(){
       <div class="fg" style="margin-top:12px">
         <label>Data Type</label>
         <select class="fc" id="impType">
-          <option value="customers">Customers</option>
+          <option value="customers">Customers (incl. multi-contacts)</option>
           <option value="machines">Machines (incl. category)</option>
-          <option value="reports">Reports</option>
-          <option value="jobs">Jobs</option>
+          <option value="reports">Reports (incl. multi-machines)</option>
+          <option value="jobs">Jobs (incl. multi-machines, PO)</option>
           <option value="technicians">Technicians</option>
           <option value="agents">Agents / Companies</option>
+          <option value="pos">Purchase Orders</option>
         </select>
       </div>
       <div class="fg">
@@ -2811,23 +2829,26 @@ function exportCSV(table){
   
   switch(table){
     case 'customers':
-      headers=['id','name','address','contact','phone','email','agent'];
-      rows=DB.custs;break;
+      headers=['id','name','address','contact','phone','email','contacts','agent'];
+      rows=DB.custs.map(c=>({...c,contacts:JSON.stringify(c.contacts||[])}));break;
     case 'machines':
       headers=['id','serial','model','category','customer','location','installDate','warranty','purchaseRental','serviceContract','maintFrequency'];
       rows=DB.machines||[];break;
     case 'reports':
-      headers=['id','company','jobNo','date','customer','contact','contactNum','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit'];
-      rows=DB.reports;break;
+      headers=['id','company','jobNo','date','customer','contact','contactNum','poNo','model','serial','machines','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit'];
+      rows=DB.reports.map(r=>({...r,machines:JSON.stringify(r.machines||[])}));break;
     case 'jobs':
-      headers=['id','title','customer','machine','model','type','priority','date','time','status','desc','techNames'];
-      rows=DB.jobs.map(j=>({...j,techNames:getJobTechNames(j)}));break;
+      headers=['id','title','customer','machines','poNo','type','priority','date','time','status','desc','techNames'];
+      rows=DB.jobs.map(j=>({...j,machines:JSON.stringify(j.machines||[]),techNames:getJobTechNames(j)}));break;
     case 'technicians':
       headers=['id','name','phone','email','spec'];
       rows=DB.techs;break;
     case 'agents':
       headers=['id','name','type','address','contact','phone','email'];
       rows=DB.agents||[];break;
+    case 'pos':
+      headers=['id','poNo','date','customer','description','items','status','total'];
+      rows=(DB.pos||[]).map(p=>({...p,items:JSON.stringify(p.items||[]),total:(p.items||[]).reduce((s,i)=>s+(parseFloat(i.amount)||0),0).toFixed(2)}));break;
     default:return;
   }
   
@@ -2838,19 +2859,20 @@ function exportCSV(table){
 
 function exportAllCSV(){
   const ts=new Date().toISOString().split('T')[0];
-  ['customers','machines','reports','jobs','technicians','agents'].forEach(t=>exportCSV(t));
+  ['customers','machines','reports','jobs','technicians','agents','pos'].forEach(t=>exportCSV(t));
   toast('All tables exported.','success');
 }
 
 function downloadTemplate(){
   const type=document.getElementById('impType').value;
   const templates={
-    customers:'id,name,address,contact,phone,email,agent\n,Example Corp,123 Main St,John Doe,+6512345678,john@example.com,Redbox Global Solutions Pte Ltd',
+    customers:'id,name,address,contact,phone,email,contacts,agent\n,Example Corp,123 Main St,John Doe,+6512345678,john@example.com,"[{""name"":""John"",""phone"":""+6512345678"",""email"":""john@co.com""}]",Redbox Global Solutions Pte Ltd',
     machines:'id,serial,model,category,customer,location,installDate,warranty,purchaseRental,serviceContract,maintFrequency\n,SN12345,ET300PPS,Stretch Wrapping Machines,Example Corp,123 Main St,2024-01-15,12 months,Purchase,Nil,',
-    reports:'id,company,jobNo,date,customer,contact,contactNum,model,serial,engineer,type,timeStart,timeEnd,remarks,recommendations,status,nextVisit\n,octopack,SR-99999,2026-04-15,Example Corp,John,+65123,ET300PPS,SN12345,Colin Tan,Preventive Maintenance,09:00,11:00,Performed PM,All OK,Completed,',
-    jobs:'id,title,customer,machine,model,type,priority,date,time,status,desc\n,PM Service Example,Example Corp,SN12345,ET300PPS,Preventive Maintenance,Medium,2026-05-01,09:00,Open,Routine PM check',
+    reports:'id,company,jobNo,date,customer,contact,contactNum,poNo,model,serial,machines,engineer,type,timeStart,timeEnd,remarks,recommendations,status,nextVisit\n,octopack,SR-99999,2026-04-15,Example Corp,John,+65123,PO-001,ET300PPS,SN12345,"[{""model"":""ET300PPS"",""serial"":""SN12345""}]",Colin Tan,Preventive Maintenance,09:00,11:00,Performed PM,All OK,Completed,',
+    jobs:'id,title,customer,machines,poNo,type,priority,date,time,status,desc\n,PM Service,Example Corp,"[{""model"":""ET300PPS"",""serial"":""SN12345""}]",PO-001,Preventive Maintenance,Medium,2026-05-01,09:00,Open,Routine PM check',
     technicians:'id,name,phone,email,spec\n,New Tech,+6599999999,tech@company.com,General',
-    agents:'id,name,type,address,contact,phone,email\n,New Agent Co,Agent,123 Street,Mr Smith,+6512345678,agent@company.com'
+    agents:'id,name,type,address,contact,phone,email\n,New Agent Co,Agent,123 Street,Mr Smith,+6512345678,agent@company.com',
+    pos:'id,poNo,date,customer,description,items,status\n,PO-2026-001,2026-04-20,Example Corp,Monthly parts supply,"[{""desc"":""Filter Kit"",""qty"":""2"",""unit"":""sets"",""amount"":150}]",Outstanding'
   };
   downloadFile(templates[type]||'',`octocrm_${type}_template.csv`);
   toast('Template downloaded.','success');
@@ -2906,9 +2928,10 @@ function importCSV(){
         switch(type){
           case 'customers':{
             if(!obj.name)return;
+            let contacts=[];try{contacts=JSON.parse(obj.contacts||'[]');}catch(e){if(obj.contact)contacts=[{name:obj.contact,phone:obj.phone||'',email:obj.email||''}];}
             const existing=DB.custs.find(c=>c.name===obj.name||(obj.id&&c.id===parseInt(obj.id)));
-            if(existing){Object.assign(existing,{name:obj.name||existing.name,address:obj.address||existing.address,contact:obj.contact||existing.contact,phone:obj.phone||existing.phone,email:obj.email||existing.email,agent:obj.agent||existing.agent});updated++;}
-            else{DB.custs.push({id:DB.nC++,name:obj.name,address:obj.address||'',contact:obj.contact||'',phone:obj.phone||'',email:obj.email||'',agent:obj.agent||''});added++;}
+            if(existing){Object.assign(existing,{name:obj.name||existing.name,address:obj.address||existing.address,contact:obj.contact||contacts[0]?.name||existing.contact,phone:obj.phone||contacts[0]?.phone||existing.phone,email:obj.email||contacts[0]?.email||existing.email,contacts:contacts.length?contacts:existing.contacts||[],agent:obj.agent||existing.agent});updated++;}
+            else{DB.custs.push({id:DB.nC++,name:obj.name,address:obj.address||'',contact:obj.contact||contacts[0]?.name||'',phone:obj.phone||contacts[0]?.phone||'',email:obj.email||contacts[0]?.email||'',contacts:contacts,agent:obj.agent||''});added++;}
             break;
           }
           case 'machines':{
@@ -2921,14 +2944,16 @@ function importCSV(){
           }
           case 'reports':{
             if(!obj.jobno)return;
+            let machines=[];try{machines=JSON.parse(obj.machines||'[]');}catch(e){}
             const existing=DB.reports.find(r=>r.jobNo===obj.jobno||(obj.id&&r.id===parseInt(obj.id)));
-            if(existing){Object.assign(existing,{company:obj.company||existing.company,date:obj.date||existing.date,customer:obj.customer||existing.customer,contact:obj.contact||existing.contact,contactNum:obj.contactnum||existing.contactNum,model:obj.model||existing.model,serial:obj.serial||existing.serial,engineer:obj.engineer||existing.engineer,type:obj.type||existing.type,timeStart:obj.timestart||existing.timeStart,timeEnd:obj.timeend||existing.timeEnd,remarks:obj.remarks||existing.remarks,recommendations:obj.recommendations||existing.recommendations,status:obj.status||existing.status,nextVisit:obj.nextvisit||existing.nextVisit});updated++;}
-            else{DB.reports.push({id:DB.nR++,company:obj.company||'octopack',jobNo:obj.jobno,date:obj.date||'',customer:obj.customer||'',contact:obj.contact||'',contactNum:obj.contactnum||'',model:obj.model||'',serial:obj.serial||'',engineer:obj.engineer||'',type:obj.type||'Preventive Maintenance',timeStart:obj.timestart||'',timeEnd:obj.timeend||'',remarks:obj.remarks||'',recommendations:obj.recommendations||'',status:obj.status||'Completed',nextVisit:obj.nextvisit||'',signed:false,photos:[]});added++;}
+            if(existing){Object.assign(existing,{company:obj.company||existing.company,date:obj.date||existing.date,customer:obj.customer||existing.customer,contact:obj.contact||existing.contact,contactNum:obj.contactnum||existing.contactNum,poNo:obj.pono||existing.poNo,model:obj.model||existing.model,serial:obj.serial||existing.serial,machines:machines.length?machines:existing.machines||[],engineer:obj.engineer||existing.engineer,type:obj.type||existing.type,timeStart:obj.timestart||existing.timeStart,timeEnd:obj.timeend||existing.timeEnd,remarks:obj.remarks||existing.remarks,recommendations:obj.recommendations||existing.recommendations,status:obj.status||existing.status,nextVisit:obj.nextvisit||existing.nextVisit});updated++;}
+            else{DB.reports.push({id:DB.nR++,company:obj.company||'octopack',jobNo:obj.jobno,date:obj.date||'',customer:obj.customer||'',contact:obj.contact||'',contactNum:obj.contactnum||'',poNo:obj.pono||'',model:obj.model||'',serial:obj.serial||'',machines:machines,engineer:obj.engineer||'',type:obj.type||'Preventive Maintenance',timeStart:obj.timestart||'',timeEnd:obj.timeend||'',remarks:obj.remarks||'',recommendations:obj.recommendations||'',status:obj.status||'Completed',nextVisit:obj.nextvisit||'',signed:false,photos:[]});added++;}
             break;
           }
           case 'jobs':{
             if(!obj.title)return;
-            DB.jobs.push({id:DB.nJ++,title:obj.title,customer:obj.customer||'',machine:obj.machine||'',type:obj.type||'Preventive Maintenance',priority:obj.priority||'Medium',date:obj.date||'',time:obj.time||'',status:obj.status||'Open',desc:obj.desc||'',createdAt:new Date().toISOString(),waSent:false});added++;
+            let machines=[];try{machines=JSON.parse(obj.machines||'[]');}catch(e){}
+            DB.jobs.push({id:DB.nJ++,title:obj.title,customer:obj.customer||'',machines:machines,machine:machines[0]?.serial||obj.machine||'',model:machines[0]?.model||obj.model||'',poNo:obj.pono||'',type:obj.type||'Preventive Maintenance',priority:obj.priority||'Medium',date:obj.date||'',time:obj.time||'',status:obj.status||'Open',desc:obj.desc||'',createdAt:new Date().toISOString(),waSent:false});added++;
             break;
           }
           case 'technicians':{
@@ -2944,6 +2969,15 @@ function importCSV(){
             const existing=DB.agents.find(a=>a.name===obj.name);
             if(existing){Object.assign(existing,{type:obj.type||existing.type,address:obj.address||existing.address,contact:obj.contact||existing.contact,phone:obj.phone||existing.phone,email:obj.email||existing.email});updated++;}
             else{DB.agents.push({id:DB.nA++,name:obj.name,type:obj.type||'Agent',address:obj.address||'',contact:obj.contact||'',phone:obj.phone||'',email:obj.email||''});added++;}
+            break;
+          }
+          case 'pos':{
+            if(!obj.pono)return;
+            if(!Array.isArray(DB.pos))DB.pos=[];
+            let items=[];try{items=JSON.parse(obj.items||'[]');}catch(e){}
+            const existing=DB.pos.find(p=>p.poNo===obj.pono);
+            if(existing){Object.assign(existing,{date:obj.date||existing.date,customer:obj.customer||existing.customer,description:obj.description||existing.description,items:items.length?items:existing.items||[],status:obj.status||existing.status});updated++;}
+            else{if(!DB.nP||isNaN(DB.nP))DB.nP=Math.max(0,...DB.pos.map(p=>p.id||0))+1;DB.pos.push({id:DB.nP++,poNo:obj.pono,date:obj.date||'',customer:obj.customer||'',description:obj.description||'',items:items,status:obj.status||'Outstanding',createdAt:new Date().toISOString()});added++;}
             break;
           }
         }
