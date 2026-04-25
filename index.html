@@ -734,7 +734,7 @@ function renderDash(){
     ${defectiveMachines.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--wn)"><div class="th"><h3 style="color:var(--wn)">🔧 Defective Machines</h3><button class="btn btn-sm btn-s" onclick="showPage('machines')">View All →</button></div>
     ${defectiveMachines.slice(0,5).map(m=>`<div class="rpt-card" onclick="viewMachineDetail('${E(m.serial)}')" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(m.serial)}</span><span class="bd bd-er">${(m.issues||[]).length} issue(s)</span></div><div class="rpt-card-row"><span class="rc-label">Model</span><span class="rc-val">${E(m.model)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(m.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Last Issue</span><span class="rc-val">${E(m.issues[m.issues.length-1]?.status||'')}</span></div></div>`).join('')}</div>`:''}
     <div class="tw" style="margin-bottom:16px"><div class="th"><h3>Active Jobs</h3><button class="btn btn-sm btn-s" onclick="showPage('jobs')">View All →</button></div>
-    ${aj.length?aj.slice(0,5).map(j=>{const addr=getJobAddress(j);return`<div class="rpt-card" onclick="viewJobDetail(${j.id})" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title?.substring(0,40))}</span>${prBd(j.priority)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Machine(s)</span><span class="rc-val">${getJobMachineText(j)}</span></div><div class="rpt-card-row"><span class="rc-label">Technician(s)</span><span class="rc-val">${E(getJobTechNames(j))}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div>${addr?`<div class="rpt-card-row"><span class="rc-label">📍</span><span class="rc-val"><button class="btn btn-sm btn-ok" style="padding:2px 10px;min-height:26px;font-size:11px" onclick="event.stopPropagation();navigateTo('${E(addr)}')">🧭 Navigate</button></span></div>`:''}<div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${jsBd(j.status)}</span></div></div>`}).join(''):'<div class="es" style="padding:24px"><p>No active jobs.</p></div>'}
+    ${aj.length?aj.slice(0,5).map(j=>{const addr=getJobAddress(j);const cust=DB.custs.find(c=>c.name===j.customer);const ct1=cust?.contacts?.[0]||{name:cust?.contact||'',phone:cust?.phone||''};return`<div class="rpt-card" onclick="viewJobDetail(${j.id})" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title?.substring(0,40))}</span>${prBd(j.priority)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer)}</span></div>${j.poNo?`<div class="rpt-card-row"><span class="rc-label">PO No.</span><span class="rc-val" style="font-weight:600">${E(j.poNo)}</span></div>`:''}<div class="rpt-card-row"><span class="rc-label">Machine(s)</span><span class="rc-val">${getJobMachineText(j)}</span></div>${ct1.name?`<div class="rpt-card-row"><span class="rc-label">Contact</span><span class="rc-val">${E(ct1.name)}${ct1.phone?' — '+E(ct1.phone):''}</span></div>`:''}<div class="rpt-card-row"><span class="rc-label">Technician(s)</span><span class="rc-val">${E(getJobTechNames(j))}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div>${addr?`<div class="rpt-card-row"><span class="rc-label">📍</span><span class="rc-val"><button class="btn btn-sm btn-ok" style="padding:2px 10px;min-height:26px;font-size:11px" onclick="event.stopPropagation();navigateTo('${E(addr)}')">🧭 Navigate</button></span></div>`:''}<div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${jsBd(j.status)}</span></div></div>`}).join(''):'<div class="es" style="padding:24px"><p>No active jobs.</p></div>'}
     </div>
     <div class="tw"><div class="th"><h3>Recent Reports</h3></div>
     ${DB.reports.length?[...DB.reports].sort((a,b)=>b.id-a.id).slice(0,5).map(r=>`<div class="rpt-card" onclick="viewRptPreview(${r.id})" style="cursor:pointer"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span><span class="bd" style="background:${CO[r.company]?.color||'var(--ac)'}15;color:${CO[r.company]?.color||'var(--ac)'};font-size:11px">${E(r.company)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${stBd(r.status)}</span></div></div>`).join(''):'<div class="es" style="padding:24px"><p>No reports yet.</p></div>'}
@@ -753,8 +753,8 @@ function renderJobs(){
   document.getElementById('jobsContent').innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px"><h2 style="font-size:var(--fs-xl)">Job Board</h2><div style="display:flex;gap:8px"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search jobs..." oninput="renderJobs()"></div><button class="btn btn-p btn-sm" onclick="openNewJobModal()">+ Job</button></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${['all','Open','Assigned','In Progress','Completed'].map(f=>`<button class="fc-chip${curJF===f?' active':''}" onclick="curJF='${f}';renderJobs()">${f==='all'?'All':f}</button>`).join('')}</div>
-    ${jobs.length?jobs.map(j=>{const addr=getJobAddress(j);return`<div class="jc"><div class="jc-h"><div><h4>${E(j.title)}</h4><span style="font-size:var(--fs-xs);color:var(--t3)">JOB-${String(j.id).padStart(4,'0')}</span></div><div style="display:flex;gap:6px">${prBd(j.priority)}</div></div>
-      <div class="jc-m"><span>🏢 ${E(j.customer||'—')}</span><span>⚙️ ${getJobMachineText(j)}</span><span>📅 ${E(j.date||'TBD')}</span><span>👥 ${E(getJobTechNames(j))}</span></div>
+    ${jobs.length?jobs.map(j=>{const addr=getJobAddress(j);const cust=DB.custs.find(c=>c.name===j.customer);const ct1=cust?.contacts?.[0]||{name:cust?.contact||'',phone:cust?.phone||''};return`<div class="jc"><div class="jc-h"><div><h4>${E(j.title)}</h4><span style="font-size:var(--fs-xs);color:var(--t3)">JOB-${String(j.id).padStart(4,'0')}${j.poNo?' &nbsp;|&nbsp; PO: '+E(j.poNo):''}</span></div><div style="display:flex;gap:6px">${prBd(j.priority)}</div></div>
+      <div class="jc-m"><span>🏢 ${E(j.customer||'—')}</span>${ct1.name?`<span>👤 ${E(ct1.name)}${ct1.phone?' — <a href="tel:'+ct1.phone+'" style="color:var(--ac);text-decoration:none">'+E(ct1.phone)+'</a>':''}</span>`:''}<span>⚙️ ${getJobMachineText(j)}</span><span>📅 ${E(j.date||'TBD')}</span><span>👥 ${E(getJobTechNames(j))}</span></div>
       ${addr?`<div style="display:flex;gap:8px;margin-bottom:10px;align-items:center;flex-wrap:wrap"><span style="font-size:var(--fs-sm);color:var(--t2)">📍 ${E(addr)}</span><button class="btn btn-sm btn-ok" style="padding:4px 12px;min-height:32px;font-size:12px" onclick="event.stopPropagation();navigateTo('${E(addr)}')">🧭 Navigate</button></div>`:''}
       ${j.desc?`<div class="jc-d">${E(j.desc)}</div>`:''}
       <div style="margin-bottom:12px"><label style="font-size:var(--fs-xs);font-weight:600;color:var(--t3);display:block;margin-bottom:4px">STATUS</label>${statusSelect(j.id,j.status,'job')}</div>
@@ -834,11 +834,11 @@ function openNewJobModal(){
   openModal('Create Job',`
     <input type="hidden" id="eJId">
     <div class="fr"><div class="fg"><label>Title</label><input class="fc" id="jTi" placeholder="PM Service..."></div><div class="fg"><label>Priority</label><select class="fc" id="jPr"><option>Low</option><option selected>Medium</option><option>High</option><option>Urgent</option></select></div></div>
-    <div class="fg"><label>Customer</label>
+    <div class="fr"><div class="fg"><label>Customer</label>
       <select class="fc" id="jCu" onchange="onJobCustChange()"><option value="">— Select —</option>${cs.map(c=>`<option>${E(c.name)}</option>`).join('')}</select>
       <input class="fc" id="jCuCustom" placeholder="Or type new customer name..." style="display:none;margin-top:6px">
       <button class="btn btn-sm btn-s" onclick="toggleJobCustomCust()" style="margin-top:6px;font-size:var(--fs-xs)" id="jCuToggle">+ New customer</button>
-    </div>
+    </div><div class="fg"><label>PO Number</label><input class="fc" id="jPO" placeholder="PO-2026-001"></div></div>
     <div class="fg"><label>Machine(s)</label>
       <div id="jMachList"></div>
       <button class="btn btn-sm btn-s" onclick="addJobMachine()" style="margin-top:8px" id="jAddMachBtn">+ Add machine</button>
@@ -961,6 +961,7 @@ function getSelectedTechIds(){return[...document.querySelectorAll('.jTeChk:check
 function editJob(id){const j=DB.jobs.find(x=>x.id===id);if(!j)return;openNewJobModal();setTimeout(()=>{
   document.getElementById('eJId').value=j.id;document.getElementById('jTi').value=j.title||'';document.getElementById('jPr').value=j.priority;
   document.getElementById('jCu').value=j.customer||'';
+  document.getElementById('jPO').value=j.poNo||'';
   // Populate machines
   jMachIdx=0;document.getElementById('jMachList').innerHTML='';
   const machines=j.machines||[];
@@ -978,7 +979,7 @@ function saveJob(){
   const techIds=getSelectedTechIds();
   const customer=getJobFieldVal('jCu','jCuCustom');
   const machines=getJobMachines();
-  const d={title:document.getElementById('jTi').value.trim(),customer:customer,machines:machines,machine:machines[0]?.serial||'',model:machines[0]?.model||'',techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
+  const d={title:document.getElementById('jTi').value.trim(),customer:customer,machines:machines,machine:machines[0]?.serial||'',model:machines[0]?.model||'',poNo:document.getElementById('jPO').value.trim(),techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
   if(!d.title){toast('Enter title.','error');return;}
   if(eid&&eid!==''){const i=DB.jobs.findIndex(j=>j.id===parseInt(eid));if(i>=0)DB.jobs[i]={...DB.jobs[i],...d};}
   else{d.id=DB.nJ++;d.createdAt=new Date().toISOString();d.waSent=false;DB.jobs.push(d);}
@@ -1037,9 +1038,9 @@ function viewJobDetail(id){
     <div class="ds"><h4>Job Details</h4>
       <div class="dr"><span class="lb">Customer</span><span class="vl">${E(j.customer||'—')}</span></div>
       ${addr?`<div class="dr"><span class="lb">Address</span><span class="vl">${E(addr)}</span></div>`:''}
-      ${cust?.contact?`<div class="dr"><span class="lb">Contact</span><span class="vl">${E(cust.contact)}${cust.phone?' — '+E(cust.phone):''}</span></div>`:''}
+      ${(()=>{const cts=cust?.contacts||[];if(cts.length>1)return cts.map(ct=>`<div class="dr"><span class="lb">Contact</span><span class="vl">${E(ct.name||'')}${ct.phone?' — <a href="tel:'+ct.phone+'" style="color:var(--ac);text-decoration:none">'+E(ct.phone)+'</a>':''}${ct.email?' — '+E(ct.email):''}</span></div>`).join('');if(cust?.contact)return`<div class="dr"><span class="lb">Contact</span><span class="vl">${E(cust.contact)}${cust.phone?' — <a href="tel:'+cust.phone+'" style="color:var(--ac);text-decoration:none">'+E(cust.phone)+'</a>':''}</span></div>`;return'';})()}
+      ${j.poNo?`<div class="dr"><span class="lb">PO No.</span><span class="vl" style="font-weight:700;color:var(--ac)">${E(j.poNo)}</span></div>`:''}
       ${machineRows}
-      ${j.poNo?`<div class="dr"><span class="lb">PO No.</span><span class="vl">${E(j.poNo)}</span></div>`:''}
       <div class="dr"><span class="lb">Type</span><span class="vl">${E(j.type)}</span></div>
       <div class="dr"><span class="lb">Date</span><span class="vl">${E(j.date||'TBD')}${j.time?' at '+E(j.time):''}</span></div>
       <div class="dr"><span class="lb">Technician(s)</span><span class="vl">${E(techNames)}</span></div>
