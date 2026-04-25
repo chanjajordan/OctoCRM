@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,interactive-widget=resizes-content,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=5.0,user-scalable=yes,interactive-widget=resizes-content,viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f8fafc">
@@ -3021,17 +3021,13 @@ function importJSON(file){
 
 // ===== DUPLICATE DETECTION & CLEANUP =====
 function strSim(a,b){
-  // Simple similarity score 0-1 using Levenshtein-like comparison
   if(!a||!b)return 0;
   a=a.toLowerCase().trim();b=b.toLowerCase().trim();
   if(a===b)return 1;
-  // Check if one contains the other
   if(a.includes(b)||b.includes(a))return 0.85;
-  // Word overlap
   const wa=new Set(a.split(/\s+/));const wb=new Set(b.split(/\s+/));
   let common=0;wa.forEach(w=>{if(wb.has(w))common++;});
   const wordSim=common/Math.max(wa.size,wb.size);
-  // Character-level comparison
   let matches=0;const shorter=a.length<b.length?a:b;const longer=a.length<b.length?b:a;
   for(let i=0;i<shorter.length;i++){if(longer.includes(shorter[i]))matches++;}
   const charSim=matches/longer.length;
@@ -3042,36 +3038,22 @@ function findDuplicates(){
   const dupes={customers:[],machines:[],addresses:[]};
   const custs=DB.custs||[];
   const machines=DB.machines||[];
-  
-  // Find similar customer names
   for(let i=0;i<custs.length;i++){
     for(let j=i+1;j<custs.length;j++){
       const sim=strSim(custs[i].name,custs[j].name);
-      if(sim>=0.7){dupes.customers.push({a:custs[i],b:custs[j],sim:Math.round(sim*100)});}
+      if(sim>=0.7)dupes.customers.push({a:custs[i],b:custs[j],sim:Math.round(sim*100)});
     }
   }
-  
-  // Find duplicate machine serials
   const serialMap={};
-  machines.forEach(m=>{
-    if(!serialMap[m.serial])serialMap[m.serial]=[];
-    serialMap[m.serial].push(m);
-  });
-  Object.entries(serialMap).forEach(([serial,list])=>{
-    if(list.length>1)dupes.machines.push({serial,items:list});
-  });
-  
-  // Find similar addresses across different customers
+  machines.forEach(m=>{if(!serialMap[m.serial])serialMap[m.serial]=[];serialMap[m.serial].push(m);});
+  Object.entries(serialMap).forEach(([serial,list])=>{if(list.length>1)dupes.machines.push({serial,items:list});});
   for(let i=0;i<custs.length;i++){
     for(let j=i+1;j<custs.length;j++){
       if(!custs[i].address||!custs[j].address)continue;
       const sim=strSim(custs[i].address,custs[j].address);
-      if(sim>=0.75&&custs[i].name!==custs[j].name){
-        dupes.addresses.push({a:custs[i],b:custs[j],sim:Math.round(sim*100)});
-      }
+      if(sim>=0.75&&custs[i].name!==custs[j].name)dupes.addresses.push({a:custs[i],b:custs[j],sim:Math.round(sim*100)});
     }
   }
-  
   return dupes;
 }
 
@@ -3079,22 +3061,36 @@ function showDuplicateCheck(){
   const dupes=findDuplicates();
   const total=dupes.customers.length+dupes.machines.length+dupes.addresses.length;
   
+  let html=`<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <button class="btn btn-p" onclick="closeModal();aiDuplicateCheck()">🤖 AI Smart Scan</button>
+    <button class="btn btn-s" onclick="closeModal();showBasicDuplicates()">📋 Basic Check</button>
+  </div>
+  <p style="color:var(--t2);margin-bottom:12px"><strong>🤖 AI Smart Scan</strong> — Uses Gemini AI to intelligently analyse your customer and machine lists for duplicates, abbreviations, typos, and similar entries that basic matching might miss.</p>
+  <p style="color:var(--t2)"><strong>📋 Basic Check</strong> — Fast text-similarity scan (${total} potential duplicate${total!==1?'s':''} found).</p>`;
+  
+  openModal('🔍 Duplicate Detection',html,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
+}
+
+function showBasicDuplicates(){
+  const dupes=findDuplicates();
+  const total=dupes.customers.length+dupes.machines.length+dupes.addresses.length;
+  
   if(total===0){
-    openModal('✅ No Duplicates Found','<div class="es" style="padding:20px"><p style="font-size:var(--fs)">Database looks clean! No duplicate customers, machines, or addresses detected.</p></div>',`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
+    openModal('✅ No Duplicates Found','<div class="es" style="padding:20px"><p>Database looks clean! No duplicate customers, machines, or addresses detected.</p></div>',`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
     return;
   }
   
-  let html=`<p style="color:var(--t2);margin-bottom:16px">Found <strong>${total}</strong> potential duplicate(s). Review and merge or dismiss.</p>`;
+  let html=`<p style="color:var(--t2);margin-bottom:16px">Found <strong>${total}</strong> potential duplicate(s).</p>`;
   
-  // Customer name duplicates
   if(dupes.customers.length){
     html+=`<h3 style="margin-bottom:12px;color:var(--wn)">👥 Similar Customer Names (${dupes.customers.length})</h3>`;
-    dupes.customers.forEach((d,i)=>{
+    dupes.customers.forEach(d=>{
       html+=`<div style="padding:14px;background:var(--wns);border-radius:var(--r);margin-bottom:10px">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
           <div><strong>${E(d.a.name)}</strong> ↔ <strong>${E(d.b.name)}</strong><br><span style="font-size:var(--fs-xs);color:var(--t3)">${d.sim}% similar</span></div>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-sm btn-p" onclick="mergeCusts(${d.a.id},'${E(d.a.name)}',${d.b.id},'${E(d.b.name)}')">Merge → Keep "${E(d.a.name)}"</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-p" onclick="mergeCusts(${d.a.id},'${E(d.a.name)}',${d.b.id},'${E(d.b.name)}')">Keep "${E(d.a.name)}"</button>
+            <button class="btn btn-sm btn-s" onclick="mergeCusts(${d.b.id},'${E(d.b.name)}',${d.a.id},'${E(d.a.name)}')">Keep "${E(d.b.name)}"</button>
             <button class="btn btn-sm btn-s" onclick="this.closest('div[style]').remove()">Dismiss</button>
           </div>
         </div>
@@ -3102,7 +3098,6 @@ function showDuplicateCheck(){
     });
   }
   
-  // Duplicate machine serials
   if(dupes.machines.length){
     html+=`<h3 style="margin:16px 0 12px;color:var(--er)">⚙️ Duplicate Serial Numbers (${dupes.machines.length})</h3>`;
     dupes.machines.forEach(d=>{
@@ -3115,27 +3110,152 @@ function showDuplicateCheck(){
     });
   }
   
-  // Similar addresses
   if(dupes.addresses.length){
     html+=`<h3 style="margin:16px 0 12px;color:var(--pu)">📍 Similar Addresses (${dupes.addresses.length})</h3>`;
     dupes.addresses.forEach(d=>{
       html+=`<div style="padding:14px;background:var(--pus);border-radius:var(--r);margin-bottom:10px">
-        <div><strong>${E(d.a.name)}</strong>: ${E(d.a.address)}<br><strong>${E(d.b.name)}</strong>: ${E(d.b.address)}<br><span style="font-size:var(--fs-xs);color:var(--t3)">${d.sim}% similar — possibly same location</span></div>
+        <div><strong>${E(d.a.name)}</strong>: ${E(d.a.address)}<br><strong>${E(d.b.name)}</strong>: ${E(d.b.address)}<br><span style="font-size:var(--fs-xs);color:var(--t3)">${d.sim}% similar</span></div>
         <div style="margin-top:8px"><button class="btn btn-sm btn-s" onclick="this.closest('div[style]').remove()">Dismiss</button></div>
       </div>`;
     });
   }
   
-  openModal(`🔍 Duplicate Check — ${total} Found`,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
+  openModal(`📋 Basic Duplicate Check — ${total} Found`,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
+}
+
+async function aiDuplicateCheck(){
+  const apiKey=localStorage.getItem('ocrm4_gemini_key');
+  if(!apiKey){toast('Set your Gemini API key in Scan Report page first.','error');return;}
+  
+  // Build compact data for AI
+  const custList=DB.custs.map(c=>({id:c.id,name:c.name,address:c.address||'',contact:c.contact||''}));
+  const machList=(DB.machines||[]).map(m=>({id:m.id,serial:m.serial,model:m.model,customer:m.customer}));
+  
+  openModal('🤖 AI Duplicate Scan',`<div id="aiDupStatus" style="padding:20px;text-align:center">
+    <div style="font-size:24px;margin-bottom:12px">🤖</div>
+    <strong>Analysing ${custList.length} customers and ${machList.length} machines...</strong>
+    <p style="color:var(--t2);margin-top:8px;font-size:var(--fs-sm)">Gemini AI is checking for duplicates, abbreviations, typos, and similar entries.</p>
+  </div>`,`<button class="btn btn-s" onclick="closeModal()">Cancel</button>`);
+  
+  const prompt=`Analyse this CRM data for duplicates. Find same companies with different spellings, abbreviations, typos, or same entity listed twice.
+
+CUSTOMERS: ${JSON.stringify(custList)}
+MACHINES: ${JSON.stringify(machList)}
+
+Return ONLY valid JSON (no markdown):
+{"customerDuplicates":[{"keepId":0,"keepName":"","removeId":0,"removeName":"","reason":"short reason","confidence":85}],"machineDuplicates":[{"keepId":0,"removeId":0,"serial":"","reason":"short reason","confidence":90}],"suggestions":["short suggestion"]}
+Keep reasons under 15 words. Return empty arrays if no duplicates found.`;
+
+  try{
+    const resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+apiKey,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:8000}})
+    });
+    if(!resp.ok)throw new Error('API error: '+resp.status);
+    const data=await resp.json();
+    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+    if(!text)throw new Error('Empty response');
+    let clean=text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+    
+    // Attempt to repair truncated JSON
+    let result;
+    try{
+      result=JSON.parse(clean);
+    }catch(e1){
+      // Try to fix common truncation issues
+      // Close any open strings
+      let fixed=clean;
+      // Count unclosed braces/brackets
+      let braces=0,brackets=0,inStr=false,lastChar='';
+      for(let i=0;i<fixed.length;i++){
+        const c=fixed[i];
+        if(c==='"'&&lastChar!=='\\')inStr=!inStr;
+        if(!inStr){if(c==='{')braces++;if(c==='}')braces--;if(c==='[')brackets++;if(c===']')brackets--;}
+        lastChar=c;
+      }
+      // If in a string, close it
+      if(inStr)fixed+='"';
+      // Close arrays and objects
+      while(brackets>0){fixed+=']';brackets--;}
+      while(braces>0){fixed+='}';braces--;}
+      // Remove trailing commas before closing
+      fixed=fixed.replace(/,\s*([}\]])/g,'$1');
+      
+      try{
+        result=JSON.parse(fixed);
+      }catch(e2){
+        // Last resort: extract what we can
+        result={customerDuplicates:[],machineDuplicates:[],suggestions:['AI response was truncated. Try Basic Check for now.']};
+      }
+    }
+    
+    showAiDuplicateResults(result);
+  }catch(err){
+    console.error('AI duplicate check error:',err);
+    document.getElementById('aiDupStatus').innerHTML=`<strong style="color:var(--er)">❌ ${err.message}</strong><br><span style="font-size:var(--fs-sm)">Try again or use Basic Check.</span>`;
+  }
+}
+
+function showAiDuplicateResults(result){
+  const custDupes=result.customerDuplicates||[];
+  const machDupes=result.machineDuplicates||[];
+  const suggestions=result.suggestions||[];
+  const total=custDupes.length+machDupes.length;
+  
+  let html=`<div style="padding:8px 12px;background:var(--acs);border-radius:var(--r);margin-bottom:16px;font-size:var(--fs-sm)">🤖 AI found <strong>${total}</strong> potential duplicate(s) and <strong>${suggestions.length}</strong> suggestion(s).</div>`;
+  
+  if(custDupes.length){
+    html+=`<h3 style="margin-bottom:12px;color:var(--wn)">👥 Customer Duplicates (${custDupes.length})</h3>`;
+    custDupes.forEach(d=>{
+      html+=`<div style="padding:14px;background:var(--wns);border-radius:var(--r);margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px">
+          <div>
+            <strong>${E(d.keepName||'')}</strong> ↔ <strong>${E(d.removeName||'')}</strong>
+            <div style="font-size:var(--fs-xs);color:var(--t2);margin-top:4px">🤖 ${E(d.reason||'')} <span class="bd bd-ac">${d.confidence||0}% confidence</span></div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            ${d.keepId&&d.removeId?`<button class="btn btn-sm btn-p" onclick="mergeCusts(${d.keepId},'${E(d.keepName)}',${d.removeId},'${E(d.removeName)}')">Keep "${E(d.keepName)}"</button>
+            <button class="btn btn-sm btn-s" onclick="mergeCusts(${d.removeId},'${E(d.removeName)}',${d.keepId},'${E(d.keepName)}')">Keep "${E(d.removeName)}"</button>`:''}
+            <button class="btn btn-sm btn-s" onclick="this.closest('div[style]').remove()">Dismiss</button>
+          </div>
+        </div>
+      </div>`;
+    });
+  }
+  
+  if(machDupes.length){
+    html+=`<h3 style="margin:16px 0 12px;color:var(--er)">⚙️ Machine Duplicates (${machDupes.length})</h3>`;
+    machDupes.forEach(d=>{
+      html+=`<div style="padding:14px;background:var(--ers);border-radius:var(--r);margin-bottom:10px">
+        <strong>S/N: ${E(d.serial||'')}</strong>
+        <div style="font-size:var(--fs-xs);color:var(--t2);margin-top:4px">🤖 ${E(d.reason||'')} <span class="bd bd-ac">${d.confidence||0}%</span></div>
+        <div style="margin-top:8px">
+          ${d.serial?`<button class="btn btn-sm btn-p" onclick="mergeSerials('${E(d.serial)}')">Merge</button>`:''}
+          <button class="btn btn-sm btn-s" onclick="this.closest('div[style]').remove()">Dismiss</button>
+        </div>
+      </div>`;
+    });
+  }
+  
+  if(suggestions.length){
+    html+=`<h3 style="margin:16px 0 12px;color:var(--ac)">💡 AI Suggestions</h3>`;
+    suggestions.forEach(s=>{
+      html+=`<div style="padding:10px 14px;background:var(--acs);border-radius:var(--r);margin-bottom:8px;font-size:var(--fs-sm)">💡 ${E(s)}</div>`;
+    });
+  }
+  
+  if(!total&&!suggestions.length){
+    html=`<div class="es" style="padding:20px"><p style="font-size:var(--fs)">✅ AI found no duplicates! Your database looks clean.</p></div>`;
+  }
+  
+  openModal(`🤖 AI Duplicate Scan — ${total} Found`,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
 }
 
 function mergeCusts(keepId,keepName,removeId,removeName){
   if(!confirm(`Merge "${removeName}" into "${keepName}"?\n\nAll machines, reports, and jobs under "${removeName}" will be updated to "${keepName}".`))return;
-  // Update all references
   (DB.machines||[]).forEach(m=>{if(m.customer===removeName)m.customer=keepName;});
   DB.reports.forEach(r=>{if(r.customer===removeName)r.customer=keepName;});
   DB.jobs.forEach(j=>{if(j.customer===removeName)j.customer=keepName;});
-  // Merge contact info if keep is empty
   const keep=DB.custs.find(c=>c.id===keepId);
   const remove=DB.custs.find(c=>c.id===removeId);
   if(keep&&remove){
@@ -3144,25 +3264,24 @@ function mergeCusts(keepId,keepName,removeId,removeName){
     if(!keep.email&&remove.email)keep.email=remove.email;
     if(!keep.address&&remove.address)keep.address=remove.address;
     if(!keep.agent&&remove.agent)keep.agent=remove.agent;
+    // Merge contacts arrays
+    const kc=keep.contacts||[];const rc=remove.contacts||[];
+    rc.forEach(c=>{if(!kc.find(k=>k.name===c.name&&k.phone===c.phone))kc.push(c);});
+    keep.contacts=kc;
   }
-  // Remove the duplicate
   DB.custs=DB.custs.filter(c=>c.id!==removeId);
   saveDB();closeModal();renderCusts();renderMachines();
   toast(`Merged "${removeName}" → "${keepName}"`,'success');
-  // Re-check
-  setTimeout(()=>showDuplicateCheck(),500);
 }
 
 function mergeSerials(serial){
   const items=(DB.machines||[]).filter(m=>m.serial===serial);
   if(items.length<=1)return;
   if(!confirm(`Keep first entry for S/N "${serial}" and remove ${items.length-1} duplicate(s)?`))return;
-  // Keep the first, remove the rest
   const keepId=items[0].id;
   DB.machines=DB.machines.filter(m=>m.serial!==serial||m.id===keepId);
   saveDB();closeModal();renderMachines();
   toast(`Removed ${items.length-1} duplicate(s) for S/N ${serial}`,'success');
-  setTimeout(()=>showDuplicateCheck(),500);
 }
 
 // ===== DEFAULT DATABASE & RESET =====
