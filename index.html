@@ -374,9 +374,24 @@ function initFB(){
       const d=s.val();
       if(d){
         DB=d;
-        // Always ensure users exist (Firebase data may not have them)
-        if(!DB.users||!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
-        if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=DB.users.length+1;
+        // Firebase converts arrays to objects — force back to arrays
+        ['reports','jobs','techs','custs','users','machines','agents','pos','deletedCusts','deletedMachines'].forEach(k=>{
+          if(!DB[k])DB[k]=[];
+          else if(!Array.isArray(DB[k]))DB[k]=Object.values(DB[k]);
+        });
+        // Ensure users exist
+        if(!DB.users.length)DB.users=DEF_USERS;
+        // Safe counter recalculation
+        try{
+          DB.nR=Math.max(1,...DB.reports.map(r=>(r&&r.id)||0))+1;
+          DB.nJ=Math.max(1,...DB.jobs.map(j=>(j&&j.id)||0))+1;
+          DB.nT=Math.max(1,...DB.techs.map(t=>(t&&t.id)||0))+1;
+          DB.nC=Math.max(1,...DB.custs.map(c=>(c&&c.id)||0))+1;
+          DB.nU=Math.max(1,...DB.users.map(u=>(u&&u.id)||0))+1;
+          DB.nM=Math.max(200,...DB.machines.map(m=>(m&&m.id)||0))+1;
+          DB.nA=Math.max(1,...DB.agents.map(a=>(a&&a.id)||0))+1;
+          DB.nP=Math.max(1,...DB.pos.map(p=>(p&&p.id)||0))+1;
+        }catch(e){DB.nR=DB.nR||1;DB.nJ=DB.nJ||1;DB.nT=DB.nT||1;DB.nC=DB.nC||1;DB.nU=DB.nU||4;DB.nM=DB.nM||200;DB.nA=DB.nA||1;DB.nP=DB.nP||1;}
         try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
         refreshPage();
       }
@@ -415,18 +430,23 @@ function loadDB(){
     }
   }catch(e){console.warn('loadDB parse error:',e);}
   
-  // Ensure arrays exist
-  if(!Array.isArray(DB.reports))DB.reports=[];
-  if(!Array.isArray(DB.jobs))DB.jobs=[];
-  if(!Array.isArray(DB.techs))DB.techs=[];
-  if(!Array.isArray(DB.custs))DB.custs=[];
-  if(!Array.isArray(DB.users))DB.users=[];
-  if(!Array.isArray(DB.machines))DB.machines=[];
-  if(!Array.isArray(DB.agents))DB.agents=[];
-  if(!Array.isArray(DB.deletedCusts))DB.deletedCusts=[];
-  if(!Array.isArray(DB.deletedMachines))DB.deletedMachines=[];
-  if(!Array.isArray(DB.pos))DB.pos=[];
-  if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;if(!DB.nP)DB.nP=1;
+  // Ensure arrays exist — Firebase may return objects
+  ['reports','jobs','techs','custs','users','machines','agents','deletedCusts','deletedMachines','pos'].forEach(k=>{
+    if(!DB[k])DB[k]=[];
+    else if(!Array.isArray(DB[k]))DB[k]=Object.values(DB[k]);
+  });
+  
+  // Safe counter recalculation — derive from actual data, never drift
+  try{
+    DB.nR=Math.max(1,...DB.reports.map(r=>(r&&r.id)||0))+1;
+    DB.nJ=Math.max(1,...DB.jobs.map(j=>(j&&j.id)||0))+1;
+    DB.nT=Math.max(1,...DB.techs.map(t=>(t&&t.id)||0))+1;
+    DB.nC=Math.max(1,...DB.custs.map(c=>(c&&c.id)||0))+1;
+    DB.nU=Math.max(1,...DB.users.map(u=>(u&&u.id)||0))+1;
+    DB.nM=Math.max(200,...(DB.machines||[]).map(m=>(m&&m.id)||0))+1;
+    DB.nA=Math.max(1,...(DB.agents||[]).map(a=>(a&&a.id)||0))+1;
+    DB.nP=Math.max(1,...(DB.pos||[]).map(p=>(p&&p.id)||0))+1;
+  }catch(e){DB.nR=DB.nR||1;DB.nJ=DB.nJ||1;DB.nT=DB.nT||1;DB.nC=DB.nC||1;DB.nU=DB.nU||4;DB.nM=DB.nM||200;DB.nA=DB.nA||1;DB.nP=DB.nP||1;}
 
   // Always ensure default users exist
   if(!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
@@ -565,8 +585,55 @@ function loadDB(){
 }
 
 function saveDB(){
-  try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
-  if(USE_FB&&fbDB)fbDB.ref('octoCRM_v4').set(DB).catch(()=>{});
+  // Recalculate counters from actual data to prevent drift
+  try{
+    DB.nR=Math.max(DB.nR||1,...DB.reports.map(r=>(r&&r.id)||0))+1;
+    DB.nJ=Math.max(DB.nJ||1,...DB.jobs.map(j=>(j&&j.id)||0))+1;
+    DB.nT=Math.max(DB.nT||1,...DB.techs.map(t=>(t&&t.id)||0))+1;
+    DB.nC=Math.max(DB.nC||1,...DB.custs.map(c=>(c&&c.id)||0))+1;
+    DB.nU=Math.max(DB.nU||1,...DB.users.map(u=>(u&&u.id)||0))+1;
+    DB.nM=Math.max(DB.nM||200,...(DB.machines||[]).map(m=>(m&&m.id)||0))+1;
+    DB.nA=Math.max(DB.nA||1,...(DB.agents||[]).map(a=>(a&&a.id)||0))+1;
+    DB.nP=Math.max(DB.nP||1,...(DB.pos||[]).map(p=>(p&&p.id)||0))+1;
+  }catch(e){}
+  DB.lastModified=new Date().toISOString();
+  
+  // Save to localStorage immediately
+  try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){console.warn('localStorage save failed:',e);}
+  
+  // Debounced Firebase sync — batches rapid saves
+  clearTimeout(window._fbSyncTimer);
+  window._fbSyncTimer=setTimeout(()=>{syncToFirebase();},1500);
+}
+
+let _fbSyncInProgress=false;
+function syncToFirebase(){
+  if(!USE_FB||!fbDB||_fbSyncInProgress)return;
+  _fbSyncInProgress=true;
+  updSync('syncing');
+  fbDB.ref('octoCRM_v4').set(DB).then(()=>{
+    _fbSyncInProgress=false;
+    updSync('ok');
+  }).catch(err=>{
+    _fbSyncInProgress=false;
+    updSync('error');
+    console.warn('Firebase sync failed:',err);
+    // Queue for retry
+    if(!window._fbRetryCount)window._fbRetryCount=0;
+    if(window._fbRetryCount<3){
+      window._fbRetryCount++;
+      setTimeout(()=>syncToFirebase(),5000*window._fbRetryCount);
+    }
+  });
+}
+
+function updSync(state){
+  const el=document.getElementById('syncIndicator');
+  if(!el)return;
+  if(state==='syncing')el.innerHTML='<span style="color:var(--wn);font-size:var(--fs-xs)">⏳ Syncing...</span>';
+  else if(state==='error')el.innerHTML='<span style="color:var(--er);font-size:var(--fs-xs)">⚠ Sync failed — retrying</span>';
+  else if(state==='ok'){el.innerHTML='<span style="color:var(--ok);font-size:var(--fs-xs)">✓ Synced</span>';setTimeout(()=>{if(el.textContent.includes('Synced'))el.innerHTML='';},3000);}
+  else el.innerHTML=USE_FB?'<span style="color:var(--ok);font-size:var(--fs-xs)">☁ Cloud sync active</span>':'<span style="font-size:var(--fs-xs);color:var(--t3)">📱 Local only</span>';
 }
 
 // ===== AUTH =====
@@ -672,16 +739,7 @@ document.getElementById('sbOverlay').addEventListener('click',closeSidebar);
 if('visualViewport' in window){const mn=document.querySelector('.mob-nav');window.visualViewport.addEventListener('resize',()=>{if(mn)mn.style.display=window.visualViewport.height<window.innerHeight*.75?'none':'';});}
 
 // ===== SYNC =====
-function updSync(){
-  const el=document.getElementById('syncIndicator'),dt=document.getElementById('syncDot');
-  if(fbOK){
-    if(el)el.innerHTML='<span class="dot" style="width:8px;height:8px;background:var(--ok)"></span><span style="font-size:12px;color:var(--ok)">Live sync ✓</span>';
-    if(dt)dt.innerHTML='<span class="dot" style="width:7px;height:7px;background:var(--ok)" title="Live"></span>';
-  }else{
-    if(el)el.innerHTML='<span class="dot" style="width:8px;height:8px;background:var(--wn)"></span><span style="font-size:12px;color:var(--wn)">Connecting...</span>';
-    if(dt)dt.innerHTML='<span class="dot" style="width:7px;height:7px;background:var(--wn)" title="Connecting"></span>';
-  }
-}
+
 
 // ===== UTILITIES =====
 function E(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'):''}
@@ -1666,7 +1724,7 @@ function renderMachines(){
   const catCounts={};
   ms.forEach(m=>{const c=m.category||'Uncategorized';catCounts[c]=(catCounts[c]||0)+1;});
   const filtered=curMachCat==='all'?ms:ms.filter(m=>(m.category||'Uncategorized')===curMachCat);
-  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
+  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-sm btn-s" onclick="showPMDashboard()">🔧 PM</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--bdr)">
     <button class="fc-chip${curMachCat==='all'?' active':''}" onclick="curMachCat='all';renderMachines()">All (${ms.length})</button>
     ${cats.map(c=>catCounts[c]?`<button class="fc-chip${curMachCat===c?' active':''}" onclick="curMachCat='${E(c)}';renderMachines()">${E(c)} (${catCounts[c]||0})</button>`:'').join('')}
@@ -1688,6 +1746,7 @@ function mCards(ms){
     <div class="rpt-card-row"><span class="rc-label">Warranty</span><span class="rc-val">${E(m.warranty||'—')}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Type</span><span class="rc-val">${E(m.purchaseRental||'—')}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Contract</span><span class="rc-val">${E(m.serviceContract||'—')}</span></div>
+    ${m.pmFreq?`<div class="rpt-card-row"><span class="rc-label">PM Schedule</span><span class="rc-val">${E({monthly:'Monthly',bimonthly:'Every 2 Months',quarterly:'Quarterly',biannual:'Every 6 Months',annual:'Annual'}[m.pmFreq]||m.pmFreq)}${m.pmNextDate?' — Next: <strong'+(m.pmNextDate<new Date().toISOString().split('T')[0]?' style="color:var(--er)"':'')+'>'+E(m.pmNextDate)+'</strong>':''}</span></div>`:''}
     ${m.lastService?`<div class="rpt-card-row"><span class="rc-label">Last Service</span><span class="rc-val">${E(m.lastService)}</span></div>`:''}
     <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val">${(m.reports||[]).length}</span></div>
     <div class="rpt-card-actions">
@@ -1715,7 +1774,19 @@ function openMachineModal(data){
     <div class="fg"><label>Location / Address</label><input class="fc" id="mLo" value="${E(d.location||'')}"></div>
     <div class="fr"><div class="fg"><label>Install Date</label><input class="fc" type="date" id="mDt" value="${E(d.installDate||'')}"></div><div class="fg"><label>Warranty</label><input class="fc" id="mWr" value="${E(d.warranty||'12 months')}"></div></div>
     <div class="fr"><div class="fg"><label>Purchase / Rental</label><select class="fc" id="mPR"><option${d.purchaseRental==='Purchase'?' selected':''}>Purchase</option><option${d.purchaseRental==='Rental'?' selected':''}>Rental</option></select></div><div class="fg"><label>Service Contract</label><input class="fc" id="mSC" value="${E(d.serviceContract||'Nil')}"></div></div>
-    <div class="fg"><label>Maintenance Frequency</label><input class="fc" id="mMF" value="${E(d.maintFrequency||'')}" placeholder="e.g. 2 (times per year)"></div>
+    <div class="fg"><label>PM Schedule</label>
+      <div class="fr"><div class="fg"><label style="font-size:var(--fs-xs)">Frequency</label><select class="fc" id="mPMFreq" onchange="onPMFreqChange()">
+        <option value=""${!d.pmFreq?' selected':''}>None</option>
+        <option value="monthly"${d.pmFreq==='monthly'?' selected':''}>Monthly</option>
+        <option value="bimonthly"${d.pmFreq==='bimonthly'?' selected':''}>Every 2 Months</option>
+        <option value="quarterly"${d.pmFreq==='quarterly'?' selected':''}>Quarterly (3 months)</option>
+        <option value="biannual"${d.pmFreq==='biannual'?' selected':''}>Every 6 Months</option>
+        <option value="annual"${d.pmFreq==='annual'?' selected':''}>Annual (12 months)</option>
+      </select></div>
+      <div class="fg"><label style="font-size:var(--fs-xs)">Last PM Date</label><input class="fc" type="date" id="mPMLastDate" value="${E(d.pmLastDate||'')}"></div>
+      <div class="fg"><label style="font-size:var(--fs-xs)">Next PM Due</label><input class="fc" type="date" id="mPMNextDate" value="${E(d.pmNextDate||'')}" placeholder="Auto-calculated"></div>
+      </div>
+    </div>
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveMachine()">Save</button>`);
   // Category custom toggle
   setTimeout(()=>{document.getElementById('mCat').onchange=function(){if(this.value==='__other__'){document.getElementById('mCatCustom').style.display='';document.getElementById('mCatCustom').focus();}else{document.getElementById('mCatCustom').style.display='none';}};},50);
@@ -1752,6 +1823,25 @@ function saveMachine(){
   const catSel=document.getElementById('mCat').value;
   const catCustom=document.getElementById('mCatCustom')?.value.trim()||'';
   const category=(catSel==='__other__'&&catCustom)?catCustom:(catSel||'');
+  const pmFreq=document.getElementById('mPMFreq').value;
+  const pmLastDate=document.getElementById('mPMLastDate').value;
+  let pmNextDate=document.getElementById('mPMNextDate').value;
+  
+  // Auto-calculate next PM date
+  if(pmFreq){
+    if(pmLastDate&&!pmNextDate){
+      // Has last date, calculate next from it
+      pmNextDate=calcNextPMDate(pmLastDate,pmFreq);
+    }else if(!pmLastDate&&!pmNextDate){
+      // No dates at all — use install date or today as starting point
+      const startDate=document.getElementById('mDt').value||new Date().toISOString().split('T')[0];
+      pmNextDate=calcNextPMDate(startDate,pmFreq);
+    }
+  }else{
+    // No frequency — clear PM dates
+    pmNextDate='';
+  }
+  
   const d={
     serial:document.getElementById('mSr').value.trim(),
     model:document.getElementById('mMd').value.trim(),
@@ -1761,8 +1851,11 @@ function saveMachine(){
     warranty:document.getElementById('mWr').value.trim(),
     purchaseRental:document.getElementById('mPR').value,
     serviceContract:document.getElementById('mSC').value.trim(),
-    maintFrequency:document.getElementById('mMF').value.trim(),
-    category:category
+    category:category,
+    pmFreq:pmFreq,
+    pmLastDate:pmLastDate,
+    pmNextDate:pmNextDate,
+    maintFrequency:pmFreq?({monthly:'12',bimonthly:'6',quarterly:'4',biannual:'2',annual:'1'}[pmFreq]||''):''
   };
   if(!d.serial){toast('Serial number required.','error');return;}
   if(!d.model){toast('Model required.','error');return;}
@@ -1797,6 +1890,133 @@ function delMachine(serial){
   saveDB();renderMachines();renderDash();toast('Machine deleted.','info');
 }
 
+function calcNextPMDate(lastDate,freq){
+  if(!lastDate||!freq)return'';
+  const d=new Date(lastDate);
+  const months={monthly:1,bimonthly:2,quarterly:3,biannual:6,annual:12}[freq]||0;
+  if(!months)return'';
+  d.setMonth(d.getMonth()+months);
+  return d.toISOString().split('T')[0];
+}
+
+function onPMFreqChange(){
+  const freq=document.getElementById('mPMFreq').value;
+  const lastDate=document.getElementById('mPMLastDate').value;
+  const nextEl=document.getElementById('mPMNextDate');
+  if(!freq){nextEl.value='';return;}
+  const startDate=lastDate||document.getElementById('mDt').value||new Date().toISOString().split('T')[0];
+  nextEl.value=calcNextPMDate(startDate,freq);
+}
+
+function generatePMJobs(){
+  const today=new Date().toISOString().split('T')[0];
+  
+  // Auto-fix machines with frequency but no next date
+  (DB.machines||[]).forEach(m=>{
+    if(m.pmFreq&&!m.pmNextDate){
+      m.pmNextDate=calcNextPMDate(m.pmLastDate||m.installDate||today,m.pmFreq);
+    }
+  });
+  
+  const machines=(DB.machines||[]).filter(m=>m.pmFreq&&m.pmNextDate&&m.pmNextDate<=today);
+  if(!machines.length){toast('No PM jobs due yet.','info');return;}
+  
+  let created=0,skipped=0;
+  machines.forEach(m=>{
+    // Check if a PM job already exists for this machine (any date, not completed)
+    const existing=DB.jobs.find(j=>{
+      const jSerials=(j.machines||[]).map(x=>x.serial);
+      return(j.machine===m.serial||jSerials.includes(m.serial))&&j.type==='Preventive Maintenance'&&j.status!=='Completed';
+    });
+    if(existing){skipped++;return;}
+    
+    const job={
+      id:DB.nJ++,
+      title:'PM Service — '+m.customer+' — '+m.model,
+      customer:m.customer,
+      machines:[{model:m.model,serial:m.serial}],
+      machine:m.serial,
+      model:m.model,
+      techIds:[],techId:null,
+      type:'Preventive Maintenance',
+      priority:'Medium',
+      date:m.pmNextDate,
+      time:'',
+      desc:'Scheduled Preventive Maintenance\n\nMachine: '+m.model+' (S/N: '+m.serial+')\nCustomer: '+(m.customer||'')+'\nLocation: '+(m.location||'')+'\nCategory: '+(m.category||'')+'\nContract: '+(m.serviceContract||'')+'\nPM Frequency: '+({monthly:'Monthly',bimonthly:'Every 2 Months',quarterly:'Quarterly',biannual:'Every 6 Months',annual:'Annual'}[m.pmFreq]||m.pmFreq),
+      status:'Open',
+      createdAt:new Date().toISOString(),
+      waSent:false
+    };
+    DB.jobs.push(job);
+    
+    // Advance next PM date
+    m.pmLastDate=m.pmNextDate;
+    m.pmNextDate=calcNextPMDate(m.pmNextDate,m.pmFreq);
+    created++;
+  });
+  
+  saveDB();
+  // Refresh all relevant pages
+  try{renderDash();}catch(e){}
+  try{renderJobs();}catch(e){}
+  try{renderMachines();}catch(e){}
+  
+  let msg=`Generated ${created} PM job(s).`;
+  if(skipped)msg+=` ${skipped} skipped (existing open PM jobs).`;
+  msg+=' Assign technicians on the Job Board.';
+  toast(msg,'success');
+}
+
+function showPMDashboard(){
+  const today=new Date().toISOString().split('T')[0];
+  
+  // Auto-fix: machines with frequency but no pmNextDate
+  (DB.machines||[]).forEach(m=>{
+    if(m.pmFreq&&!m.pmNextDate){
+      const startDate=m.pmLastDate||m.installDate||today;
+      m.pmNextDate=calcNextPMDate(startDate,m.pmFreq);
+    }
+  });
+  
+  const machines=(DB.machines||[]).filter(m=>m.pmFreq&&m.pmNextDate);
+  const overdue=machines.filter(m=>m.pmNextDate<=today);
+  const dueSoon=machines.filter(m=>{if(m.pmNextDate<=today)return false;const diff=(new Date(m.pmNextDate)-new Date(today))/(86400000);return diff<=30;});
+  const upcoming=machines.filter(m=>{const diff=(new Date(m.pmNextDate)-new Date(today))/(86400000);return diff>30;});
+  const noSchedule=(DB.machines||[]).filter(m=>!m.pmFreq);
+  
+  let html=`<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+    <span class="bd bd-er">${overdue.length} Overdue</span>
+    <span class="bd bd-wn">${dueSoon.length} Due ≤30 days</span>
+    <span class="bd bd-ok">${upcoming.length} Upcoming</span>
+    <span class="bd bd-ac">${machines.length} Scheduled</span>
+    <span class="bd" style="background:var(--bdr);color:var(--t3)">${noSchedule.length} No schedule</span>
+  </div>
+  ${overdue.length?`<button class="btn btn-p" style="margin-bottom:16px;width:100%" onclick="closeModal();generatePMJobs()">🔧 Generate ${overdue.length} Overdue PM Job(s)</button>`:''}`;
+  
+  if(overdue.length){
+    html+=`<h4 style="color:var(--er);margin-bottom:8px">⚠ Overdue (${overdue.length})</h4>`;
+    overdue.forEach(m=>{
+      const daysOver=Math.floor((new Date(today)-new Date(m.pmNextDate))/(86400000));
+      html+=`<div style="padding:10px;margin-bottom:8px;background:var(--ers);border-radius:var(--r);border-left:3px solid var(--er);font-size:var(--fs-sm)"><strong>${E(m.serial)}</strong> — ${E(m.model)}<br>${E(m.customer)} | Due: <strong style="color:var(--er)">${E(m.pmNextDate)}</strong> (${daysOver} day${daysOver!==1?'s':''} overdue)${m.pmLastDate?' | Last PM: '+E(m.pmLastDate):''}</div>`;
+    });
+  }
+  if(dueSoon.length){
+    html+=`<h4 style="color:var(--wn);margin:12px 0 8px">📅 Due within 30 days (${dueSoon.length})</h4>`;
+    dueSoon.forEach(m=>{
+      const daysUntil=Math.floor((new Date(m.pmNextDate)-new Date(today))/(86400000));
+      html+=`<div style="padding:10px;margin-bottom:8px;background:var(--wns);border-radius:var(--r);border-left:3px solid var(--wn);font-size:var(--fs-sm)"><strong>${E(m.serial)}</strong> — ${E(m.model)}<br>${E(m.customer)} | Due: <strong>${E(m.pmNextDate)}</strong> (${daysUntil} day${daysUntil!==1?'s':''})</div>`;
+    });
+  }
+  if(upcoming.length){
+    html+=`<h4 style="color:var(--ok);margin:12px 0 8px">✓ Upcoming (${upcoming.length})</h4>`;
+    upcoming.slice(0,10).forEach(m=>{html+=`<div style="padding:10px;margin-bottom:8px;background:var(--oks);border-radius:var(--r);font-size:var(--fs-sm)"><strong>${E(m.serial)}</strong> — ${E(m.model)} | ${E(m.customer)} | ${E(m.pmNextDate)}</div>`;});
+    if(upcoming.length>10)html+=`<p style="font-size:var(--fs-sm);color:var(--t3)">+${upcoming.length-10} more...</p>`;
+  }
+  if(!machines.length)html='<div class="es"><p>No machines have PM schedules yet.<br>Edit a machine to set its PM frequency.</p></div>';
+  
+  openModal('🔧 PM Schedule Overview',html,`<button class="btn btn-s" onclick="closeModal()">Close</button>${overdue.length?`<button class="btn btn-p" onclick="closeModal();generatePMJobs()">Generate PM Jobs</button>`:''}`);
+}
+
 function viewMachineCust(custName){
   // Navigate to customer list and highlight
   showPage('customers');
@@ -1822,6 +2042,9 @@ function viewMachineDetail(serial){
       <div class="dr"><span class="lb">Warranty</span><span class="vl">${E(m.warranty||'—')}</span></div>
       <div class="dr"><span class="lb">Type</span><span class="vl">${E(m.purchaseRental||'—')}</span></div>
       <div class="dr"><span class="lb">Contract</span><span class="vl">${E(m.serviceContract||'—')}</span></div>
+      ${m.pmFreq?`<div class="dr"><span class="lb">PM Schedule</span><span class="vl">${E({monthly:'Monthly',bimonthly:'Every 2 Months',quarterly:'Quarterly',biannual:'Every 6 Months',annual:'Annual'}[m.pmFreq]||m.pmFreq)}</span></div>
+      ${m.pmLastDate?`<div class="dr"><span class="lb">Last PM</span><span class="vl">${E(m.pmLastDate)}</span></div>`:''}
+      ${m.pmNextDate?`<div class="dr"><span class="lb">Next PM Due</span><span class="vl" style="${m.pmNextDate<new Date().toISOString().split('T')[0]?'color:var(--er);font-weight:700':''}">${E(m.pmNextDate)}</span></div>`:''}`:''}
       <div class="dr"><span class="lb">Total Services</span><span class="vl">${(m.reports||[]).length}</span></div>
       ${m.lastService?`<div class="dr"><span class="lb">Last Service</span><span class="vl">${E(m.lastService)}</span></div>`:''}
     </div>
@@ -2060,6 +2283,26 @@ function showCalDay(ds){
   openModal('📅 '+dayLabel,html,`<button class="btn btn-s" onclick="closeModal()">Close</button><button class="btn btn-p" onclick="closeModal();openNewJobModal()">+ New Job</button>`);
 }
 
+// ===== AI HELPERS =====
+function safeParseJSON(text){
+  try{return JSON.parse(text);}catch(e1){}
+  let fixed=text;
+  let braces=0,brackets=0,inStr=false,lastChar='';
+  for(let i=0;i<fixed.length;i++){
+    const c=fixed[i];
+    if(c==='"'&&lastChar!=='\\')inStr=!inStr;
+    if(!inStr){if(c==='{')braces++;if(c==='}')braces--;if(c==='[')brackets++;if(c===']')brackets--;}
+    lastChar=c;
+  }
+  if(inStr)fixed+='"';
+  fixed=fixed.replace(/,\s*"[^"]*"?\s*:?\s*"?[^"]*$/,'');
+  while(brackets>0){fixed+=']';brackets--;}
+  while(braces>0){fixed+='}';braces--;}
+  fixed=fixed.replace(/,\s*([}\]])/g,'$1');
+  try{return JSON.parse(fixed);}catch(e2){}
+  return null;
+}
+
 // ===== SCAN (AI-powered using Claude API) =====
 function renderScan(){
   const savedKey=localStorage.getItem('ocrm4_gemini_key')||'';
@@ -2201,7 +2444,16 @@ async function sendToAI(){
     mimeType=imgSrc.startsWith('data:image/png')?'image/png':'image/jpeg';
   }
 
-  const prompt=`You are reading a Field Service Report document. Read every handwritten and printed field carefully.
+  // Check file size — if >4MB, compress image
+  const sizeMB=base64Data.length*0.75/1048576;
+  if(!scanIsPDF&&sizeMB>4&&scanCanvas){
+    document.getElementById('scProcMsg').textContent='📐 Compressing large image...';
+    const smaller=scanCanvas.toDataURL('image/jpeg',0.6);
+    base64Data=smaller.split(',')[1];
+    mimeType='image/jpeg';
+  }
+
+  const prompt=`You are reading a Field Service Report document. Read every handwritten and printed field carefully. If this is a multi-page document, read ALL pages.
 
 Extract ALL information and return ONLY a valid JSON object with these exact keys (use empty string "" if a field is not found or not readable):
 
@@ -2212,51 +2464,54 @@ Extract ALL information and return ONLY a valid JSON object with these exact key
   "customer": "Customer name and address combined",
   "contact": "Contact person name",
   "contactNum": "Phone number if visible",
+  "poNo": "PO number if visible",
   "model": "Equipment make/model",
   "serial": "Serial number",
   "engineer": "Serviced by name",
   "type": "One of: Preventive Maintenance, Corrective Maintenance, Breakdown Call, Installation, Inspection, Emergency",
   "timeStart": "In HH:MM 24hr format",
   "timeEnd": "In HH:MM 24hr format",
-  "remarks": "All issues and remarks text, include all details",
+  "remarks": "All issues and remarks text, include all details from all pages",
   "recommendations": "All recommendations and follow up actions text"
 }
 
-CRITICAL: Return ONLY the raw JSON object. No markdown fences, no backticks, no explanation text before or after.`;
+CRITICAL: Return ONLY the raw JSON object. No markdown fences, no backticks, no explanation.`;
 
+  // Retry logic — try up to 2 times
+  let parsed=null;
+  const models=['gemini-2.5-flash','gemini-2.0-flash'];
   try{
-    const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        contents:[{
-          parts:[
-            {inline_data:{mime_type:mimeType,data:base64Data}},
-            {text:prompt}
-          ]
-        }],
-        generationConfig:{
-          temperature:0.1,
-          maxOutputTokens:2000
-        }
-      })
-    });
+  for(let attempt=0;attempt<2&&!parsed;attempt++){
+    const modelName=models[Math.min(attempt,models.length-1)];
+    if(attempt>0)document.getElementById('scProcMsg').textContent=`🔄 Retrying with ${modelName}... (attempt ${attempt+1})`;
+    try{
+      const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          contents:[{parts:[{inline_data:{mime_type:mimeType,data:base64Data}},{text:prompt}]}],
+          generationConfig:{temperature:0.1,maxOutputTokens:4000}
+        })
+      });
 
-    if(!response.ok){
-      const errData=await response.json().catch(()=>({}));
-      const errMsg=errData.error?.message||`HTTP ${response.status}`;
-      throw new Error(errMsg);
+      if(!response.ok){
+        const errData=await response.json().catch(()=>({}));
+        const errMsg=errData.error?.message||`HTTP ${response.status}`;
+        if(attempt<1){console.warn(`Attempt ${attempt+1} failed:`,errMsg);continue;}
+        throw new Error(errMsg);
+      }
+
+      const data=await response.json();
+      const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+      if(!text){if(attempt<1)continue;throw new Error('Empty response from Gemini');}
+      
+      const clean=text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+      parsed=safeParseJSON(clean);
+    }catch(err){
+      if(attempt<1){console.warn(`Scan attempt ${attempt+1} error:`,err);continue;}
+      throw err;
     }
-
-    const data=await response.json();
-    
-    // Extract text from Gemini response
-    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
-    if(!text){throw new Error('Empty response from Gemini');}
-    
-    // Parse JSON — clean up any markdown fences
-    const clean=text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
-    const parsed=JSON.parse(clean);
+  }
     
     document.getElementById('scProcMsg').textContent='✅ Gemini extraction complete!';
     setTimeout(()=>{procEl.style.display='none';resEl.style.display='block';showScanForm(parsed);},500);
@@ -2286,6 +2541,7 @@ function showScanForm(data){
     {k:'customer',l:'Customer',v:d.customer||''},
     {k:'contact',l:'Contact Person',v:d.contact||''},
     {k:'contactNum',l:'Phone',v:d.contactNum||''},
+    {k:'poNo',l:'PO Number',v:d.poNo||''},
     {k:'model',l:'Equipment Model',v:d.model||''},
     {k:'serial',l:'Serial Number',v:d.serial||''},
     {k:'engineer',l:'Serviced By',v:d.engineer||''},
@@ -2303,7 +2559,7 @@ function showScanForm(data){
 }
 
 function saveScanRpt(){
-  const fs=['company','jobNo','date','customer','contact','contactNum','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations'];
+  const fs=['company','jobNo','date','customer','contact','contactNum','poNo','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations'];
   const d={id:DB.nR++,status:'Completed',nextVisit:'',signed:false,photos:[],scannedAt:new Date().toISOString()};
   fs.forEach(f=>{const el=document.getElementById('sc_'+f);if(el)d[f]=el.value.trim();});
   if(!d.jobNo){toast('Job No. required.','error');return;}
@@ -2660,22 +2916,27 @@ async function processPOScan(){
 CRITICAL: Return ONLY the raw JSON object. No markdown, no backticks, no explanation.`;
     
     try{
-      const resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+apiKey,{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:mimeType,data:base64}},{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:3000}})
-      });
-      if(!resp.ok)throw new Error('API error: '+resp.status);
-      const data=await resp.json();
-      const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
-      if(!text)throw new Error('Empty response');
-      const clean=text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
-      const parsed=JSON.parse(clean);
+      let parsed=null;
+      const models=['gemini-2.5-flash','gemini-2.0-flash'];
+      for(let attempt=0;attempt<2&&!parsed;attempt++){
+        const modelName=models[Math.min(attempt,models.length-1)];
+        if(attempt>0)statusEl.innerHTML='<strong>🔄 Retrying with '+modelName+'...</strong>';
+        const resp=await fetch('https://generativelanguage.googleapis.com/v1beta/models/'+modelName+':generateContent?key='+apiKey,{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({contents:[{parts:[{inline_data:{mime_type:mimeType,data:base64}},{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:4000}})
+        });
+        if(!resp.ok){if(attempt<1)continue;throw new Error('API error: '+resp.status);}
+        const data=await resp.json();
+        const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+        if(!text){if(attempt<1)continue;throw new Error('Empty response');}
+        parsed=safeParseJSON(text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim());
+      }
+      if(!parsed)throw new Error('Could not parse AI response');
       
       statusEl.innerHTML='<strong style="color:var(--ok)">✅ PO extracted successfully!</strong>';
       const scannedData={poNo:parsed.poNo||'',date:parsed.date||'',customer:parsed.customer||'',description:parsed.description||'',items:parsed.items||[{desc:'',qty:'',unit:'',amount:''}],status:'Outstanding'};
       setTimeout(()=>{
         closeModal();
-        // Wait for closeModal content clear (300ms) before opening new modal
         setTimeout(()=>{openPOModal(scannedData);},400);
       },500);
     }catch(err){
@@ -3157,36 +3418,12 @@ Keep reasons under 15 words. Return empty arrays if no duplicates found.`;
     if(!text)throw new Error('Empty response');
     let clean=text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
     
-    // Attempt to repair truncated JSON
     let result;
     try{
       result=JSON.parse(clean);
     }catch(e1){
-      // Try to fix common truncation issues
-      // Close any open strings
-      let fixed=clean;
-      // Count unclosed braces/brackets
-      let braces=0,brackets=0,inStr=false,lastChar='';
-      for(let i=0;i<fixed.length;i++){
-        const c=fixed[i];
-        if(c==='"'&&lastChar!=='\\')inStr=!inStr;
-        if(!inStr){if(c==='{')braces++;if(c==='}')braces--;if(c==='[')brackets++;if(c===']')brackets--;}
-        lastChar=c;
-      }
-      // If in a string, close it
-      if(inStr)fixed+='"';
-      // Close arrays and objects
-      while(brackets>0){fixed+=']';brackets--;}
-      while(braces>0){fixed+='}';braces--;}
-      // Remove trailing commas before closing
-      fixed=fixed.replace(/,\s*([}\]])/g,'$1');
-      
-      try{
-        result=JSON.parse(fixed);
-      }catch(e2){
-        // Last resort: extract what we can
-        result={customerDuplicates:[],machineDuplicates:[],suggestions:['AI response was truncated. Try Basic Check for now.']};
-      }
+      result=safeParseJSON(clean);
+      if(!result)result={customerDuplicates:[],machineDuplicates:[],suggestions:['AI response was truncated. Try Basic Check for now.']};
     }
     
     showAiDuplicateResults(result);
