@@ -370,31 +370,33 @@ function initFB(){
     if(!firebase.apps.length)firebase.initializeApp(FB_CFG);
     fbDB=firebase.database();
     fbDB.ref('.info/connected').on('value',s=>{fbOK=s.val()===true;updSync();});
+    // Listen to the shared calendar for cross-device updates from other CRMs
+    if(typeof attachSharedCalListener==='function')attachSharedCalListener();
     fbDB.ref('octoCRM_v4').on('value',s=>{
       const d=s.val();
-      if(d){
-        DB=d;
-        // Firebase converts arrays to objects — force back to arrays
-        ['reports','jobs','techs','custs','users','machines','agents','pos','deletedCusts','deletedMachines'].forEach(k=>{
-          if(!DB[k])DB[k]=[];
-          else if(!Array.isArray(DB[k]))DB[k]=Object.values(DB[k]);
-        });
-        // Ensure users exist
-        if(!DB.users.length)DB.users=DEF_USERS;
-        // Safe counter recalculation
-        try{
-          DB.nR=Math.max(1,...DB.reports.map(r=>(r&&r.id)||0))+1;
-          DB.nJ=Math.max(1,...DB.jobs.map(j=>(j&&j.id)||0))+1;
-          DB.nT=Math.max(1,...DB.techs.map(t=>(t&&t.id)||0))+1;
-          DB.nC=Math.max(1,...DB.custs.map(c=>(c&&c.id)||0))+1;
-          DB.nU=Math.max(1,...DB.users.map(u=>(u&&u.id)||0))+1;
-          DB.nM=Math.max(200,...DB.machines.map(m=>(m&&m.id)||0))+1;
-          DB.nA=Math.max(1,...DB.agents.map(a=>(a&&a.id)||0))+1;
-          DB.nP=Math.max(1,...DB.pos.map(p=>(p&&p.id)||0))+1;
-        }catch(e){DB.nR=DB.nR||1;DB.nJ=DB.nJ||1;DB.nT=DB.nT||1;DB.nC=DB.nC||1;DB.nU=DB.nU||4;DB.nM=DB.nM||200;DB.nA=DB.nA||1;DB.nP=DB.nP||1;}
-        try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
-        refreshPage();
-      }
+      if(!d)return;
+      // Coerce arrays — Firebase converts arrays to objects when sparse
+      ['reports','jobs','techs','custs','users','machines','agents','pos','deletedCusts','deletedMachines'].forEach(k=>{
+        if(!d[k])d[k]=[];
+        else if(!Array.isArray(d[k]))d[k]=Object.values(d[k]);
+      });
+      // Merge cloud INTO local so any unsynced local rows survive
+      DB=mergeCloudIntoLocal(DB,d);
+      // Ensure default users exist
+      if(!DB.users.length)DB.users=DEF_USERS;
+      // Safe counter recalculation
+      try{
+        DB.nR=Math.max(1,...DB.reports.map(r=>(r&&r.id)||0))+1;
+        DB.nJ=Math.max(1,...DB.jobs.map(j=>(j&&j.id)||0))+1;
+        DB.nT=Math.max(1,...DB.techs.map(t=>(t&&t.id)||0))+1;
+        DB.nC=Math.max(1,...DB.custs.map(c=>(c&&c.id)||0))+1;
+        DB.nU=Math.max(1,...DB.users.map(u=>(u&&u.id)||0))+1;
+        DB.nM=Math.max(200,...DB.machines.map(m=>(m&&m.id)||0))+1;
+        DB.nA=Math.max(1,...DB.agents.map(a=>(a&&a.id)||0))+1;
+        DB.nP=Math.max(1,...DB.pos.map(p=>(p&&p.id)||0))+1;
+      }catch(e){DB.nR=DB.nR||1;DB.nJ=DB.nJ||1;DB.nT=DB.nT||1;DB.nC=DB.nC||1;DB.nU=DB.nU||4;DB.nM=DB.nM||200;DB.nA=DB.nA||1;DB.nP=DB.nP||1;}
+      try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+      refreshPage();
     });
   }catch(e){console.warn('FB err:',e)}
 }
@@ -598,13 +600,302 @@ function saveDB(){
   }catch(e){}
   DB.lastModified=new Date().toISOString();
   
+  // Stamp _modifiedAt on rows in any table marked as touched, so cloud merges are deterministic
+  const now=Date.now();
+  if(window._touchedTables){
+    window._touchedTables.forEach(k=>{
+      if(Array.isArray(DB[k]))DB[k].forEach(item=>{if(item&&!item._modifiedAt)item._modifiedAt=now;});
+    });
+    window._touchedTables=null;
+  }
+  DB._modifiedAt=now;
+  
   // Save to localStorage immediately
   try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){console.warn('localStorage save failed:',e);}
   
-  // Debounced Firebase sync — batches rapid saves
+  // Debounced Firebase sync — short window so phone backgrounding doesn't lose it
   clearTimeout(window._fbSyncTimer);
-  window._fbSyncTimer=setTimeout(()=>{syncToFirebase();},1500);
+  window._fbSyncTimer=setTimeout(()=>{syncToFirebase();},300);
+  
+  // Publish to shared cross-CRM calendar (e.g. AmwayCare CRM)
+  publishCalendarToShared();
 }
+
+// Force any pending Firebase push to fire immediately (used on visibilitychange / pagehide)
+function flushPendingSync(){
+  if(window._fbSyncTimer){clearTimeout(window._fbSyncTimer);window._fbSyncTimer=null;syncToFirebase();}
+}
+
+// Mark a table as touched so saveDB stamps a fresh _modifiedAt on its rows
+function markTouched(table){
+  if(!window._touchedTables)window._touchedTables=new Set();
+  window._touchedTables.add(table);
+}
+
+// Record a deletion so cloud merges respect it (don't resurrect)
+function tombstoneDelete(table,id){
+  if(!DB._tombstones)DB._tombstones={};
+  if(!DB._tombstones[table])DB._tombstones[table]={};
+  DB._tombstones[table][id]=Date.now();
+}
+
+// Merge cloud data into local DB by id, keeping whichever record has the newer _modifiedAt.
+// Critical for preventing loss of records that were saved locally but not yet synced.
+// Respects tombstones: if a record was deleted locally, don't resurrect it from cloud
+// unless cloud's copy is provably newer than the deletion.
+function mergeCloudIntoLocal(local,cloud){
+  const TABLES=['reports','jobs','techs','custs','users','machines','agents','pos','deletedCusts','deletedMachines'];
+  const tomb=local._tombstones||{};
+  const cloudTomb=cloud._tombstones||{};
+  const mergedTomb={};
+  TABLES.forEach(t=>{
+    mergedTomb[t]={};
+    [tomb[t]||{},cloudTomb[t]||{}].forEach(src=>{
+      Object.keys(src).forEach(id=>{
+        const ts=src[id]||0;
+        if((mergedTomb[t][id]||0)<ts)mergedTomb[t][id]=ts;
+      });
+    });
+  });
+  const merged={...local,_tombstones:mergedTomb};
+  TABLES.forEach(table=>{
+    const localRows=Array.isArray(local[table])?local[table]:[];
+    const cloudRows=Array.isArray(cloud[table])?cloud[table]:[];
+    const tombs=mergedTomb[table]||{};
+    const byId=new Map();
+    localRows.forEach(r=>{
+      if(!r||r.id==null)return;
+      const td=tombs[r.id]||0;
+      if(td&&td>=(r._modifiedAt||0))return;
+      byId.set(r.id,r);
+    });
+    cloudRows.forEach(c=>{
+      if(!c||c.id==null)return;
+      const td=tombs[c.id]||0;
+      if(td&&td>=(c._modifiedAt||0))return;
+      const existing=byId.get(c.id);
+      if(!existing){byId.set(c.id,c);return;}
+      const ct=c._modifiedAt||0,lt=existing._modifiedAt||0;
+      if(ct>=lt)byId.set(c.id,c);
+    });
+    merged[table]=[...byId.values()];
+  });
+  // Bump counters past whatever we now have so new records don't collide
+  const counterMap={nR:'reports',nJ:'jobs',nT:'techs',nC:'custs',nU:'users',nM:'machines',nA:'agents',nP:'pos'};
+  Object.keys(counterMap).forEach(k=>{
+    const arr=merged[counterMap[k]]||[];
+    const maxId=arr.reduce((m,x)=>Math.max(m,(x&&x.id)||0),0);
+    merged[k]=Math.max(merged[k]||1,maxId+1,(cloud[k])||1);
+  });
+  // Other scalar fields from cloud
+  Object.keys(cloud).forEach(k=>{
+    if(TABLES.includes(k)||k in counterMap||k==='_tombstones')return;
+    merged[k]=cloud[k];
+  });
+  return merged;
+}
+
+// ===== FORM DRAFTS — survive Android tab-switch, app-kill, accidental reload =====
+// Drafts are saved to localStorage on every keystroke (debounced 250ms) AND immediately
+// when the page is hidden (Android backgrounding). Reopening the form prompts to restore.
+const DRAFT_PREFIX='ocrm4_draft_';
+let _activeDraft=null; // {key, fields, exclude, container}
+
+function startFormDraft(key, fieldIds, opts){
+  opts=opts||{};
+  _activeDraft={key, fields:fieldIds, exclude:opts.exclude||[], container:opts.container||'globalModalContent'};
+  const c=document.getElementById(_activeDraft.container);
+  if(!c)return;
+  if(c._draftHandler)c.removeEventListener('input',c._draftHandler);
+  if(c._draftChange)c.removeEventListener('change',c._draftChange);
+  const debounced=()=>{clearTimeout(window._draftDebounce);window._draftDebounce=setTimeout(()=>{window._draftDebounce=null;saveCurrentFormDraft();},250);};
+  const immediate=saveCurrentFormDraft;
+  c._draftHandler=debounced;
+  c._draftChange=immediate;
+  c.addEventListener('input',debounced);
+  c.addEventListener('change',immediate);
+}
+function saveCurrentFormDraft(){
+  if(!_activeDraft)return;
+  try{
+    const data={};
+    _activeDraft.fields.forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el)return;
+      if(_activeDraft.exclude.includes(id))return;
+      if(el.type==='checkbox'||el.type==='radio')data[id]=el.checked;
+      else data[id]=el.value;
+    });
+    // Save checkbox groups (e.g. technicians, engineers)
+    const c=document.getElementById(_activeDraft.container);
+    if(c){
+      const groups=c.querySelectorAll('[data-draft-group]');
+      groups.forEach(g=>{
+        const name=g.dataset.draftGroup;
+        const checked=[...g.querySelectorAll('input[type=checkbox]:checked')].map(c=>c.value);
+        data['__group_'+name]=checked;
+      });
+    }
+    // Capture custom-input choice toggles for the create-report form
+    if(typeof crCustomMode!=='undefined')data.__crCustomMode=crCustomMode;
+    // Capture machines list (Create Report)
+    if(typeof crMachines!=='undefined'&&Array.isArray(crMachines))data.__crMachines=crMachines;
+    data.__savedAt=Date.now();
+    localStorage.setItem(DRAFT_PREFIX+_activeDraft.key,JSON.stringify(data));
+  }catch(e){console.warn('draft save:',e);}
+}
+function getFormDraft(key){
+  try{const raw=localStorage.getItem(DRAFT_PREFIX+key);return raw?JSON.parse(raw):null;}catch(e){return null;}
+}
+function clearFormDraft(key){try{localStorage.removeItem(DRAFT_PREFIX+key);}catch(e){}}
+function endFormDraft(){_activeDraft=null;}
+function applyFormDraft(draft){
+  if(!draft)return;
+  Object.keys(draft).forEach(id=>{
+    if(id.startsWith('__'))return;
+    const el=document.getElementById(id);
+    if(!el)return;
+    if(el.type==='checkbox'||el.type==='radio')el.checked=!!draft[id];
+    else el.value=draft[id];
+  });
+  Object.keys(draft).forEach(k=>{
+    if(!k.startsWith('__group_'))return;
+    const name=k.replace('__group_','');
+    const grp=document.querySelector(`[data-draft-group="${name}"]`);
+    if(!grp)return;
+    const vals=draft[k]||[];
+    grp.querySelectorAll('input[type=checkbox]').forEach(c=>{c.checked=vals.includes(c.value);});
+  });
+  // Restore extras
+  if(draft.__crCustomMode&&typeof crCustomMode!=='undefined'){Object.assign(crCustomMode,draft.__crCustomMode);}
+  if(draft.__crMachines&&typeof crMachines!=='undefined'){crMachines.length=0;crMachines.push(...draft.__crMachines);if(typeof renderCrMachines==='function')renderCrMachines();}
+}
+function offerDraftRestore(key,label){
+  return new Promise(resolve=>{
+    const draft=getFormDraft(key);
+    if(!draft||!draft.__savedAt){resolve(false);return;}
+    const age=Math.round((Date.now()-draft.__savedAt)/60000);
+    const ageLabel=age<1?'just now':age<60?age+' min ago':Math.round(age/60)+' hr ago';
+    if(confirm(`Unsaved ${label||'form'} draft found from ${ageLabel}. Restore it?`))resolve(true);
+    else{clearFormDraft(key);resolve(false);}
+  });
+}
+
+// Flush any pending DEBOUNCED draft save immediately (before pagehide)
+function flushPendingDraft(){
+  if(window._draftDebounce){clearTimeout(window._draftDebounce);window._draftDebounce=null;saveCurrentFormDraft();}
+}
+
+// Save form drafts and flush sync when page is being backgrounded (Android tab-switch / kill).
+// IMPORTANT: pagehide fires AFTER the browser has already started tearing down inputs to their
+// initial values. So we only save the draft on visibilitychange→hidden (where DOM is still alive)
+// and we flush the *debounced* draft (already captured live values) on pagehide/beforeunload.
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='hidden'){
+    flushPendingDraft();   // fire debounced draft save with live field values
+    flushPendingSync();    // fire pending Firebase push
+  }
+});
+window.addEventListener('pagehide',()=>{flushPendingDraft();flushPendingSync();});
+window.addEventListener('beforeunload',()=>{flushPendingDraft();flushPendingSync();});
+
+// ===== SHARED CALENDAR (cross-CRM, cross-device sync) =====
+// Both CRMs write to /sharedFieldServiceCal_v1/<source> and listen to the parent node.
+// localStorage is kept as offline fallback.
+const SHARED_CAL_KEY='sharedFieldServiceCal_v1';
+const APP_TAG='octopack';
+let _sharedEventsCache=[]; // populated by Firebase listener (cross-device)
+function publishCalendarToShared(){
+  try{
+    const myEvents=[];
+    DB.jobs.forEach(j=>{
+      if(!j.date||j.status==='Cancelled'||j.status==='Completed')return;
+      const techIds=j.techIds||(j.techId?[j.techId]:[]);
+      myEvents.push({
+        id:'octo-job-'+j.id,
+        title:j.title||'Job',
+        date:j.date,time:j.time||'',
+        customer:j.customer||'',
+        techIds:techIds,
+        techNames:typeof getJobTechNames==='function'?getJobTechNames(j):techIds.map(id=>{const t=DB.techs.find(x=>x.id===id);return t?t.name:'?';}).join(', '),
+        type:j.type||'Service',
+        priority:j.priority||'Medium',
+        status:j.status||'Open',
+        machine:j.machine||'',
+        model:j.model||'',
+        source:APP_TAG,
+        sourceLabel:'OctoCRM'
+      });
+    });
+    DB.reports.forEach(r=>{
+      if(!r.nextVisit)return;
+      myEvents.push({
+        id:'octo-visit-'+r.id,
+        title:'Follow-up: '+(r.customer||''),
+        date:r.nextVisit,time:'',
+        customer:r.customer||'',
+        techIds:[],techNames:r.engineer||'',
+        type:'Follow-up',priority:'Medium',status:'Scheduled',
+        source:APP_TAG,sourceLabel:'OctoCRM'
+      });
+    });
+    const block={events:myEvents,updated:new Date().toISOString()};
+    // localStorage (offline fallback / same-device)
+    try{
+      let shared={};
+      const raw=localStorage.getItem(SHARED_CAL_KEY);
+      if(raw)shared=JSON.parse(raw);
+      shared[APP_TAG]=block;
+      localStorage.setItem(SHARED_CAL_KEY,JSON.stringify(shared));
+    }catch(e){}
+    // Firebase (cross-device, real-time)
+    if(USE_FB&&fbDB){
+      fbDB.ref(SHARED_CAL_KEY+'/'+APP_TAG).set(block).catch(err=>console.warn('shared cal push:',err));
+    }
+  }catch(e){console.warn('Shared cal publish failed:',e);}
+}
+function getSharedEvents(){
+  // Prefer the live FB cache. Fall back to localStorage.
+  if(_sharedEventsCache&&_sharedEventsCache.length)return _sharedEventsCache;
+  try{
+    const raw=localStorage.getItem(SHARED_CAL_KEY);
+    if(!raw)return[];
+    const shared=JSON.parse(raw);
+    const out=[];
+    Object.keys(shared).forEach(k=>{
+      if(k===APP_TAG)return;
+      const block=shared[k];
+      if(block&&block.events)out.push(...block.events);
+    });
+    return out;
+  }catch(e){return[];}
+}
+function attachSharedCalListener(){
+  if(!USE_FB||!fbDB)return;
+  fbDB.ref(SHARED_CAL_KEY).on('value',s=>{
+    const d=s.val()||{};
+    const out=[];
+    Object.keys(d).forEach(k=>{
+      if(k===APP_TAG)return;
+      const block=d[k];
+      if(block&&block.events){
+        const evs=Array.isArray(block.events)?block.events:Object.values(block.events);
+        out.push(...evs);
+      }
+    });
+    _sharedEventsCache=out;
+    // Re-render calendar/dashboard if visible
+    const a=document.querySelector('.pg.active');
+    if(a&&a.id==='page-calendar'&&typeof renderCal==='function')renderCal();
+  });
+}
+// Same-device fallback via storage event
+window.addEventListener('storage',e=>{
+  if(e.key===SHARED_CAL_KEY){
+    const a=document.querySelector('.pg.active');
+    if(a&&a.id==='page-calendar'&&typeof renderCal==='function')renderCal();
+  }
+});
 
 let _fbSyncInProgress=false;
 function syncToFirebase(){
@@ -752,7 +1043,11 @@ function openModal(title,bodyHTML,footerHTML){const mc=document.getElementById('
 function closeModal(keepContent){document.getElementById('globalModal').classList.remove('open');if(!keepContent)setTimeout(()=>{if(!document.getElementById('globalModal').classList.contains('open'))document.getElementById('globalModalContent').innerHTML='';},350);}
 function switchModal(fn){document.getElementById('globalModal').classList.remove('open');setTimeout(()=>{fn();},50);}
 function closePnl(){document.getElementById('detPnl').classList.remove('open')}
-document.getElementById('globalModal').addEventListener('click',e=>{if(e.target.id==='globalModal')closeModal()});
+document.getElementById('globalModal').addEventListener('click',e=>{if(window._octoModalDownOnBackdrop&&e.target.id==='globalModal')closeModal();window._octoModalDownOnBackdrop=false});
+// Track whether the press started on the backdrop. Without this, a long-press text-selection
+// drag that lifts off the input onto the backdrop fires a synthetic click and closes the modal.
+document.getElementById('globalModal').addEventListener('mousedown',e=>{window._octoModalDownOnBackdrop=(e.target.id==='globalModal');});
+document.getElementById('globalModal').addEventListener('touchstart',e=>{window._octoModalDownOnBackdrop=(e.target.id==='globalModal');},{passive:true});
 
 function getMachs(){const m={};DB.reports.forEach(r=>{if(!r.serial)return;if(!m[r.serial])m[r.serial]={serial:r.serial,model:r.model,customer:r.customer,reports:[],lastService:r.date,issues:[]};m[r.serial].reports.push(r);if(r.date>m[r.serial].lastService){m[r.serial].lastService=r.date;m[r.serial].customer=r.customer;}if(r.status!=='Completed')m[r.serial].issues.push(r)});return Object.values(m)}
 function getAllCusts(){
@@ -918,6 +1213,7 @@ function openNewJobModal(){
   const cs=getAllCusts();
   openModal('Create Job',`
     <input type="hidden" id="eJId">
+    <input type="hidden" id="jDraftKey" value="job_new">
     <div class="fr"><div class="fg"><label>Title</label><input class="fc" id="jTi" placeholder="PM Service..."></div><div class="fg"><label>Priority</label><select class="fc" id="jPr"><option>Low</option><option selected>Medium</option><option>High</option><option>Urgent</option></select></div></div>
     <div class="fr"><div class="fg"><label>Customer</label>
       <select class="fc" id="jCu" onchange="onJobCustChange()"><option value="">— Select —</option>${cs.map(c=>`<option>${E(c.name)}</option>`).join('')}</select>
@@ -929,12 +1225,33 @@ function openNewJobModal(){
       <button class="btn btn-sm btn-s" onclick="addJobMachine()" style="margin-top:8px" id="jAddMachBtn">+ Add machine</button>
     </div>
     <div class="fg"><label>Technician(s) — select one or more</label>
-      <div id="jTeChecks" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${DB.techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="jTeChk" value="${t.id}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
+      <div id="jTeChecks" data-draft-group="jTeChk" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${DB.techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="jTeChk" value="${t.id}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
     </div>
     <div class="fg"><label>Type</label><select class="fc" id="jTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Installation</option><option>Emergency</option></select></div>
     <div class="fr"><div class="fg"><label>Date</label><input class="fc" type="date" id="jDt"></div><div class="fg"><label>Time</label><input class="fc" type="time" id="jTm"></div></div>
     <div class="fg"><label>Instructions</label><textarea class="fc" id="jDs"></textarea></div>
-  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-wa" onclick="saveJobAndWA()">Save & WhatsApp</button><button class="btn btn-p" onclick="saveJob()">Save</button>`);
+    <p style="font-size:11px;color:var(--t3);text-align:center;margin-top:8px">💾 Auto-saved as you type</p>
+  `,`<button class="btn btn-s" onclick="closeJobModal()">Cancel</button><button class="btn btn-wa" onclick="saveJobAndWA()">Save & WhatsApp</button><button class="btn btn-p" onclick="saveJob()">Save</button>`);
+  // Wire up draft auto-save
+  startFormDraft('job_new',['eJId','jTi','jPr','jCu','jCuCustom','jPO','jTy','jDt','jTm','jDs']);
+  // Offer to restore prior draft (only if creating new — edit flow handled in editJob)
+  setTimeout(async()=>{
+    const isEditing=!!document.getElementById('eJId')?.value;
+    if(isEditing)return;
+    const restore=await offerDraftRestore('job_new','job');
+    if(restore){
+      const draft=getFormDraft('job_new');
+      applyFormDraft(draft);
+      // Trigger linked dropdowns
+      if(document.getElementById('jCu').value){try{onJobCustChange();}catch(e){}}
+      // Custom customer
+      if(draft.jCuCustom){document.getElementById('jCuCustom').value=draft.jCuCustom;document.getElementById('jCuCustom').style.display='';document.getElementById('jCu').style.display='none';}
+    }
+  },150);
+}
+function closeJobModal(){
+  endFormDraft();
+  closeModal();
 }
 
 function toggleJobCustomCust(){
@@ -1064,11 +1381,11 @@ function saveJob(){
   const techIds=getSelectedTechIds();
   const customer=getJobFieldVal('jCu','jCuCustom');
   const machines=getJobMachines();
-  const d={title:document.getElementById('jTi').value.trim(),customer:customer,machines:machines,machine:machines[0]?.serial||'',model:machines[0]?.model||'',poNo:document.getElementById('jPO').value.trim(),techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
+  const d={title:document.getElementById('jTi').value.trim(),customer:customer,machines:machines,machine:machines[0]?.serial||'',model:machines[0]?.model||'',poNo:document.getElementById('jPO').value.trim(),techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open',_modifiedAt:Date.now()};
   if(!d.title){toast('Enter title.','error');return;}
   if(eid&&eid!==''){const i=DB.jobs.findIndex(j=>j.id===parseInt(eid));if(i>=0)DB.jobs[i]={...DB.jobs[i],...d};}
   else{d.id=DB.nJ++;d.createdAt=new Date().toISOString();d.waSent=false;DB.jobs.push(d);}
-  saveDB();closeModal();renderJobs();renderDash();toast('Job saved.','success');
+  markTouched('jobs');saveDB();clearFormDraft(eid?'job_edit_'+eid:'job_new');endFormDraft();closeModal();renderJobs();renderDash();flushPendingSync();toast('Job saved.','success');
 }
 
 function saveJobAndWA(){const tids=getSelectedTechIds();if(!tids.length){toast('Select technician(s).','error');return;}const beforeLen=DB.jobs.length;saveJob();if(DB.jobs.length>beforeLen){sendJWA(DB.jobs[DB.jobs.length-1].id);}}
@@ -1098,7 +1415,7 @@ function sendJWA(jid){
   j.waSent=true;saveDB();renderJobs();
 }
 
-function delJob(id){if(DB.jobs.length<=1){toast('Cannot delete the last job.','error');return;}if(!confirm('Delete?'))return;DB.jobs=DB.jobs.filter(j=>j.id!==id);saveDB();renderJobs();renderDash();toast('Deleted.','info');}
+function delJob(id){if(DB.jobs.length<=1){toast('Cannot delete the last job.','error');return;}if(!confirm('Delete?'))return;tombstoneDelete('jobs',id);DB.jobs=DB.jobs.filter(j=>j.id!==id);saveDB();renderJobs();renderDash();flushPendingSync();toast('Deleted.','info');}
 
 function viewJobDetail(id){
   const j=DB.jobs.find(x=>x.id===id);if(!j)return;
@@ -1295,7 +1612,7 @@ function renderRptCards(reps){
   }).join('');
 }
 
-function delRpt(id){if(DB.reports.length<=1){toast('Cannot delete the last report.','error');return;}if(!confirm('Delete?'))return;DB.reports=DB.reports.filter(r=>r.id!==id);saveDB();renderReports();toast('Deleted.','info');}
+function delRpt(id){if(DB.reports.length<=1){toast('Cannot delete the last report.','error');return;}if(!confirm('Delete?'))return;tombstoneDelete('reports',id);DB.reports=DB.reports.filter(r=>r.id!==id);saveDB();renderReports();flushPendingSync();toast('Deleted.','info');}
 function viewRptPhotos(id){const r=DB.reports.find(x=>x.id===id);if(!r?.photos?.length){toast('No photos.','info');return;}openLBx(r.photos,0);}
 
 function editReport(id){
@@ -1463,12 +1780,34 @@ function renderCreateReport(){
         <button class="btn btn-p" onclick="saveCR()">Save Only</button>
         <button class="btn btn-s" onclick="previewCR()">👁 Preview</button>
       </div>
+      <p style="font-size:11px;color:var(--t3);text-align:center;margin-top:12px">💾 All fields auto-saved as you type — your work survives if the app closes (photos & signatures excluded; please re-add them after restoring)</p>
     </div>`;
   // Init sig pads
   setTimeout(()=>{
     initSig('sigC');initSig('sigE');
     updateEmailPickers();
   },100);
+  // Wire up draft auto-save (text fields only — exclude photo/signature data)
+  const draftKey='cr_new';
+  const fields=['crCo','crJN','crDt','crCu','crCuCustom','crCn','crCnCustom','crCp','crCpCustom','crPO','crTy','crTS','crTE','crRm','crRc','crSt','crNV','crSgNm','crEml'];
+  startFormDraft(draftKey,fields,{container:'createReportContent'});
+  // Offer to restore prior unsaved draft if one exists
+  setTimeout(async()=>{
+    const restore=await offerDraftRestore(draftKey,'service report');
+    if(restore){
+      const draft=getFormDraft(draftKey);
+      applyFormDraft(draft);
+      // Trigger linked-dropdown cascades for restored customer
+      if(document.getElementById('crCu').value){
+        try{onCustChange();}catch(e){}
+        // Restore custom toggles after onCustChange resets them
+        setTimeout(()=>{
+          ['crCn','crCp'].forEach(id=>{const v=draft[id];if(v)document.getElementById(id).value=v;});
+          ['crCuCustom','crCnCustom','crCpCustom'].forEach(id=>{const v=draft[id];if(v){document.getElementById(id).value=v;document.getElementById(id).style.display='';const base=id.replace('Custom','');const baseEl=document.getElementById(base);if(baseEl)baseEl.style.display='none';}});
+        },100);
+      }
+    }
+  },150);
 }
 
 // Smart linked dropdowns
@@ -1713,7 +2052,21 @@ function getCRData(){
   };
 }
 
-function saveCR(){const d=getCRData();if(!d.jobNo){toast('Job No. required.','error');return;}d.id=DB.nR++;d.scannedAt=new Date().toISOString();DB.reports.push(d);let c=DB.custs.find(x=>x.name===d.customer);if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:'',agent:''});}saveDB();toast('Report saved!','success');showPage('reports');}
+function saveCR(){
+  const d=getCRData();
+  if(!d.jobNo){toast('Job No. required.','error');return;}
+  d.id=DB.nR++;d.scannedAt=new Date().toISOString();d._modifiedAt=Date.now();
+  DB.reports.push(d);
+  let c=DB.custs.find(x=>x.name===d.customer);
+  if(!c&&d.customer){const nc={id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:'',agent:'',_modifiedAt:Date.now()};DB.custs.push(nc);markTouched('custs');}
+  markTouched('reports');
+  saveDB();
+  clearFormDraft('cr_new');
+  endFormDraft();
+  flushPendingSync();
+  toast('Report saved! Syncing to cloud…','success');
+  showPage('reports');
+}
 
 async function saveAndEmailCR(){
   const d=getCRData();
@@ -1721,12 +2074,15 @@ async function saveAndEmailCR(){
   const em=document.getElementById('crEml')?.value;
   if(!em){toast('Enter customer email.','error');return;}
   // Save report
-  d.id=DB.nR++;d.scannedAt=new Date().toISOString();
+  d.id=DB.nR++;d.scannedAt=new Date().toISOString();d._modifiedAt=Date.now();
   DB.reports.push(d);
   let c=DB.custs.find(x=>x.name===d.customer);
-  if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:em,agent:''});}
-  else if(c&&em){c.email=em;}
-  saveDB();toast('Report saved!','success');
+  if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:em,agent:'',_modifiedAt:Date.now()});markTouched('custs');}
+  else if(c&&em){c.email=em;c._modifiedAt=Date.now();markTouched('custs');}
+  markTouched('reports');
+  saveDB();
+  clearFormDraft('cr_new');endFormDraft();flushPendingSync();
+  toast('Report saved! Syncing to cloud…','success');
   // Generate PDF and email
   const result=await generateReportPDF(d,false);
   const co=CO[d.company]||CO.octopack;
@@ -1899,6 +2255,7 @@ function saveMachine(){
   if(!d.serial){toast('Serial number required.','error');return;}
   if(!d.model){toast('Model required.','error');return;}
   
+  d._modifiedAt=Date.now();
   if(!Array.isArray(DB.machines))DB.machines=[];
   
   if(origSerial){
@@ -1916,17 +2273,19 @@ function saveMachine(){
     if(DB.machines.find(m=>m.serial===d.serial)){toast('Serial already exists.','error');return;}
     d.id=DB.nM++;DB.machines.push(d);
   }
-  saveDB();closeModal();renderMachines();toast('Machine saved.','success');
+  markTouched('machines');saveDB();closeModal();renderMachines();flushPendingSync();toast('Machine saved.','success');
 }
 
 function delMachine(serial){
   if(getAllMachinesDB().length<=1){toast('Cannot delete the last machine.','error');return;}
   const rptCount=DB.reports.filter(r=>r.serial===serial).length;
   if(!confirm(`Delete machine "${serial}"?${rptCount?'\n\n⚠ '+rptCount+' report(s) reference this machine. Reports will be kept for records.':''}`))return;
+  const m=(DB.machines||[]).find(x=>x.serial===serial);
+  if(m&&m.id!=null)tombstoneDelete('machines',m.id);
   DB.machines=(DB.machines||[]).filter(m=>m.serial!==serial);
   if(!Array.isArray(DB.deletedMachines))DB.deletedMachines=[];
   if(!DB.deletedMachines.includes(serial))DB.deletedMachines.push(serial);
-  saveDB();renderMachines();renderDash();toast('Machine deleted.','info');
+  saveDB();renderMachines();renderDash();flushPendingSync();toast('Machine deleted.','info');
 }
 
 function calcNextPMDate(lastDate,freq){
@@ -2130,6 +2489,11 @@ function delCust(nameOrEl){
   
   if(!confirm(msg))return;
   
+  // Tombstone the customer + linked machines so they don't resurrect from cloud snapshots
+  const cust=DB.custs.find(c=>c.name===name);
+  if(cust&&cust.id!=null)tombstoneDelete('custs',cust.id);
+  if(DB.machines)DB.machines.filter(m=>m.customer===name).forEach(m=>{if(m.id!=null)tombstoneDelete('machines',m.id);});
+  
   // Remove from DB.custs
   DB.custs=DB.custs.filter(c=>c.name!==name);
   
@@ -2140,7 +2504,7 @@ function delCust(nameOrEl){
   if(!Array.isArray(DB.deletedCusts))DB.deletedCusts=[];
   if(!DB.deletedCusts.includes(name))DB.deletedCusts.push(name);
   
-  saveDB();renderCusts();renderDash();
+  saveDB();renderCusts();renderDash();flushPendingSync();
   toast(`"${name}" deleted${machCount?' + '+machCount+' machine(s)':''}.`,'info');
 }
 
@@ -2210,23 +2574,29 @@ function saveCust(){
     const email=row.querySelector('.cCtEmail')?.value.trim()||'';
     if(name||phone||email)contacts.push({name,phone,email});
   });
-  const d={name:document.getElementById('cNm').value.trim(),address:document.getElementById('cAd').value.trim(),contact:contacts[0]?.name||'',phone:contacts[0]?.phone||'',email:contacts[0]?.email||'',contacts:contacts,agent:document.getElementById('cAg').value.trim()};
+  const d={name:document.getElementById('cNm').value.trim(),address:document.getElementById('cAd').value.trim(),contact:contacts[0]?.name||'',phone:contacts[0]?.phone||'',email:contacts[0]?.email||'',contacts:contacts,agent:document.getElementById('cAg').value.trim(),_modifiedAt:Date.now()};
   if(!d.name){toast('Name required.','error');if(saveBtn){saveBtn.dataset.saving='';saveBtn.textContent='Save';}return;}
+  const now=Date.now();
   if(eid&&eid!==''){
     const i=DB.custs.findIndex(c=>c.id===parseInt(eid));
     if(i>=0){const oldName=DB.custs[i].name;DB.custs[i]={...DB.custs[i],...d};
-      if(oldName!==d.name){(DB.machines||[]).forEach(m=>{if(m.customer===oldName)m.customer=d.name;});DB.reports.forEach(r=>{if(r.customer===oldName)r.customer=d.name;});DB.jobs.forEach(j=>{if(j.customer===oldName)j.customer=d.name;});}
+      if(oldName!==d.name){
+        (DB.machines||[]).forEach(m=>{if(m.customer===oldName){m.customer=d.name;m._modifiedAt=now;}});
+        DB.reports.forEach(r=>{if(r.customer===oldName){r.customer=d.name;r._modifiedAt=now;}});
+        DB.jobs.forEach(j=>{if(j.customer===oldName){j.customer=d.name;j._modifiedAt=now;}});
+        markTouched('machines');markTouched('reports');markTouched('jobs');
+      }
     }else{d.id=DB.nC++;DB.custs.push(d);}
   }else{d.id=DB.nC++;DB.custs.push(d);}
-  saveDB();closeModal();renderCusts();toast('Saved.','success');
+  markTouched('custs');saveDB();closeModal();renderCusts();flushPendingSync();toast('Saved.','success');
 }
 
 // ===== TECHNICIANS =====
 function renderTechs(){document.getElementById('techContent').innerHTML=`<div class="tw"><div class="th"><h3>Technicians</h3><button class="btn btn-p btn-sm" onclick="openTechModal()">+ Add</button></div>${DB.techs.map(t=>{const aj=DB.jobs.filter(j=>j.status!=='Completed'&&((j.techIds||[]).includes(t.id)||j.techId===t.id)).length;return`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(t.name)}</span><span class="bd ${aj?'bd-wn':'bd-ok'}">${aj?'Busy ('+aj+')':'Available'}</span></div><div class="rpt-card-row"><span class="rc-label">WhatsApp</span><span class="rc-val"><a href="https://wa.me/${t.phone.replace(/[^0-9]/g,'')}" target="_blank" style="color:var(--wa);text-decoration:none">${E(t.phone)}</a></span></div><div class="rpt-card-row"><span class="rc-label">Email</span><span class="rc-val">${t.email?`<a href="mailto:${t.email}" style="color:var(--ac);text-decoration:none">${E(t.email)}</a>`:'—'}</span></div><div class="rpt-card-row"><span class="rc-label">Spec</span><span class="rc-val">${E(t.spec)}</span></div><div class="rpt-card-actions">${canEdit()?`<button class="btn btn-sm btn-s" onclick="editTech(${t.id})">Edit</button>`:''} ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delTech(${t.id})">Remove</button>`:''}</div></div>`}).join('')||'<div class="es"><p>No technicians.</p></div>'}</div>`;}
 function openTechModal(data){const d=data||{};openModal(d.name?'Edit Technician':'Add Technician',`<input type="hidden" id="eTId" value="${d.id||''}"><div class="fg"><label>Name</label><input class="fc" id="tNm" value="${E(d.name||'')}"></div><div class="fg"><label>WhatsApp</label><input class="fc" id="tPh" value="${E(d.phone||'')}" placeholder="+65..."></div><div class="fg"><label>Email</label><input class="fc" type="email" id="tEm" value="${E(d.email||'')}" placeholder="tech@company.com"></div><div class="fg"><label>Specialization</label><select class="fc" id="tSp"><option${d.spec==='General'?' selected':''}>General</option><option${d.spec==='Strapping Machines'?' selected':''}>Strapping Machines</option><option${d.spec==='Wrapping Machines'?' selected':''}>Wrapping Machines</option><option${d.spec==='Sealing Machines'?' selected':''}>Sealing Machines</option><option${d.spec==='Electrical'?' selected':''}>Electrical</option><option${d.spec==='Mechanical'?' selected':''}>Mechanical</option></select></div>`,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveTech()">Save</button>`);}
 function editTech(id){const t=DB.techs.find(x=>x.id===id);if(t)openTechModal(t);}
-function saveTech(){const eidEl=document.getElementById('eTId');const eid=eidEl?eidEl.value:'';const d={name:document.getElementById('tNm').value.trim(),phone:document.getElementById('tPh').value.trim(),email:document.getElementById('tEm').value.trim(),spec:document.getElementById('tSp').value};if(!d.name||!d.phone){toast('Name & phone required.','error');return;}if(eid&&eid!==''){const i=DB.techs.findIndex(t=>t.id===parseInt(eid));if(i>=0)DB.techs[i]={...DB.techs[i],...d};}else{d.id=DB.nT++;DB.techs.push(d);}saveDB();closeModal();renderTechs();toast('Saved.','success');}
-function delTech(id){if(DB.techs.length<=1){toast('Cannot delete the last technician.','error');return;}if(!confirm('Remove?'))return;DB.techs=DB.techs.filter(t=>t.id!==id);saveDB();renderTechs();toast('Removed.','info');}
+function saveTech(){const eidEl=document.getElementById('eTId');const eid=eidEl?eidEl.value:'';const d={name:document.getElementById('tNm').value.trim(),phone:document.getElementById('tPh').value.trim(),email:document.getElementById('tEm').value.trim(),spec:document.getElementById('tSp').value,_modifiedAt:Date.now()};if(!d.name||!d.phone){toast('Name & phone required.','error');return;}if(eid&&eid!==''){const i=DB.techs.findIndex(t=>t.id===parseInt(eid));if(i>=0)DB.techs[i]={...DB.techs[i],...d};}else{d.id=DB.nT++;DB.techs.push(d);}markTouched('techs');saveDB();closeModal();renderTechs();flushPendingSync();toast('Saved.','success');}
+function delTech(id){if(DB.techs.length<=1){toast('Cannot delete the last technician.','error');return;}if(!confirm('Remove?'))return;tombstoneDelete('techs',id);DB.techs=DB.techs.filter(t=>t.id!==id);saveDB();renderTechs();flushPendingSync();toast('Removed.','info');}
 
 // ===== USER MANAGEMENT =====
 function renderUsers(){
@@ -2235,22 +2605,23 @@ function renderUsers(){
 }
 function openUserModal(data){const d=data||{};openModal(d.name?'Edit User':'Add User',`<input type="hidden" id="eUId" value="${d.id||''}"><div class="fg"><label>Full Name</label><input class="fc" id="uNm" value="${E(d.name||'')}"></div><div class="fr"><div class="fg"><label>Username</label><input class="fc" id="uUn" value="${E(d.username||'')}" autocomplete="off"></div><div class="fg"><label>Password</label><input class="fc" type="text" id="uPw" value="${E(d.password||'')}" autocomplete="off"></div></div><div class="fg"><label>Role</label><select class="fc" id="uRl"><option value="admin"${d.role==='admin'?' selected':''}>Admin — Full access</option><option value="manager"${d.role==='manager'?' selected':''}>Manager — Create & edit, no user mgmt</option><option value="technician"${d.role==='technician'?' selected':''}>Technician — View & update status only</option></select></div>`,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveUser()">Save</button>`);}
 function editUser(id){const u=DB.users.find(x=>x.id===id);if(u)openUserModal(u);}
-function saveUser(){const eidEl=document.getElementById('eUId');const eid=eidEl?eidEl.value:'';const d={name:document.getElementById('uNm').value.trim(),username:document.getElementById('uUn').value.trim(),password:document.getElementById('uPw').value,role:document.getElementById('uRl').value};if(!d.name||!d.username||!d.password){toast('All fields required.','error');return;}if(eid&&eid!==''){const i=DB.users.findIndex(u=>u.id===parseInt(eid));if(i>=0)DB.users[i]={...DB.users[i],...d};}else{d.id=DB.nU++;DB.users.push(d);}saveDB();closeModal();renderUsers();toast('User saved.','success');}
-function delUser(id){if(DB.users.length<=1){toast('Cannot delete the last user.','error');return;}if(!confirm('Remove user?'))return;DB.users=DB.users.filter(u=>u.id!==id);saveDB();renderUsers();toast('Removed.','info');}
+function saveUser(){const eidEl=document.getElementById('eUId');const eid=eidEl?eidEl.value:'';const d={name:document.getElementById('uNm').value.trim(),username:document.getElementById('uUn').value.trim(),password:document.getElementById('uPw').value,role:document.getElementById('uRl').value,_modifiedAt:Date.now()};if(!d.name||!d.username||!d.password){toast('All fields required.','error');return;}if(eid&&eid!==''){const i=DB.users.findIndex(u=>u.id===parseInt(eid));if(i>=0)DB.users[i]={...DB.users[i],...d};}else{d.id=DB.nU++;DB.users.push(d);}markTouched('users');saveDB();closeModal();renderUsers();flushPendingSync();toast('User saved.','success');}
+function delUser(id){if(DB.users.length<=1){toast('Cannot delete the last user.','error');return;}if(!confirm('Remove user?'))return;tombstoneDelete('users',id);DB.users=DB.users.filter(u=>u.id!==id);saveDB();renderUsers();flushPendingSync();toast('Removed.','info');}
 
 // ===== CALENDAR =====
 let calY,calM;
 function calPrev(){calM--;if(calM<0){calM=11;calY--;}renderCal();}
 function calNext(){calM++;if(calM>11){calM=0;calY++;}renderCal();}
-function renderCal(){if(calY===undefined){const n=new Date();calY=n.getFullYear();calM=n.getMonth();}const mo=['January','February','March','April','May','June','July','August','September','October','November','December'];const fd=new Date(calY,calM,1).getDay(),dm=new Date(calY,calM+1,0).getDate(),td=new Date();const ev={};function ae(dt,d){if(!dt)return;if(!ev[dt])ev[dt]=[];ev[dt].push(d);}DB.reports.forEach(r=>{ae(r.date,{type:'report',l:r.customer?.substring(0,16),bg:'var(--oks)',c:'var(--ok)',data:r});ae(r.nextVisit,{type:'visit',l:'🔔 '+r.customer?.substring(0,12),bg:'var(--wns)',c:'var(--wn)',data:r});});DB.jobs.forEach(j=>{if(j.status!=='Completed')ae(j.date,{type:'job',l:'🔧 '+j.title?.substring(0,14),bg:'var(--acs)',c:'var(--ac)',data:j});});
-let h=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><button class="btn btn-s btn-sm" onclick="calPrev()">← Prev</button><h3 style="font-size:var(--fs-lg);font-weight:700">${mo[calM]} ${calY}</h3><button class="btn btn-s btn-sm" onclick="calNext()">Next →</button></div><div class="cg">`;
-['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>{h+=`<div class="ch-h">${d}</div>`;});const pd=new Date(calY,calM,0).getDate();for(let i=fd-1;i>=0;i--)h+=`<div class="cd om"><div class="dn">${pd-i}</div></div>`;for(let d=1;d<=dm;d++){const ds=`${calY}-${String(calM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;const it=td.getFullYear()===calY&&td.getMonth()===calM&&td.getDate()===d;const de=ev[ds]||[];h+=`<div class="cd ${it?'today':''}" ${de.length?`onclick="showCalDay('${ds}')" style="cursor:pointer"`:''} ><div class="dn">${d}</div>${de.slice(0,2).map(e=>`<div class="ce" style="background:${e.bg};color:${e.c}">${E(e.l)}</div>`).join('')}${de.length>2?`<div style="font-size:9px;color:var(--t3)">+${de.length-2} more</div>`:''}</div>`;}const tt=fd+dm;for(let i=1;i<=(7-(tt%7))%7;i++)h+=`<div class="cd om"><div class="dn">${i}</div></div>`;h+='</div>';document.getElementById('calendarContent').innerHTML=h;}
+function renderCal(){if(calY===undefined){const n=new Date();calY=n.getFullYear();calM=n.getMonth();}const mo=['January','February','March','April','May','June','July','August','September','October','November','December'];const fd=new Date(calY,calM,1).getDay(),dm=new Date(calY,calM+1,0).getDate(),td=new Date();const ev={};function ae(dt,d){if(!dt)return;if(!ev[dt])ev[dt]=[];ev[dt].push(d);}DB.reports.forEach(r=>{ae(r.date,{type:'report',l:r.customer?.substring(0,16),bg:'var(--oks)',c:'var(--ok)',data:r});ae(r.nextVisit,{type:'visit',l:'🔔 '+r.customer?.substring(0,12),bg:'var(--wns)',c:'var(--wn)',data:r});});DB.jobs.forEach(j=>{if(j.status!=='Completed')ae(j.date,{type:'job',l:'🔧 '+j.title?.substring(0,14),bg:'var(--acs)',c:'var(--ac)',data:j});});const sharedEv=getSharedEvents();sharedEv.forEach(s=>{ae(s.date,{type:'shared',l:'🔗 '+(s.title||'').substring(0,14),bg:'var(--pus)',c:'var(--pu)',data:s});});
+let h=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px"><button class="btn btn-s btn-sm" onclick="calPrev()">← Prev</button><h3 style="font-size:var(--fs-lg);font-weight:700">${mo[calM]} ${calY}</h3><button class="btn btn-s btn-sm" onclick="calNext()">Next →</button></div><div style="margin-bottom:12px;display:flex;flex-wrap:wrap;gap:6px;font-size:12px"><span class="bd bd-ac">🔧 OctoCRM Jobs</span><span class="bd bd-ok">📋 Reports</span><span class="bd bd-wn">🔔 Next Visits</span><span class="bd bd-pu">🔗 Other CRMs (${sharedEv.length})</span></div><div class="cg">`;
+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>{h+=`<div class="ch-h">${d}</div>`;});const pd=new Date(calY,calM,0).getDate();for(let i=fd-1;i>=0;i--)h+=`<div class="cd om"><div class="dn">${pd-i}</div></div>`;for(let d=1;d<=dm;d++){const ds=`${calY}-${String(calM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;const it=td.getFullYear()===calY&&td.getMonth()===calM&&td.getDate()===d;const de=ev[ds]||[];h+=`<div class="cd ${it?'today':''}" ${de.length?`onclick="showCalDay('${ds}')" style="cursor:pointer"`:''} ><div class="dn">${d}</div>${de.slice(0,2).map(e=>`<div class="ce" style="background:${e.bg};color:${e.c}" title="${E(e.type==='shared'?'['+(e.data&&e.data.sourceLabel||'Other')+'] '+e.l:e.l)}">${E(e.l)}</div>`).join('')}${de.length>2?`<div style="font-size:9px;color:var(--t3)">+${de.length-2} more</div>`:''}</div>`;}const tt=fd+dm;for(let i=1;i<=(7-(tt%7))%7;i++)h+=`<div class="cd om"><div class="dn">${i}</div></div>`;h+='</div>';document.getElementById('calendarContent').innerHTML=h;}
 
 function showCalDay(ds){
   const dayJobs=DB.jobs.filter(j=>j.date===ds&&j.status!=='Completed');
   const dayReports=DB.reports.filter(r=>r.date===ds);
   const dayVisits=DB.reports.filter(r=>r.nextVisit===ds);
-  if(!dayJobs.length&&!dayReports.length&&!dayVisits.length)return;
+  const daySharedAll=getSharedEvents().filter(s=>s.date===ds);
+  if(!dayJobs.length&&!dayReports.length&&!dayVisits.length&&!daySharedAll.length)return;
   
   const parts=ds.split('-');
   const dayLabel=new Date(parts[0],parts[1]-1,parts[2]).toLocaleDateString('en-SG',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
@@ -2314,6 +2685,26 @@ function showCalDay(ds){
         <div style="font-size:var(--fs-sm);color:var(--t2);margin-top:4px">Previous: ${E(r.jobNo)} on ${E(r.date||'')} by ${E(r.engineer||'')}</div>
         ${r.recommendations?`<div style="font-size:var(--fs-sm);margin-top:4px;font-style:italic">💡 ${E(r.recommendations.substring(0,120))}${r.recommendations.length>120?'...':''}</div>`:''}
         <div style="margin-top:8px"><button class="btn btn-sm btn-s" onclick="closeModal();viewRptPreview(${r.id})">View Original Report</button></div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+  
+  if(daySharedAll.length){
+    html+=`<div class="ds"><h4 style="color:var(--pu)">🔗 Other CRMs (${daySharedAll.length})</h4>`;
+    daySharedAll.forEach(s=>{
+      html+=`<div style="padding:12px;margin-bottom:10px;background:var(--pus);border-radius:var(--r);border-left:4px solid var(--pu)">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px">
+          <strong>${E(s.title||'Job')}</strong>
+          <span class="bd bd-pu">${E(s.sourceLabel||'Other')}</span>
+        </div>
+        <div style="margin-top:8px;font-size:var(--fs-sm);color:var(--t2);line-height:1.7">
+          ${s.customer?`<div>🏢 ${E(s.customer)}</div>`:''}
+          ${s.time?`<div>⏰ ${E(s.time)}</div>`:''}
+          ${s.type?`<div>📌 ${E(s.type)}</div>`:''}
+          ${s.techNames?`<div>👥 ${E(s.techNames)}</div>`:''}
+          <div style="margin-top:6px;padding:6px;background:var(--bg);border-radius:var(--r);font-size:11px;color:var(--t3)">From ${E(s.sourceLabel||'another CRM')} — read-only here</div>
+        </div>
       </div>`;
     });
     html+=`</div>`;
@@ -3035,7 +3426,7 @@ function editAgent(id){const a=(DB.agents||[]).find(x=>x.id===id);if(a)openAgent
 
 function saveAgent(){
   const eidEl=document.getElementById('eAId');const eid=eidEl?eidEl.value:'';
-  const d={name:document.getElementById('aNm').value.trim(),type:document.getElementById('aTy').value,parentCompany:document.getElementById('aPC').value,address:document.getElementById('aAd').value.trim(),contact:document.getElementById('aCo').value.trim(),phone:document.getElementById('aPh').value.trim(),email:document.getElementById('aEm').value.trim()};
+  const d={name:document.getElementById('aNm').value.trim(),type:document.getElementById('aTy').value,parentCompany:document.getElementById('aPC').value,address:document.getElementById('aAd').value.trim(),contact:document.getElementById('aCo').value.trim(),phone:document.getElementById('aPh').value.trim(),email:document.getElementById('aEm').value.trim(),_modifiedAt:Date.now()};
   if(!d.name){toast('Name required.','error');return;}
   if(!Array.isArray(DB.agents))DB.agents=[];
   if(eid&&eid!==''){
@@ -3044,19 +3435,22 @@ function saveAgent(){
       const oldName=DB.agents[i].name;
       DB.agents[i]={...DB.agents[i],...d};
       // Update customer references if name changed
-      if(oldName!==d.name){DB.custs.forEach(c=>{if(c.agent===oldName)c.agent=d.name;});}
+      if(oldName!==d.name){DB.custs.forEach(c=>{if(c.agent===oldName){c.agent=d.name;c._modifiedAt=Date.now();}});markTouched('custs');}
     }else{d.id=DB.nA++;DB.agents.push(d);}
   }else{d.id=DB.nA++;DB.agents.push(d);}
-  saveDB();closeModal();renderAgents();toast('Saved.','success');
+  markTouched('agents');saveDB();closeModal();renderAgents();flushPendingSync();toast('Saved.','success');
 }
 
 function delAgent(id,name){
   if((DB.agents||[]).length<=1){toast('Cannot delete the last agent.','error');return;}
   const custCount=DB.custs.filter(c=>c.agent===name).length;
   if(!confirm(`Delete agent "${name}"?${custCount?'\n\n⚠ '+custCount+' customer(s) are linked to this agent. They will be set to no agent.':''}`))return;
+  tombstoneDelete('agents',id);
   DB.agents=(DB.agents||[]).filter(a=>a.id!==id);
-  DB.custs.forEach(c=>{if(c.agent===name)c.agent='';});
-  saveDB();renderAgents();toast('Agent deleted.','info');
+  const now=Date.now();
+  DB.custs.forEach(c=>{if(c.agent===name){c.agent='';c._modifiedAt=now;}});
+  markTouched('custs');
+  saveDB();renderAgents();flushPendingSync();toast('Agent deleted.','info');
 }
 
 // ===== DATA IMPORT/EXPORT =====
@@ -3658,6 +4052,7 @@ function restoreDB(data){
 // ===== INIT =====
 loadDB();
 tryAutoLogin();
+publishCalendarToShared();
 
 // Enter key on login
 document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
