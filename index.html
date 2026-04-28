@@ -1615,12 +1615,16 @@ function renderRptCards(reps){
 function delRpt(id){if(DB.reports.length<=1){toast('Cannot delete the last report.','error');return;}if(!confirm('Delete?'))return;tombstoneDelete('reports',id);DB.reports=DB.reports.filter(r=>r.id!==id);saveDB();renderReports();flushPendingSync();toast('Deleted.','info');}
 function viewRptPhotos(id){const r=DB.reports.find(x=>x.id===id);if(!r?.photos?.length){toast('No photos.','info');return;}openLBx(r.photos,0);}
 
+let _editPhotos=[]; // photos array for the Edit Report modal (separate from crPhotos used by Create Report)
+
 function editReport(id){
   const r=DB.reports.find(x=>x.id===id);if(!r)return;
   const cs=getAllCusts();const techs=DB.techs||[];
   const types=['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Installation','Inspection','Emergency'];
   const statuses=['Completed','Pending Follow-Up','In Progress','Requires Parts'];
   const existingEngineers=(r.engineers||[r.engineer]).filter(Boolean);
+  // Initialize photo array from the saved report
+  _editPhotos=(r.photos||[]).map(p=>({...p}));
   openModal('Edit Report — '+r.jobNo,`
     <input type="hidden" id="erId" value="${r.id}">
     <div class="fr"><div class="fg"><label>Company</label><select class="fc" id="erCo"><option value="octopack"${r.company==='octopack'?' selected':''}>Octopack SEA</option><option value="jw"${r.company==='jw'?' selected':''}>JW Supplies</option><option value="redbox"${r.company==='redbox'?' selected':''}>Redbox Global</option></select></div><div class="fg"><label>Job No.</label><input class="fc" id="erJN" value="${E(r.jobNo)}"></div></div>
@@ -1637,7 +1641,75 @@ function editReport(id){
     <div class="fg"><label>Issues / Remarks</label><textarea class="fc" id="erRm">${E(r.remarks||'')}</textarea></div>
     <div class="fg"><label>Recommendations</label><textarea class="fc" id="erRc">${E(r.recommendations||'')}</textarea></div>
     <div class="fg"><label>Next Visit</label><input class="fc" type="date" id="erNV" value="${E(r.nextVisit||'')}"></div>
+    
+    <div style="border-top:1px solid var(--bdr);margin-top:16px;padding-top:14px">
+      <h4 style="font-size:var(--fs);font-weight:700;margin-bottom:10px">📸 Photos <span style="color:var(--t3);font-weight:400;font-size:var(--fs-sm)">(<span id="erPhotoCount">${_editPhotos.length}</span> / 10)</span></h4>
+      <div id="erPhGrid" class="photo-grid" style="margin-bottom:10px"></div>
+      <input type="file" id="erPhFile" accept="image/*" multiple style="display:none" onchange="addEditPhotos(this.files);this.value=''">
+      <button type="button" class="btn btn-s btn-sm" onclick="document.getElementById('erPhFile').click()">+ Add Photo(s)</button>
+    </div>
+    
+    <div style="border-top:1px solid var(--bdr);margin-top:16px;padding-top:14px">
+      <h4 style="font-size:var(--fs);font-weight:700;margin-bottom:10px">✍️ Signatures</h4>
+      <p style="font-size:11px;color:var(--t3);margin-bottom:10px">Existing signatures are shown below. Tap "Clear" then sign again to replace, or leave them as-is.</p>
+      <div class="fr">
+        <div class="fg">
+          <label>Customer Name</label>
+          <input class="fc" id="erSgNm" value="${E(r.sigName||'')}">
+          <canvas id="erSigC" class="sig-pad" width="400" height="140" style="width:100%;margin-top:8px"></canvas>
+          <div style="display:flex;gap:6px;margin-top:6px"><button type="button" class="btn btn-s btn-sm" onclick="clrSig('erSigC')">Clear</button>${r.custSig?`<button type="button" class="btn btn-s btn-sm" onclick="loadSigImage('erSigC',DB.reports.find(x=>x.id===${r.id}).custSig||'')">Restore Original</button>`:''}</div>
+        </div>
+        <div class="fg">
+          <label>Engineer Sig</label>
+          <canvas id="erSigE" class="sig-pad" width="400" height="140" style="width:100%;margin-top:8px"></canvas>
+          <div style="display:flex;gap:6px;margin-top:6px"><button type="button" class="btn btn-s btn-sm" onclick="clrSig('erSigE')">Clear</button>${r.engSig?`<button type="button" class="btn btn-s btn-sm" onclick="loadSigImage('erSigE',DB.reports.find(x=>x.id===${r.id}).engSig||'')">Restore Original</button>`:''}</div>
+        </div>
+      </div>
+    </div>
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveEditReport()">Save Changes</button>`);
+  // Initialize signature pads then load saved signatures (so user can see them)
+  setTimeout(()=>{
+    initSig('erSigC');initSig('erSigE');
+    if(r.custSig)loadSigImage('erSigC',r.custSig);
+    if(r.engSig)loadSigImage('erSigE',r.engSig);
+    updEditPhGrid();
+  },80);
+}
+
+// Paint an existing signature dataURL onto a canvas and mark _drawn=true so save logic captures it
+function loadSigImage(canvasId,dataUrl){
+  if(!dataUrl)return;
+  const c=document.getElementById(canvasId);if(!c)return;
+  const ctx=c.getContext('2d');
+  const img=new Image();
+  img.onload=()=>{
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+    ctx.drawImage(img,0,0,c.width,c.height);
+    c._drawn=true;
+  };
+  img.src=dataUrl;
+}
+
+// Photo grid for edit modal
+function addEditPhotos(files){
+  if(!files)return;
+  Array.from(files).forEach(f=>{
+    if(_editPhotos.length>=10)return;
+    const r=new FileReader();
+    r.onload=e=>{
+      compImg(e.target.result,800,.7,d=>{
+        _editPhotos.push({dataUrl:d,caption:'Photo '+(_editPhotos.length+1),timestamp:new Date().toLocaleString()});
+        updEditPhGrid();
+      });
+    };
+    r.readAsDataURL(f);
+  });
+}
+function updEditPhGrid(){
+  const g=document.getElementById('erPhGrid');if(!g)return;
+  const cnt=document.getElementById('erPhotoCount');if(cnt)cnt.textContent=_editPhotos.length;
+  if(!_editPhotos.length){g.innerHTML='<span style="color:var(--t3);font-size:var(--fs-sm)">No photos.</span>';return;}
+  g.innerHTML=_editPhotos.map((p,i)=>`<div class="photo-thumb"><img src="${p.dataUrl}" onclick="openLBx(_editPhotos,${i})"><button class="photo-del" onclick="event.stopPropagation();_editPhotos.splice(${i},1);updEditPhGrid()">✕</button></div>`).join('');
 }
 
 function saveEditReport(){
@@ -1646,7 +1718,12 @@ function saveEditReport(){
   const checkedEng=[...document.querySelectorAll('.erEnChk:checked')].map(c=>c.value);
   const customEng=(document.getElementById('erEnCustom')?.value||'').trim();
   if(customEng)checkedEng.push(...customEng.split(',').map(s=>s.trim()).filter(Boolean));
-  DB.reports[i]={...DB.reports[i],
+  // Capture signatures: if user redrew/cleared, use new value; if untouched (still showing original), keep original
+  const sc=document.getElementById('erSigC'),se=document.getElementById('erSigE');
+  const existing=DB.reports[i];
+  const newCustSig=sc&&sc._drawn?sc.toDataURL():'';
+  const newEngSig=se&&se._drawn?se.toDataURL():'';
+  DB.reports[i]={...existing,
     company:document.getElementById('erCo').value,
     jobNo:document.getElementById('erJN').value.trim(),
     date:document.getElementById('erDt').value,
@@ -1664,9 +1741,17 @@ function saveEditReport(){
     timeEnd:document.getElementById('erTE').value,
     remarks:document.getElementById('erRm').value.trim(),
     recommendations:document.getElementById('erRc').value.trim(),
-    nextVisit:document.getElementById('erNV').value
+    nextVisit:document.getElementById('erNV').value,
+    sigName:document.getElementById('erSgNm')?.value.trim()||existing.sigName||'',
+    custSig:newCustSig,  // empty = cleared by user
+    engSig:newEngSig,
+    signed:!!newCustSig,
+    photos:_editPhotos.slice(),
+    _modifiedAt:Date.now()
   };
-  saveDB();closeModal();renderReports();renderDash();toast('Report updated.','success');
+  markTouched('reports');
+  saveDB();closeModal();renderReports();renderDash();flushPendingSync();toast('Report updated.','success');
+  _editPhotos=[];
 }
 
 function viewRptPreview(id){
@@ -3459,6 +3544,14 @@ function renderDataMgmt(){
     <h2 style="margin-bottom:8px">Data Import / Export</h2>
     <p style="color:var(--t2);margin-bottom:24px">Export your database to CSV files for backup or editing, and import CSV files to update records.</p>
     
+    <div class="oc"><h3>📲 Download App</h3>
+      <p>Save a copy of this app as an HTML file to your phone or computer. Open the saved file later to use OctoCRM offline (data still syncs to the cloud when online).</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+        <button class="btn btn-p btn-sm" onclick="downloadAppHTML()">📥 Download OctoCRM HTML</button>
+      </div>
+      <p style="font-size:12px;color:var(--t3);margin-top:10px">💡 <strong>On phone:</strong> after download, open the file from your Files / Downloads app. To get a home-screen icon, open in Chrome → menu → "Add to Home screen".</p>
+    </div>
+    
     <div class="oc"><h3>📤 Export to CSV</h3><p>Download each table as a CSV file. Open in Excel, Google Sheets, or any spreadsheet app.</p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
         <button class="btn btn-p btn-sm" onclick="exportCSV('customers')">Customers (${DB.custs.length})</button>
@@ -3522,6 +3615,24 @@ function downloadFile(content,filename,type){
   const blob=new Blob([content],{type:type||'text/csv;charset=utf-8'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();
   URL.revokeObjectURL(a.href);
+}
+
+// Save a copy of THIS HTML file to the user's device for offline use
+async function downloadAppHTML(){
+  toast('Preparing download…','info');
+  let html=null;
+  try{
+    const res=await fetch(window.location.href);
+    if(res.ok)html=await res.text();
+  }catch(e){/* fall through */}
+  if(!html)html='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
+  const blob=new Blob([html],{type:'text/html'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='octocrm.html';
+  document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);
+  toast('OctoCRM downloaded — check your Downloads folder','success');
 }
 
 function exportCSV(table){
