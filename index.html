@@ -376,48 +376,50 @@ function initFB(){
     if(typeof attachSharedCalListener==='function')attachSharedCalListener();
     fbDB.ref('octoCRM_v4').on('value',s=>{
       const d=s.val();
-      // First snapshot — clear initial-load flag even if cloud is empty,
-      // so syncToFirebase will start pushing local data up
+      // First snapshot ONLY — we do a one-time pull from cloud at startup, then stay decoupled.
+      // No auto-merging on subsequent fires; the user must click Save (which pushes) or
+      // the manual "Pull from Cloud" button to fetch updates from other devices.
       if(_fbInitialLoad){
         _fbInitialLoad=false;
         if(!d){
-          // No cloud data yet — push our local data up so future devices can sync down
+          // Empty cloud — push our local data up so other devices can sync down later
           setTimeout(()=>syncToFirebase(),100);
           return;
         }
-      }else if(!d){
-        // Subsequent fire with no data — ignore
+        // Coerce arrays — Firebase converts arrays to objects when sparse
+        ['reports','jobs','techs','custs','users','machines','agents','pos','warehouses','inventory','deletedCusts','deletedMachines'].forEach(k=>{
+          if(!d[k])d[k]=[];
+          else if(!Array.isArray(d[k]))d[k]=Object.values(d[k]);
+        });
+        // Merge cloud INTO local so any unsynced local rows survive
+        DB=mergeCloudIntoLocal(DB,d);
+        if(!DB.users.length)DB.users=DEF_USERS;
+        try{
+          DB.nR=Math.max(1,...DB.reports.map(r=>(r&&r.id)||0))+1;
+          DB.nJ=Math.max(1,...DB.jobs.map(j=>(j&&j.id)||0))+1;
+          DB.nT=Math.max(1,...DB.techs.map(t=>(t&&t.id)||0))+1;
+          DB.nC=Math.max(1,...DB.custs.map(c=>(c&&c.id)||0))+1;
+          DB.nU=Math.max(1,...DB.users.map(u=>(u&&u.id)||0))+1;
+          DB.nM=Math.max(200,...DB.machines.map(m=>(m&&m.id)||0))+1;
+          DB.nA=Math.max(1,...DB.agents.map(a=>(a&&a.id)||0))+1;
+          DB.nP=Math.max(1,...DB.pos.map(p=>(p&&p.id)||0))+1;
+          DB.nW=Math.max(1,...(DB.warehouses||[]).map(w=>(w&&w.id)||0))+1;
+          DB.nI=Math.max(1,...(DB.inventory||[]).map(i=>(i&&i.id)||0))+1;
+        }catch(e){DB.nR=DB.nR||1;DB.nJ=DB.nJ||1;DB.nT=DB.nT||1;DB.nC=DB.nC||1;DB.nU=DB.nU||4;DB.nM=DB.nM||200;DB.nA=DB.nA||1;DB.nP=DB.nP||1;}
+        try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+        try{refreshPage();}catch(e){}
         return;
       }
-      // Ignore echoes of our own writes (we just set this data)
-      if(_fbSyncBusy){return;}
-      // Coerce arrays — Firebase converts arrays to objects when sparse
-      ['reports','jobs','techs','custs','users','machines','agents','pos','warehouses','inventory','deletedCusts','deletedMachines'].forEach(k=>{
-        if(!d[k])d[k]=[];
-        else if(!Array.isArray(d[k]))d[k]=Object.values(d[k]);
-      });
-      // Merge cloud INTO local so any unsynced local rows survive
-      DB=mergeCloudIntoLocal(DB,d);
-      // Ensure default users exist
-      if(!DB.users.length)DB.users=DEF_USERS;
-      // Safe counter recalculation
-      try{
-        DB.nR=Math.max(1,...DB.reports.map(r=>(r&&r.id)||0))+1;
-        DB.nJ=Math.max(1,...DB.jobs.map(j=>(j&&j.id)||0))+1;
-        DB.nT=Math.max(1,...DB.techs.map(t=>(t&&t.id)||0))+1;
-        DB.nC=Math.max(1,...DB.custs.map(c=>(c&&c.id)||0))+1;
-        DB.nU=Math.max(1,...DB.users.map(u=>(u&&u.id)||0))+1;
-        DB.nM=Math.max(200,...DB.machines.map(m=>(m&&m.id)||0))+1;
-        DB.nA=Math.max(1,...DB.agents.map(a=>(a&&a.id)||0))+1;
-        DB.nP=Math.max(1,...DB.pos.map(p=>(p&&p.id)||0))+1;
-    DB.nW=Math.max(1,...(DB.warehouses||[]).map(w=>(w&&w.id)||0))+1;
-    DB.nI=Math.max(1,...(DB.inventory||[]).map(i=>(i&&i.id)||0))+1;
-      }catch(e){DB.nR=DB.nR||1;DB.nJ=DB.nJ||1;DB.nT=DB.nT||1;DB.nC=DB.nC||1;DB.nU=DB.nU||4;DB.nM=DB.nM||200;DB.nA=DB.nA||1;DB.nP=DB.nP||1;}
-      try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
-      // After a remote update arrives, push our merged state back if we had any local-only rows
-      // (covers the case where cloud was newer for some rows but we have unsynced rows for others)
-      setTimeout(()=>{if(!_fbSyncBusy)syncToFirebase();},150);
-      refreshPage();
+      // Subsequent remote changes: just note them (so the indicator can hint a Pull is available),
+      // but do NOT auto-merge, do NOT re-render. The user will pull manually or push by saving.
+      if(_fbSyncBusy)return;
+      if(!d)return;
+      const cloudFp=_dbFingerprint(d);
+      const localFp=_dbFingerprint(DB);
+      if(cloudFp!==localFp){
+        _remoteChangesAvailable=true;
+        try{updSync('remote');}catch(e){}
+      }
     });
   }catch(e){console.warn('FB err:',e)}
 }
@@ -647,11 +649,74 @@ function saveDB(){
 }
 
 // Force any pending Firebase push to fire immediately (used on visibilitychange / pagehide)
-// Always fires a sync, even if no debounce is pending — guarantees pending data reaches cloud
-// before phone backgrounds the tab.
+// Only fires if a debounced sync from a recent save() is pending — otherwise this is a no-op.
+// We don't auto-sync on every visibility change; sync happens only when the user saves.
 function flushPendingSync(){
-  if(window._fbSyncTimer){clearTimeout(window._fbSyncTimer);window._fbSyncTimer=null;}
-  syncToFirebase();
+  if(window._fbSyncTimer){clearTimeout(window._fbSyncTimer);window._fbSyncTimer=null;syncToFirebase();}
+}
+
+// Quick fingerprint of the data tables — used to detect "no actual change" snapshots
+function _dbFingerprint(d){
+  if(!d)return '';
+  const TABLES=['reports','jobs','techs','custs','users','machines','agents','pos','warehouses','inventory','deletedCusts','deletedMachines'];
+  const parts=[];
+  TABLES.forEach(t=>{
+    const arr=Array.isArray(d[t])?d[t]:(d[t]?Object.values(d[t]):[]);
+    parts.push(t+':'+arr.length);
+    arr.forEach(r=>{if(r&&r.id!=null)parts.push(r.id+'@'+(r._modifiedAt||0));});
+  });
+  if(d._tombstones){
+    Object.keys(d._tombstones).forEach(t=>{
+      const ids=d._tombstones[t]||{};
+      Object.keys(ids).forEach(id=>parts.push('tomb:'+t+':'+id+'@'+ids[id]));
+    });
+  }
+  return parts.join('|');
+}
+
+// Tracks whether another device has pushed changes that we haven't pulled.
+let _remoteChangesAvailable=false;
+
+// Manual "Pull from Cloud" — user clicks this to fetch the latest data from Firebase.
+// We do NOT auto-pull on listener fires (that caused UI thrashing); instead the sync indicator
+// shows a "Pull" pill when remote changes are available, and the user clicks when ready.
+function pullFromCloud(){
+  if(!USE_FB||!fbDB){toast('Cloud not connected.','error');return;}
+  if(_fbSyncBusy){toast('Sync in progress, please wait...','info');return;}
+  updSync('syncing');
+  fbDB.ref('octoCRM_v4').once('value').then(s=>{
+    const d=s.val();
+    if(!d){toast('Cloud is empty.','info');updSync('ok');return;}
+    ['reports','jobs','techs','custs','users','machines','agents','pos','warehouses','inventory','deletedCusts','deletedMachines'].forEach(k=>{
+      if(!d[k])d[k]=[];
+      else if(!Array.isArray(d[k]))d[k]=Object.values(d[k]);
+    });
+    const before=_dbFingerprint(DB);
+    DB=mergeCloudIntoLocal(DB,d);
+    if(!DB.users.length)DB.users=DEF_USERS;
+    try{
+      DB.nR=Math.max(1,...DB.reports.map(r=>(r&&r.id)||0))+1;
+      DB.nJ=Math.max(1,...DB.jobs.map(j=>(j&&j.id)||0))+1;
+      DB.nT=Math.max(1,...DB.techs.map(t=>(t&&t.id)||0))+1;
+      DB.nC=Math.max(1,...DB.custs.map(c=>(c&&c.id)||0))+1;
+      DB.nU=Math.max(1,...DB.users.map(u=>(u&&u.id)||0))+1;
+      DB.nM=Math.max(200,...DB.machines.map(m=>(m&&m.id)||0))+1;
+      DB.nA=Math.max(1,...DB.agents.map(a=>(a&&a.id)||0))+1;
+      DB.nP=Math.max(1,...DB.pos.map(p=>(p&&p.id)||0))+1;
+      DB.nW=Math.max(1,...(DB.warehouses||[]).map(w=>(w&&w.id)||0))+1;
+      DB.nI=Math.max(1,...(DB.inventory||[]).map(i=>(i&&i.id)||0))+1;
+    }catch(e){}
+    try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+    _remoteChangesAvailable=false;
+    const after=_dbFingerprint(DB);
+    if(before===after){toast('Already up to date.','info');}
+    else{toast('Pulled latest from cloud ✓','success');try{refreshPage();}catch(e){}}
+    updSync('ok');
+  }).catch(err=>{
+    console.warn('pullFromCloud failed:',err);
+    toast('Pull failed: '+(err.message||err),'error');
+    updSync('error');
+  });
 }
 
 // Mark a table as touched so saveDB stamps a fresh _modifiedAt on its rows
@@ -954,8 +1019,22 @@ function updSync(state){
   if(!el)return;
   if(state==='syncing')el.innerHTML='<span style="color:var(--wn);font-size:var(--fs-xs)">⏳ Syncing...</span>';
   else if(state==='error')el.innerHTML='<span style="color:var(--er);font-size:var(--fs-xs)">⚠ Sync failed — retrying</span>';
-  else if(state==='ok'){el.innerHTML='<span style="color:var(--ok);font-size:var(--fs-xs)">✓ Synced</span>';setTimeout(()=>{if(el.textContent.includes('Synced'))el.innerHTML='';},3000);}
-  else el.innerHTML=USE_FB?'<span style="color:var(--ok);font-size:var(--fs-xs)">☁ Cloud sync active</span>':'<span style="font-size:var(--fs-xs);color:var(--t3)">📱 Local only</span>';
+  else if(state==='ok'){
+    if(_remoteChangesAvailable){
+      el.innerHTML='<button class="btn btn-sm btn-p" style="font-size:11px;padding:3px 10px;min-height:26px" onclick="pullFromCloud()">⬇ Pull from Cloud</button>';
+    }else{
+      el.innerHTML='<span style="color:var(--ok);font-size:var(--fs-xs)">✓ Synced</span>';
+      setTimeout(()=>{const e2=document.getElementById('syncIndicator');if(e2&&e2.textContent.includes('Synced')&&!_remoteChangesAvailable)e2.innerHTML=_defaultSyncLabel();},3000);
+    }
+  }
+  else if(state==='remote'){
+    el.innerHTML='<button class="btn btn-sm btn-p" style="font-size:11px;padding:3px 10px;min-height:26px" onclick="pullFromCloud()">⬇ Pull from Cloud</button>';
+  }
+  else el.innerHTML=_defaultSyncLabel();
+}
+function _defaultSyncLabel(){
+  if(_remoteChangesAvailable)return '<button class="btn btn-sm btn-p" style="font-size:11px;padding:3px 10px;min-height:26px" onclick="pullFromCloud()">⬇ Pull from Cloud</button>';
+  return USE_FB?'<span style="color:var(--ok);font-size:var(--fs-xs)">☁ Cloud sync active</span>':'<span style="font-size:var(--fs-xs);color:var(--t3)">📱 Local only</span>';
 }
 
 // ===== AUTH =====
@@ -1071,7 +1150,7 @@ function E(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 function stBd(s){const m={'Completed':'bd-ok','Pending Follow-Up':'bd-wn','In Progress':'bd-ac','Requires Parts':'bd-er'};return`<span class="bd ${m[s]||'bd-ac'}"><span class="dot"></span> ${E(s)}</span>`}
 function jsBd(s){const m={'Open':'bd-pu','Assigned':'bd-ac','In Progress':'bd-wn','Completed':'bd-ok'};return`<span class="bd ${m[s]||'bd-ac'}"><span class="dot"></span> ${E(s)}</span>`}
 function prBd(p){const m={'Low':'bd-tl','Medium':'bd-ac','High':'bd-wn','Urgent':'bd-er'};return`<span class="bd ${m[p]||'bd-ac'}">${E(p)}</span>`}
-function tyBd(t){const m={'Preventive Maintenance':'bd-ok','Corrective Maintenance':'bd-wn','Breakdown Call':'bd-er','Installation':'bd-ac','Inspection':'bd-pu','Emergency':'bd-er'};return`<span class="bd ${m[t]||'bd-ac'}">${E(t)}</span>`}
+function tyBd(t){const m={'Preventive Maintenance':'bd-ok','Corrective Maintenance':'bd-wn','Breakdown Call':'bd-er','Follow-up Call':'bd-pu','Installation':'bd-ac','Inspection':'bd-pu','Emergency':'bd-er'};return`<span class="bd ${m[t]||'bd-ac'}">${E(t)}</span>`}
 function toast(msg,type='info'){const c=document.getElementById('toastC'),t=document.createElement('div');t.className=`ts ${type}`;const i={success:'✓',error:'✕',info:'ℹ'};t.innerHTML=`<span style="font-weight:700;font-size:18px">${i[type]||'ℹ'}</span><span>${msg}</span>`;c.appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300)},3e3)}
 function openModal(title,bodyHTML,footerHTML){const mc=document.getElementById('globalModalContent');mc.innerHTML=`<div class="mh"><h2>${title}</h2><button class="btn-i" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="mb">${bodyHTML}</div>${footerHTML?`<div class="mf">${footerHTML}</div>`:''}`;document.getElementById('globalModal').classList.add('open')}
 function closeModal(keepContent){document.getElementById('globalModal').classList.remove('open');if(!keepContent)setTimeout(()=>{if(!document.getElementById('globalModal').classList.contains('open'))document.getElementById('globalModalContent').innerHTML='';},350);}
@@ -1095,7 +1174,7 @@ function getAllCusts(){
 function statusSelect(id,current,type){
   const opts=type==='job'?['Open','Assigned','In Progress','Completed']:['Completed','Pending Follow-Up','In Progress','Requires Parts'];
   const fn=type==='job'?'updateJobSt':'updateRptSt';
-  return`<select class="fc" style="width:auto;padding:8px 32px 8px 10px;font-size:var(--fs-sm);min-height:38px;min-width:150px" onchange="${fn}(${id},this.value)">${opts.map(o=>`<option${o===current?' selected':''}>${o}</option>`).join('')}</select>`;
+  return`<select class="fc" style="width:auto;padding:8px 32px 8px 10px;font-size:var(--fs-sm);min-height:38px;min-width:150px" onchange="${fn}(${id},this.value,this)">${opts.map(o=>`<option${o===current?' selected':''}>${o}</option>`).join('')}</select>`;
 }
 
 // ===== DASHBOARD =====
@@ -1252,27 +1331,57 @@ function navigateTo(address){
   }
 }
 
-function updateJobSt(id,st){
+function updateJobSt(id,st,selectEl){
   const j=DB.jobs.find(x=>x.id===id);
-  if(j){
-    j.status=st;
-    j._modifiedAt=Date.now();
-    markTouched('jobs');
-    saveDB();
-    flushPendingSync();
-    toast(`Job → ${st}`,'success');
+  if(!j)return;
+  const prev=j.status;
+  if(prev===st)return;
+  if(!confirm(`Change job status from "${prev}" to "${st}"?\n\nThis will save and sync to the cloud immediately.`)){
+    // Revert the dropdown
+    if(selectEl)selectEl.value=prev;
+    return;
   }
+  j.status=st;
+  j._modifiedAt=Date.now();
+  markTouched('jobs');
+  saveDB();
+  flushPendingSync();
+  toast(`Job → ${st}`,'success');
 }
-function updateRptSt(id,st){
+function updateRptSt(id,st,selectEl){
   const r=DB.reports.find(x=>x.id===id);
-  if(r){
-    r.status=st;
-    r._modifiedAt=Date.now();
-    markTouched('reports');
-    saveDB();
-    flushPendingSync();
-    toast(`${r.jobNo} → ${st}`,'success');
+  if(!r)return;
+  const prev=r.status;
+  if(prev===st)return;
+  if(!confirm(`Change report ${r.jobNo} status from "${prev}" to "${st}"?\n\nThis will save and sync to the cloud immediately.`)){
+    if(selectEl)selectEl.value=prev;
+    return;
   }
+  r.status=st;
+  r._modifiedAt=Date.now();
+  markTouched('reports');
+  saveDB();
+  flushPendingSync();
+  toast(`${r.jobNo} → ${st}`,'success');
+}
+function updatePOSt(id,st,selectEl){
+  const p=(DB.pos||[]).find(x=>x.id===id);
+  if(!p)return;
+  const prev=p.status;
+  if(prev===st)return;
+  if(!confirm(`Change PO ${p.poNo||''} status from "${prev}" to "${st}"?\n\nThis will save and sync to the cloud immediately.`)){
+    if(selectEl)selectEl.value=prev;
+    return;
+  }
+  p.status=st;
+  p._modifiedAt=Date.now();
+  markTouched('pos');
+  saveDB();
+  flushPendingSync();
+  toast(`PO ${p.poNo||''} → ${st}`,'success');
+  // Re-render to update tile counts and chips
+  if(typeof renderPOs==='function')try{renderPOs();}catch(e){}
+  if(typeof renderDash==='function')try{renderDash();}catch(e){}
 }
 
 function openNewJobModal(){
@@ -1293,7 +1402,7 @@ function openNewJobModal(){
     <div class="fg"><label>Technician(s) — select one or more</label>
       <div id="jTeChecks" data-draft-group="jTeChk" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${DB.techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="jTeChk" value="${t.id}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
     </div>
-    <div class="fg"><label>Type</label><select class="fc" id="jTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Installation</option><option>Emergency</option></select></div>
+    <div class="fg"><label>Type</label><select class="fc" id="jTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Follow-up Call</option><option>Installation</option><option>Emergency</option></select></div>
     <div class="fr"><div class="fg"><label>Date</label><input class="fc" type="date" id="jDt"></div><div class="fg"><label>Time</label><input class="fc" type="time" id="jTm"></div></div>
     <div class="fg"><label>Instructions</label><textarea class="fc" id="jDs"></textarea></div>
     <p style="font-size:11px;color:var(--t3);text-align:center;margin-top:8px">💾 Auto-saved as you type</p>
@@ -1709,7 +1818,7 @@ let _editPhotos=[]; // photos array for the Edit Report modal (separate from crP
 function editReport(id){
   const r=DB.reports.find(x=>x.id===id);if(!r)return;
   const cs=getAllCusts();const techs=DB.techs||[];
-  const types=['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Installation','Inspection','Emergency'];
+  const types=['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Follow-up Call','Installation','Inspection','Emergency'];
   const statuses=['Completed','Pending Follow-Up','In Progress','Requires Parts'];
   const existingEngineers=(r.engineers||[r.engineer]).filter(Boolean);
   // Initialize photo array from the saved report
@@ -1910,7 +2019,7 @@ function renderCreateReport(){
           <div id="crEnChecks" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="crEnChk" value="${E(t.name)}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
           <input class="fc" id="crEnCustom" placeholder="Additional engineer name (if not in list)" style="margin-top:6px">
         </div>
-        <div class="fg"><label>Type of Call</label><select class="fc" id="crTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Installation</option><option>Inspection</option><option>Emergency</option></select></div>
+        <div class="fg"><label>Type of Call</label><select class="fc" id="crTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Follow-up Call</option><option>Installation</option><option>Inspection</option><option>Emergency</option></select></div>
       <div class="fg"><label>PO No.</label><input class="fc" id="crPO" placeholder="Optional"></div>
       <div class="fr"><div class="fg"><label>Time Start</label><input class="fc" type="time" id="crTS"></div><div class="fg"><label>Time End</label><input class="fc" type="time" id="crTE"></div></div>
       <div class="fg"><label>Issues / Remarks</label><textarea class="fc" id="crRm" placeholder="Describe work performed..."></textarea></div>
@@ -3558,7 +3667,7 @@ Extract ALL information and return ONLY a valid JSON object with these exact key
   "model": "Equipment make/model",
   "serial": "Serial number",
   "engineer": "Serviced by name",
-  "type": "One of: Preventive Maintenance, Corrective Maintenance, Breakdown Call, Installation, Inspection, Emergency",
+  "type": "One of: Preventive Maintenance, Corrective Maintenance, Breakdown Call, Follow-up Call, Installation, Inspection, Emergency",
   "timeStart": "In HH:MM 24hr format",
   "timeEnd": "In HH:MM 24hr format",
   "remarks": "All issues and remarks text, include all details from all pages",
@@ -3635,7 +3744,7 @@ function showScanForm(data){
     {k:'model',l:'Equipment Model',v:d.model||''},
     {k:'serial',l:'Serial Number',v:d.serial||''},
     {k:'engineer',l:'Serviced By',v:d.engineer||''},
-    {k:'type',l:'Type of Call',t:'select',opts:['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Installation','Inspection','Emergency'],v:d.type||'Preventive Maintenance'},
+    {k:'type',l:'Type of Call',t:'select',opts:['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Follow-up Call','Installation','Inspection','Emergency'],v:d.type||'Preventive Maintenance'},
     {k:'timeStart',l:'Time Start',t:'time',v:d.timeStart||''},
     {k:'timeEnd',l:'Time End',t:'time',v:d.timeEnd||''},
     {k:'remarks',l:'Issues / Remarks',t:'textarea',v:d.remarks||''},
@@ -3849,6 +3958,7 @@ function renderPOs(){
     ${pos.length?pos.map(p=>{
       const items=p.items||[];
       const total=items.reduce((s,i)=>s+(parseFloat(i.amount)||0),0);
+      const poOpts=['Outstanding','Completed','Cancelled'];
       return`<div class="rpt-card">
         <div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(p.poNo)}</span>
           <div style="display:flex;gap:6px"><span class="bd ${p.status==='Outstanding'?'bd-er':p.status==='Completed'?'bd-ok':'bd-wn'}">${E(p.status)}</span></div>
@@ -3858,6 +3968,7 @@ function renderPOs(){
         <div class="rpt-card-row"><span class="rc-label">Items</span><span class="rc-val">${items.length} item${items.length!==1?'s':''}</span></div>
         ${total?`<div class="rpt-card-row"><span class="rc-label">Total</span><span class="rc-val" style="font-weight:700">$${total.toFixed(2)}</span></div>`:''}
         ${p.description?`<div class="rpt-card-row"><span class="rc-label">Description</span><span class="rc-val" style="max-width:65%;font-size:var(--fs-sm)">${E(p.description.substring(0,80))}${p.description.length>80?'...':''}</span></div>`:''}
+        ${canEdit()?`<div style="margin:10px 0"><label style="font-size:var(--fs-xs);color:var(--t3);font-weight:600;display:block;margin-bottom:4px">CHANGE STATUS</label><select class="fc" style="padding:6px 10px;font-size:var(--fs-sm);min-height:34px;width:auto" onchange="updatePOSt(${p.id},this.value,this)">${poOpts.map(o=>`<option${o===p.status?' selected':''}>${o}</option>`).join('')}</select></div>`:''}
         <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">
           <button class="btn btn-sm btn-s" onclick="viewPODetail(${p.id})">View</button>
           ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editPO(${p.id})">Edit</button>`:''}
