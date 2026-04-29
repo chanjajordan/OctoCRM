@@ -364,7 +364,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
 <script>
 // ===== FIREBASE =====
 const FB_CFG={apiKey:"AIzaSyCSQAS7mFBlTfmz0FVWaSLgI-Puk1Y3sN4",authDomain:"octocrm1.firebaseapp.com",databaseURL:"https://octocrm1-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"octocrm1",storageBucket:"octocrm1.firebasestorage.app",messagingSenderId:"212247591529",appId:"1:212247591529:web:4a076e40a71b59646b00f8"};
-const USE_FB=true;let fbDB=null,fbOK=false;
+const USE_FB=true;let fbDB=null,fbOK=false,_fbSyncBusy=false,_fbInitialLoad=true;
 
 function initFB(){
   if(!USE_FB)return;
@@ -376,7 +376,21 @@ function initFB(){
     if(typeof attachSharedCalListener==='function')attachSharedCalListener();
     fbDB.ref('octoCRM_v4').on('value',s=>{
       const d=s.val();
-      if(!d)return;
+      // First snapshot — clear initial-load flag even if cloud is empty,
+      // so syncToFirebase will start pushing local data up
+      if(_fbInitialLoad){
+        _fbInitialLoad=false;
+        if(!d){
+          // No cloud data yet — push our local data up so future devices can sync down
+          setTimeout(()=>syncToFirebase(),100);
+          return;
+        }
+      }else if(!d){
+        // Subsequent fire with no data — ignore
+        return;
+      }
+      // Ignore echoes of our own writes (we just set this data)
+      if(_fbSyncBusy){return;}
       // Coerce arrays — Firebase converts arrays to objects when sparse
       ['reports','jobs','techs','custs','users','machines','agents','pos','warehouses','inventory','deletedCusts','deletedMachines'].forEach(k=>{
         if(!d[k])d[k]=[];
@@ -400,6 +414,9 @@ function initFB(){
     DB.nI=Math.max(1,...(DB.inventory||[]).map(i=>(i&&i.id)||0))+1;
       }catch(e){DB.nR=DB.nR||1;DB.nJ=DB.nJ||1;DB.nT=DB.nT||1;DB.nC=DB.nC||1;DB.nU=DB.nU||4;DB.nM=DB.nM||200;DB.nA=DB.nA||1;DB.nP=DB.nP||1;}
       try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+      // After a remote update arrives, push our merged state back if we had any local-only rows
+      // (covers the case where cloud was newer for some rows but we have unsynced rows for others)
+      setTimeout(()=>{if(!_fbSyncBusy)syncToFirebase();},150);
       refreshPage();
     });
   }catch(e){console.warn('FB err:',e)}
@@ -630,8 +647,11 @@ function saveDB(){
 }
 
 // Force any pending Firebase push to fire immediately (used on visibilitychange / pagehide)
+// Always fires a sync, even if no debounce is pending — guarantees pending data reaches cloud
+// before phone backgrounds the tab.
 function flushPendingSync(){
-  if(window._fbSyncTimer){clearTimeout(window._fbSyncTimer);window._fbSyncTimer=null;syncToFirebase();}
+  if(window._fbSyncTimer){clearTimeout(window._fbSyncTimer);window._fbSyncTimer=null;}
+  syncToFirebase();
 }
 
 // Mark a table as touched so saveDB stamps a fresh _modifiedAt on its rows
@@ -905,16 +925,19 @@ window.addEventListener('storage',e=>{
   }
 });
 
-let _fbSyncInProgress=false;
 function syncToFirebase(){
-  if(!USE_FB||!fbDB||_fbSyncInProgress)return;
-  _fbSyncInProgress=true;
+  if(!USE_FB||!fbDB||_fbSyncBusy)return;
+  // Don't push to cloud until we've received the initial cloud snapshot,
+  // otherwise we could overwrite cloud data with our local-only state.
+  if(_fbInitialLoad)return;
+  _fbSyncBusy=true;
   updSync('syncing');
   fbDB.ref('octoCRM_v4').set(DB).then(()=>{
-    _fbSyncInProgress=false;
+    _fbSyncBusy=false;
+    window._fbRetryCount=0;
     updSync('ok');
   }).catch(err=>{
-    _fbSyncInProgress=false;
+    _fbSyncBusy=false;
     updSync('error');
     console.warn('Firebase sync failed:',err);
     // Queue for retry
@@ -1229,8 +1252,28 @@ function navigateTo(address){
   }
 }
 
-function updateJobSt(id,st){const j=DB.jobs.find(x=>x.id===id);if(j){j.status=st;saveDB();toast(`Job → ${st}`,'success');}}
-function updateRptSt(id,st){const r=DB.reports.find(x=>x.id===id);if(r){r.status=st;saveDB();toast(`${r.jobNo} → ${st}`,'success');}}
+function updateJobSt(id,st){
+  const j=DB.jobs.find(x=>x.id===id);
+  if(j){
+    j.status=st;
+    j._modifiedAt=Date.now();
+    markTouched('jobs');
+    saveDB();
+    flushPendingSync();
+    toast(`Job → ${st}`,'success');
+  }
+}
+function updateRptSt(id,st){
+  const r=DB.reports.find(x=>x.id===id);
+  if(r){
+    r.status=st;
+    r._modifiedAt=Date.now();
+    markTouched('reports');
+    saveDB();
+    flushPendingSync();
+    toast(`${r.jobNo} → ${st}`,'success');
+  }
+}
 
 function openNewJobModal(){
   const cs=getAllCusts();
@@ -1435,7 +1478,7 @@ function sendJWA(jid){
     window.open(`https://wa.me/${tc.phone.replace(/[^0-9]/g,'')}?text=${encodeURIComponent(m)}`,'_blank');
     toast(`WhatsApp → ${tc.name}`,'success');
   });
-  j.waSent=true;saveDB();renderJobs();
+  j.waSent=true;j._modifiedAt=Date.now();markTouched('jobs');saveDB();flushPendingSync();renderJobs();
 }
 
 function delJob(id){if(DB.jobs.length<=1){toast('Cannot delete the last job.','error');return;}if(!confirm('Delete?'))return;tombstoneDelete('jobs',id);DB.jobs=DB.jobs.filter(j=>j.id!==id);saveDB();renderJobs();renderDash();flushPendingSync();toast('Deleted.','info');}
@@ -3869,7 +3912,7 @@ function savePO(){
     const amount=row.querySelector('.piAmt')?.value||'';
     if(desc||qty||amount)items.push({desc,qty,unit,amount:parseFloat(amount)||0});
   });
-  const d={poNo:document.getElementById('pPoNo').value.trim(),date:document.getElementById('pDt').value,customer:document.getElementById('pCu').value,description:document.getElementById('pDs').value.trim(),items:items,status:document.getElementById('pSt').value};
+  const d={poNo:document.getElementById('pPoNo').value.trim(),date:document.getElementById('pDt').value,customer:document.getElementById('pCu').value,description:document.getElementById('pDs').value.trim(),items:items,status:document.getElementById('pSt').value,_modifiedAt:Date.now()};
   if(!d.poNo){toast('PO number required.','error');if(saveBtn)saveBtn.dataset.saving='';saveBtn.textContent='Save';return;}
   if(!Array.isArray(DB.pos))DB.pos=[];
   if(!DB.nP||isNaN(DB.nP))DB.nP=Math.max(0,...DB.pos.map(p=>p.id||0))+1;
@@ -3892,15 +3935,17 @@ function savePO(){
       poNo:d.poNo,
       poId:d.id,
       createdAt:new Date().toISOString(),
-      waSent:false
+      waSent:false,
+      _modifiedAt:Date.now()
     };
     DB.jobs.push(newJob);
+    markTouched('jobs');
     toast('Job auto-created from PO.','info');
   }
-  saveDB();closeModal();renderPOs();toast('PO saved.','success');
+  markTouched('pos');saveDB();flushPendingSync();closeModal();renderPOs();toast('PO saved.','success');
 }
 function editPO(id){const p=(DB.pos||[]).find(x=>x.id===id);if(p)openPOModal(p);}
-function delPO(id){if(DB.pos.length<=1){toast('Cannot delete the last PO.','error');return;}if(!confirm('Delete this PO?'))return;DB.pos=DB.pos.filter(p=>p.id!==id);saveDB();renderPOs();toast('Deleted.','info');}
+function delPO(id){if(DB.pos.length<=1){toast('Cannot delete the last PO.','error');return;}if(!confirm('Delete this PO?'))return;tombstoneDelete('pos',id);DB.pos=DB.pos.filter(p=>p.id!==id);saveDB();flushPendingSync();renderPOs();toast('Deleted.','info');}
 
 function viewPODetail(id){
   const p=(DB.pos||[]).find(x=>x.id===id);if(!p)return;
