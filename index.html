@@ -267,7 +267,6 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
 </style>
 </head>
 <body>
-<script>window.APP_TAG="octopack";try{firebase&&firebase.auth&&firebase.auth().onAuthStateChanged(u=>{if(!u)firebase.auth().signInAnonymously();});}catch(e){}</script>
 
 <!-- ===== LOGIN ===== -->
 <div class="login-screen" id="loginScreen">
@@ -5196,53 +5195,5 @@ async function emailReportPDF(id){
   toast('PDF downloaded. Attach it to the email.','info');
 }
 </script>
-
-<!-- === OctoCRM Shared Calendar Listener Patch (v1.0) === -->
-<script>
-(function(){
-  if (!window.firebase || !firebase.database) return;
-  const db = firebase.database();
-  const ref = db.ref('sharedFieldServiceCal_v1/events');
-
-  ref.on('value', function(snapshot){
-    const data = snapshot.val() || {};
-    const jobs = Object.values(data)
-      .filter(e => !e.deleted && e.sourceApp === 'octopack')
-      .map(e => ({
-        id: e.sourceId || e.id,
-        title: e.title,
-        startTs: e.startTs,
-        endTs: e.endTs,
-        technicianId: e.technicianId || '',
-        status: e.status || 'scheduled'
-      }));
-
-    // Firebase becomes source of truth
-    window.__firebaseJobsActive = true;
-    window.octoCRMJobs = jobs;
-    try { localStorage.setItem('jobs', JSON.stringify(jobs)); } catch(e) {}
-
-    if (typeof refreshCalendar === 'function') refreshCalendar();
-    if (typeof renderJobs === 'function') renderJobs();
-  });
-})();
-</script>
-<!-- === End OctoCRM Shared Calendar Listener Patch === -->
-
-
-<!-- === OctoCRM Firebase Source-of-Truth Patch (v1.0) === -->
-<script>
-(function(){
-  const orig = localStorage.getItem.bind(localStorage);
-  localStorage.getItem = function(k){
-    if (k === 'jobs' && window.__firebaseJobsActive) {
-      return JSON.stringify(window.octoCRMJobs || []);
-    }
-    return orig(k);
-  };
-})();
-</script>
-<!-- === End Firebase Source-of-Truth Patch === -->
-
 </body>
 </html>
