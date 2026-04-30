@@ -5195,5 +5195,61 @@ async function emailReportPDF(id){
   toast('PDF downloaded. Attach it to the email.','info');
 }
 </script>
+
+<!-- === Shared Calendar Patch v1.1 (auto-injected) === -->
+<script>
+// Canonical Shared Calendar helper (v1.1)
+// Backward-compatible wrapper for existing code
+(function(){
+  if (window.SharedCal) return;
+  const ROOT = 'sharedFieldServiceCal_v1';
+  const EVENTS = ROOT + '/events';
+  const INDEX = ROOT + '/appIndex';
+  const APP = window.APP_TAG || (location.href.includes('amway') ? 'amway' : 'octopack');
+
+  function checksum(evt){
+    const s = [evt.title, evt.startTs, evt.endTs, evt.technicianId, evt.status].join('|');
+    let h = 0; for (let i=0;i<s.length;i++){ h = ((h<<5)-h)+s.charCodeAt(i); h|=0; }
+    return 'cs_' + Math.abs(h);
+  }
+
+  window.SharedCal = {
+    normalize(raw){
+      const now = Date.now();
+      const evt = {
+        id: raw.id || ('evt_' + Math.random().toString(36).slice(2)),
+        sourceApp: raw.sourceApp || APP,
+        sourceId: raw.sourceId || raw.jobId || raw.workOrderId || raw.id,
+        title: raw.title || raw.subject || 'Service Job',
+        description: raw.description || raw.notes || '',
+        startTs: raw.startTs || raw.start || raw.startTime,
+        endTs: raw.endTs || raw.end || raw.endTime,
+        timezone: raw.timezone || 'Asia/Singapore',
+        technicianId: raw.technicianId || raw.tech || '',
+        location: raw.location || '',
+        status: raw.status || 'scheduled',
+        visibility: 'shared',
+        createdAt: raw.createdAt || now,
+        updatedAt: now,
+        deleted: !!raw.deleted
+      };
+      evt.checksum = checksum(evt);
+      return evt;
+    },
+    async upsert(db, raw){
+      const evt = this.normalize(raw);
+      const ref = db.ref(`${EVENTS}/${evt.id}`);
+      await ref.update(evt);
+      await db.ref(`${INDEX}/${evt.sourceApp}/${evt.id}`).set(true);
+      return evt;
+    },
+    async softDelete(db, evt){
+      await db.ref(`${EVENTS}/${evt.id}`).update({deleted:true, updatedAt: Date.now()});
+    }
+  };
+})();
+</script>
+<!-- === End Shared Calendar Patch === -->
+
 </body>
 </html>
