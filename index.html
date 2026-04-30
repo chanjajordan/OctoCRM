@@ -5195,5 +5195,37 @@ async function emailReportPDF(id){
   toast('PDF downloaded. Attach it to the email.','info');
 }
 </script>
+
+<!-- === OctoCRM Firebase Source-of-Truth Job Engine (v5 FINAL) === -->
+<script>
+(function initFirebaseJobEngine(){
+  if(!window.firebase||!firebase.database) return;
+  const db=firebase.database();
+  const ref=db.ref('sharedFieldServiceCal_v1/events');
+  window.jobs=[];
+  ref.on('value',snap=>{
+    const raw=snap.val()||{};
+    const jobs=Object.values(raw)
+      .filter(e=>e.sourceApp==='octopack'&&!e.deleted)
+      .map(e=>({
+        id:e.sourceId||e.id,
+        title:e.title,
+        startTs:e.startTs,
+        endTs:e.endTs,
+        technicianId:e.technicianId||'',
+        status:e.status||'scheduled',
+        description:e.description||''
+      }));
+    window.jobs=jobs;
+    try{localStorage.setItem('jobs_cache',JSON.stringify(jobs));}catch(e){}
+    if(typeof renderJobs==='function') renderJobs();
+    if(typeof refreshCalendar==='function') refreshCalendar();
+  });
+})();
+</script>
+<!-- === End v5 Engine === -->
+
+<script src="octocrm_realtime_patch.js"></script>
+`
 </body>
 </html>
