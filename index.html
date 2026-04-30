@@ -268,27 +268,6 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
 </head>
 <body>
 
-<!-- === OctoCRM Firebase Normalization Patch (v1.0) === -->
-<script>
-// Canonical app tag used by Firebase security rules
-window.APP_TAG = "octopack";
-
-// Guarantee Firebase Auth presence (anonymous fallback)
-(function(){
-  try {
-    if (window.firebase && firebase.auth) {
-      firebase.auth().onAuthStateChanged(function(user){
-        if (!user) firebase.auth().signInAnonymously().catch(console.error);
-      });
-    }
-  } catch(err) {
-    console.warn('OctoCRM auth normalisation skipped', err);
-  }
-})();
-</script>
-<!-- === End OctoCRM Firebase Normalization Patch === -->
-
-
 <!-- ===== LOGIN ===== -->
 <div class="login-screen" id="loginScreen">
   <div class="login-box">
@@ -5216,5 +5195,34 @@ async function emailReportPDF(id){
   toast('PDF downloaded. Attach it to the email.','info');
 }
 </script>
+
+<!-- === OctoCRM Shared Calendar Listener Patch (v1.0) === -->
+<script>
+(function(){
+  if (!window.firebase || !firebase.database) return;
+  const db = firebase.database();
+  const ref = db.ref('sharedFieldServiceCal_v1/events');
+
+  ref.on('value', function(snapshot){
+    const data = snapshot.val() || {};
+    const jobs = Object.values(data)
+      .filter(e => !e.deleted && e.sourceApp === 'octopack')
+      .map(e => ({
+        id: e.sourceId || e.id,
+        title: e.title,
+        startTs: e.startTs,
+        endTs: e.endTs,
+        technicianId: e.technicianId || '',
+        status: e.status || 'scheduled'
+      }));
+
+    window.octoCRMJobs = jobs;
+    if (typeof refreshCalendar === 'function') refreshCalendar();
+    if (typeof renderJobs === 'function') renderJobs();
+  });
+})();
+</script>
+<!-- === End OctoCRM Shared Calendar Listener Patch === -->
+
 </body>
 </html>
