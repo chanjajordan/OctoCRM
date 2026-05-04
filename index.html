@@ -1558,6 +1558,23 @@ function saveJob(){
   const machines=getJobMachines();
   const d={title:document.getElementById('jTi').value.trim(),customer:customer,machines:machines,machine:machines[0]?.serial||'',model:machines[0]?.model||'',poNo:document.getElementById('jPO').value.trim(),techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open',_modifiedAt:Date.now()};
   if(!d.title){toast('Enter title.','error');return;}
+  // Auto-create customer record if typed a new name
+  if(customer&&!DB.custs.find(c=>c.name===customer)){
+    DB.custs.push({id:DB.nC++,name:customer,address:'',contact:'',phone:'',email:'',agent:'',_modifiedAt:Date.now()});
+    markTouched('custs');
+  }
+  // Auto-create machine records for any new model/serial combos
+  if(customer&&machines.length){
+    if(!Array.isArray(DB.machines))DB.machines=[];
+    machines.forEach(m=>{
+      if(!m.model&&!m.serial)return;
+      const exists=DB.machines.find(x=>x.customer===customer&&x.model===m.model&&x.serial===m.serial);
+      if(!exists){
+        DB.machines.push({id:DB.nM++,serial:m.serial||'',model:m.model||'',customer:customer,category:'',location:'',installDate:'',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',pmFreq:'',pmLastDate:'',pmNextDate:'',_modifiedAt:Date.now()});
+        markTouched('machines');
+      }
+    });
+  }
   if(eid&&eid!==''){const i=DB.jobs.findIndex(j=>j.id===parseInt(eid));if(i>=0)DB.jobs[i]={...DB.jobs[i],...d};}
   else{d.id=DB.nJ++;d.createdAt=new Date().toISOString();d.waSent=false;DB.jobs.push(d);}
   markTouched('jobs');saveDB();clearFormDraft(eid?'job_edit_'+eid:'job_new');endFormDraft();closeModal();renderJobs();renderDash();flushPendingSync();toast('Job saved.','success');
@@ -5195,40 +5212,5 @@ async function emailReportPDF(id){
   toast('PDF downloaded. Attach it to the email.','info');
 }
 </script>
-
-<!-- === OctoCRM Firebase Source-of-Truth Job Engine (v5 FINAL) === -->
-<script>
-(function initFirebaseJobEngine(){
-  if(!window.firebase||!firebase.database) return;
-  const db=firebase.database();
-  const ref=db.ref('sharedFieldServiceCal_v1/events');
-  window.jobs=[];
-  ref.on('value',snap=>{
-    const raw=snap.val()||{};
-    const jobs=Object.values(raw)
-      .filter(e=>e.sourceApp==='octopack'&&!e.deleted)
-      .map(e=>({
-        id:e.sourceId||e.id,
-        title:e.title,
-        startTs:e.startTs,
-        endTs:e.endTs,
-        technicianId:e.technicianId||'',
-        status:e.status||'scheduled',
-        description:e.description||''
-      }));
-    window.jobs=jobs;
-    try{localStorage.setItem('jobs_cache',JSON.stringify(jobs));}catch(e){}
-    if(typeof renderJobs==='function') renderJobs();
-    if(typeof refreshCalendar==='function') refreshCalendar();
-  });
-})();
-</script>
-<!-- === End v5 Engine === -->
-
-
-<!-- ==== OctoCRM PATCHES (must be last) ==== -->
-<script src="octocrm_realtime_live_patch.js"></script>
-<script src="octocrm_job_autocreate_patch.js"></script>
-
 </body>
 </html>
