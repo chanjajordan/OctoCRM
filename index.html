@@ -338,6 +338,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
     <div id="syncDot" style="display:flex;align-items:center"></div>
   </div>
   <div class="tb-a">
+    <div id="topSync" style="display:flex;align-items:center;gap:4px"></div>
     <button class="btn-i" onclick="toggleNotifPanel()" id="bellBtn" title="Notifications" style="position:relative;background:transparent;border:none;cursor:pointer;padding:8px;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg><span id="bellBadge" style="display:none;position:absolute;top:2px;right:2px;background:var(--er);color:#fff;font-size:10px;font-weight:700;border-radius:10px;min-width:16px;height:16px;padding:0 4px;display:none;align-items:center;justify-content:center;line-height:1">0</span></button>
     <button class="btn btn-s btn-sm" onclick="openNewJobModal()">+ Job</button>
     <button class="btn btn-p btn-sm" onclick="showPage('create-report')">+ Report</button>
@@ -420,19 +421,38 @@ function initFB(){
         try{refreshPage();}catch(e){}
         return;
       }
-      // Subsequent remote changes: just note them (so the indicator can hint a Pull is available),
-      // but do NOT auto-merge, do NOT re-render. The user will pull manually or push by saving.
+      // Subsequent remote changes
       if(_fbSyncBusy)return;
       if(!d)return;
       try{ notifyDiffFromCloud(d); }catch(e){}
       const cloudFp=_dbFingerprint(d);
       const localFp=_dbFingerprint(DB);
-      if(cloudFp!==localFp){
-        _remoteChangesAvailable=true;
+      if(cloudFp===localFp)return;
+      _remoteChangesAvailable=true;
+      // Auto-merge if user not busy (no modal open + not typing in a field).
+      // Otherwise leave the manual "⬇ Pull" button for the user.
+      if(_userIsBusy()){
         try{updSync('remote');}catch(e){}
+        return;
       }
+      try{ pullFromCloud({silent:true}); }catch(e){console.warn('auto-pull err:',e); try{updSync('remote');}catch(e2){}}
     });
   }catch(e){console.warn('FB err:',e)}
+}
+
+// Returns true when user is actively interacting (modal open or typing/editing) — used to
+// avoid clobbering in-progress edits when remote changes arrive.
+function _userIsBusy(){
+  try{
+    if(document.querySelector('.mo.open')) return true;
+    const ae=document.activeElement;
+    if(ae && ae !== document.body){
+      const tag=(ae.tagName||'').toLowerCase();
+      if(tag==='input'||tag==='textarea'||tag==='select') return true;
+      if(ae.isContentEditable) return true;
+    }
+  }catch(e){}
+  return false;
 }
 
 // ===== NOTIFICATIONS =====
@@ -809,13 +829,15 @@ let _remoteChangesAvailable=false;
 // Manual "Pull from Cloud" — user clicks this to fetch the latest data from Firebase.
 // We do NOT auto-pull on listener fires (that caused UI thrashing); instead the sync indicator
 // shows a "Pull" pill when remote changes are available, and the user clicks when ready.
-function pullFromCloud(){
-  if(!USE_FB||!fbDB){toast('Cloud not connected.','error');return;}
-  if(_fbSyncBusy){toast('Sync in progress, please wait...','info');return;}
+function pullFromCloud(opts){
+  opts = opts || {};
+  const silent = !!opts.silent;
+  if(!USE_FB||!fbDB){if(!silent)toast('Cloud not connected.','error');return;}
+  if(_fbSyncBusy){if(!silent)toast('Sync in progress, please wait...','info');return;}
   updSync('syncing');
   fbDB.ref('octoCRM_v4').once('value').then(s=>{
     const d=s.val();
-    if(!d){toast('Cloud is empty.','info');updSync('ok');return;}
+    if(!d){if(!silent)toast('Cloud is empty.','info');updSync('ok');return;}
     ['reports','jobs','techs','custs','users','machines','agents','pos','warehouses','inventory','deletedCusts','deletedMachines'].forEach(k=>{
       if(!d[k])d[k]=[];
       else if(!Array.isArray(d[k]))d[k]=Object.values(d[k]);
@@ -838,12 +860,15 @@ function pullFromCloud(){
     try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
     _remoteChangesAvailable=false;
     const after=_dbFingerprint(DB);
-    if(before===after){toast('Already up to date.','info');}
-    else{toast('Pulled latest from cloud ✓','success');try{refreshPage();}catch(e){}}
+    if(before===after){if(!silent)toast('Already up to date.','info');}
+    else{
+      if(!silent)toast('Pulled latest from cloud ✓','success');
+      try{refreshPage();}catch(e){}
+    }
     updSync('ok');
   }).catch(err=>{
     console.warn('pullFromCloud failed:',err);
-    toast('Pull failed: '+(err.message||err),'error');
+    if(!silent)toast('Pull failed: '+(err.message||err),'error');
     updSync('error');
   });
 }
@@ -1144,26 +1169,61 @@ function syncToFirebase(){
 }
 
 function updSync(state){
-  const el=document.getElementById('syncIndicator');
-  if(!el)return;
-  if(state==='syncing')el.innerHTML='<span style="color:var(--wn);font-size:var(--fs-xs)">⏳ Syncing...</span>';
-  else if(state==='error')el.innerHTML='<span style="color:var(--er);font-size:var(--fs-xs)">⚠ Sync failed — retrying</span>';
-  else if(state==='ok'){
+  const elSide=document.getElementById('syncIndicator');
+  const elTop=document.getElementById('topSync');
+  let sideHTML='', topHTML='';
+  if(state==='syncing'){
+    sideHTML='<span style="color:var(--wn);font-size:var(--fs-xs)">⏳ Syncing...</span>';
+    topHTML='<span title="Syncing..." style="color:var(--wn);font-size:14px;padding:4px 6px">⏳</span>';
+  } else if(state==='error'){
+    sideHTML='<span style="color:var(--er);font-size:var(--fs-xs)">⚠ Sync failed — retrying</span>';
+    topHTML='<button class="btn-i" onclick="forcePushToCloud()" title="Sync failed — tap to retry push" style="background:transparent;border:none;cursor:pointer;color:var(--er);font-size:14px;padding:4px 6px">⚠</button>';
+  } else if(state==='ok'){
     if(_remoteChangesAvailable){
-      el.innerHTML='<button class="btn btn-sm btn-p" style="font-size:11px;padding:3px 10px;min-height:26px" onclick="pullFromCloud()">⬇ Pull from Cloud</button>';
+      sideHTML='<button class="btn btn-sm btn-p" style="font-size:11px;padding:3px 10px;min-height:26px" onclick="pullFromCloud()">⬇ Pull from Cloud</button>';
+      topHTML='<button class="btn btn-sm btn-p" onclick="pullFromCloud()" title="Pull latest from Cloud" style="font-size:11px;padding:3px 8px;min-height:26px">⬇ Pull</button>';
     }else{
-      el.innerHTML='<span style="color:var(--ok);font-size:var(--fs-xs)">✓ Synced</span>';
+      sideHTML='<span style="color:var(--ok);font-size:var(--fs-xs)">✓ Synced</span>';
+      topHTML=_defaultTopLabel();
       setTimeout(()=>{const e2=document.getElementById('syncIndicator');if(e2&&e2.textContent.includes('Synced')&&!_remoteChangesAvailable)e2.innerHTML=_defaultSyncLabel();},3000);
     }
+  } else if(state==='remote'){
+    sideHTML='<button class="btn btn-sm btn-p" style="font-size:11px;padding:3px 10px;min-height:26px" onclick="pullFromCloud()">⬇ Pull from Cloud</button>';
+    topHTML='<button class="btn btn-sm btn-p" onclick="pullFromCloud()" title="Pull latest from Cloud" style="font-size:11px;padding:3px 8px;min-height:26px">⬇ Pull</button>';
+  } else {
+    sideHTML=_defaultSyncLabel();
+    topHTML=_defaultTopLabel();
   }
-  else if(state==='remote'){
-    el.innerHTML='<button class="btn btn-sm btn-p" style="font-size:11px;padding:3px 10px;min-height:26px" onclick="pullFromCloud()">⬇ Pull from Cloud</button>';
-  }
-  else el.innerHTML=_defaultSyncLabel();
+  if(elSide) elSide.innerHTML=sideHTML;
+  if(elTop)  elTop.innerHTML=topHTML;
 }
+
 function _defaultSyncLabel(){
   if(_remoteChangesAvailable)return '<button class="btn btn-sm btn-p" style="font-size:11px;padding:3px 10px;min-height:26px" onclick="pullFromCloud()">⬇ Pull from Cloud</button>';
   return USE_FB?'<span style="color:var(--ok);font-size:var(--fs-xs)">☁ Cloud sync active</span>':'<span style="font-size:var(--fs-xs);color:var(--t3)">📱 Local only</span>';
+}
+
+function _defaultTopLabel(){
+  if(_remoteChangesAvailable)return '<button class="btn btn-sm btn-p" onclick="pullFromCloud()" title="Pull latest from Cloud" style="font-size:11px;padding:3px 8px;min-height:26px">⬇ Pull</button>';
+  if(!USE_FB) return '<span title="Local only" style="color:var(--t3);font-size:14px;padding:4px 6px">📱</span>';
+  // Synced — show subtle cloud icon that doubles as "Force push" button
+  return '<button class="btn-i" onclick="forcePushToCloud()" title="Force push local data to cloud" style="background:transparent;border:none;cursor:pointer;color:var(--ok);font-size:14px;padding:4px 6px">☁</button>';
+}
+
+// Force push: useful if local is the source of truth and cloud somehow drifted, or after offline edits.
+function forcePushToCloud(){
+  if(!USE_FB||!fbDB){toast('Cloud not connected.','error');return;}
+  if(_fbSyncBusy){toast('Sync in progress, please wait...','info');return;}
+  if(!confirm('Force push local data to cloud? This overwrites cloud with whatever is on this device.\n\nUse only if you are sure this device has the latest data.'))return;
+  updSync('syncing');
+  try{
+    syncToFirebase();
+    setTimeout(()=>{toast('Pushed to cloud ✓','success');updSync('ok');},800);
+  }catch(e){
+    console.warn('forcePush err:',e);
+    toast('Push failed: '+(e.message||e),'error');
+    updSync('error');
+  }
 }
 
 // ===== AUTH =====
@@ -1434,7 +1494,7 @@ async function aiCall(kind, fileOrNull, extra){
   return json.data;
 }
 function openModal(title,bodyHTML,footerHTML){const mc=document.getElementById('globalModalContent');mc.innerHTML=`<div class="mh"><h2>${title}</h2><button class="btn-i" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="mb">${bodyHTML}</div>${footerHTML?`<div class="mf">${footerHTML}</div>`:''}`;document.getElementById('globalModal').classList.add('open')}
-function closeModal(keepContent){document.getElementById('globalModal').classList.remove('open');if(!keepContent)setTimeout(()=>{if(!document.getElementById('globalModal').classList.contains('open'))document.getElementById('globalModalContent').innerHTML='';},350);}
+function closeModal(keepContent){document.getElementById('globalModal').classList.remove('open');if(!keepContent)setTimeout(()=>{if(!document.getElementById('globalModal').classList.contains('open'))document.getElementById('globalModalContent').innerHTML='';},350);setTimeout(()=>{if(_remoteChangesAvailable&&!_userIsBusy())try{pullFromCloud({silent:true});}catch(e){}},400);}
 function switchModal(fn){document.getElementById('globalModal').classList.remove('open');setTimeout(()=>{fn();},50);}
 function closePnl(){document.getElementById('detPnl').classList.remove('open')}
 document.getElementById('globalModal').addEventListener('click',e=>{if(window._octoModalDownOnBackdrop&&e.target.id==='globalModal')closeModal();window._octoModalDownOnBackdrop=false});
@@ -5124,7 +5184,7 @@ function restoreDB(data){
 loadDB();
 tryAutoLogin();
 publishCalendarToShared();
-try{ _refreshBell(); ensureNotifPermission(); }catch(e){}
+try{ _refreshBell(); ensureNotifPermission(); updSync('init'); }catch(e){}
 
 // Enter key on login
 document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
