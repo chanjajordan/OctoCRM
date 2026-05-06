@@ -1152,6 +1152,136 @@ function jsBd(s){const m={'Open':'bd-pu','Assigned':'bd-ac','In Progress':'bd-wn
 function prBd(p){const m={'Low':'bd-tl','Medium':'bd-ac','High':'bd-wn','Urgent':'bd-er'};return`<span class="bd ${m[p]||'bd-ac'}">${E(p)}</span>`}
 function tyBd(t){const m={'Preventive Maintenance':'bd-ok','Corrective Maintenance':'bd-wn','Breakdown Call':'bd-er','Follow-up Call':'bd-pu','Installation':'bd-ac','Inspection':'bd-pu','Emergency':'bd-er'};return`<span class="bd ${m[t]||'bd-ac'}">${E(t)}</span>`}
 function toast(msg,type='info'){const c=document.getElementById('toastC'),t=document.createElement('div');t.className=`ts ${type}`;const i={success:'✓',error:'✕',info:'ℹ'};t.innerHTML=`<span style="font-weight:700;font-size:18px">${i[type]||'ℹ'}</span><span>${msg}</span>`;c.appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300)},3e3)}
+
+/* ============================================================
+   AI IMPORT (PDF / image → prefilled form) via Cloudflare Worker
+   ------------------------------------------------------------
+   1. Deploy worker.js → set ANTHROPIC_API_KEY + (optional) SHARED_SECRET
+   2. Paste your Worker URL below. If using SHARED_SECRET, paste it too.
+   ============================================================ */
+const PROXY_URL    = localStorage.getItem('octopack_proxy_url')    || '';   // e.g. 'https://octopack-crm-proxy.you.workers.dev'
+const PROXY_SECRET = localStorage.getItem('octopack_proxy_secret') || '';   // matches SHARED_SECRET in Worker (optional)
+function setImportConfig(){
+  const u=prompt('Cloudflare Worker URL:',PROXY_URL||'https://...workers.dev');
+  if(u===null)return;
+  const s=prompt('Shared secret (blank if none):',PROXY_SECRET||'');
+  if(s===null)return;
+  localStorage.setItem('octopack_proxy_url',u.trim());
+  localStorage.setItem('octopack_proxy_secret',s.trim());
+  toast('Saved. Reload page to apply.','success');
+}
+function _aiPickFile(){
+  return new Promise(res=>{
+    const inp=document.createElement('input');
+    inp.type='file';
+    inp.accept='application/pdf,image/png,image/jpeg,image/webp';
+    inp.onchange=()=>res(inp.files&&inp.files[0]||null);
+    inp.click();
+  });
+}
+function _aiToB64(file){
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=()=>res(String(r.result).split(',')[1]||'');
+    r.onerror=()=>rej(new Error('File read failed'));
+    r.readAsDataURL(file);
+  });
+}
+async function aiImport(kind,extra){
+  if(!PROXY_URL){
+    if(confirm('AI import not configured. Set Worker URL now?'))setImportConfig();
+    return null;
+  }
+  const file=await _aiPickFile();
+  if(!file)return null;
+  if(file.size>6*1024*1024){toast('File too large (max ~6 MB).','error');return null;}
+  toast('Parsing with AI… this may take 5–20s','info');
+  let data;
+  try{data=await _aiToB64(file);}catch(e){toast('Could not read file.','error');return null;}
+  let resp;
+  try{
+    resp=await fetch(PROXY_URL,{
+      method:'POST',
+      headers:Object.assign({'Content-Type':'application/json'},PROXY_SECRET?{'X-Shared-Secret':PROXY_SECRET}:{}),
+      body:JSON.stringify({kind,mediaType:file.type,data,extra:extra||null})
+    });
+  }catch(e){toast('Network error: '+e.message,'error');return null;}
+  let json;
+  try{json=await resp.json();}catch(e){toast('Bad response from proxy.','error');return null;}
+  if(!resp.ok||!json.ok){
+    console.warn('AI import error:',json);
+    toast('AI import failed: '+(json.error||resp.status),'error');
+    return null;
+  }
+  return json.data;
+}
+async function aiImportJob(){
+  const d=await aiImport('job');if(!d)return;
+  openNewJobModal();
+  setTimeout(()=>{
+    const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null&&v!=='')el.value=v;};
+    set('jTi',d.title||(d.poNumber?('PO '+d.poNumber):'')||(d.description?d.description.slice(0,60):''));
+    set('jPO',d.poNumber);
+    set('jDt',d.dueDate||d.poDate);
+    set('jDs',[d.description,d.lineItems&&d.lineItems.length?'\nLine items:\n'+d.lineItems.map(li=>`• ${li.description||''}${li.qty?' × '+li.qty:''}${li.unitPrice?' @ '+li.unitPrice:''}`).join('\n'):''].filter(Boolean).join('\n'));
+    // Priority
+    if(d.priority){
+      const map={low:'Low',normal:'Medium',high:'High',urgent:'Urgent'};
+      const sel=document.getElementById('jPr');if(sel){const want=map[d.priority]||'Medium';for(const o of sel.options)if(o.text===want){sel.value=o.value;break;}}
+    }
+    // Customer — match existing or fall through to "new customer" field
+    if(d.customer){
+      const sel=document.getElementById('jCu');let matched=false;
+      if(sel){for(const o of sel.options)if(o.value.toLowerCase()===d.customer.toLowerCase()){sel.value=o.value;matched=true;break;}}
+      if(!matched&&typeof toggleJobCustomCust==='function'){toggleJobCustomCust();set('jCuCustom',d.customer);}
+    }
+    toast('Form prefilled. Review before saving.','success');
+  },120);
+}
+async function aiImportMachine(){
+  const d=await aiImport('machine');if(!d)return;
+  openMachineModal();
+  setTimeout(()=>{
+    const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null&&v!=='')el.value=v;};
+    set('mSr',d.serial);
+    set('mMd',[d.make,d.model].filter(Boolean).join(' '));
+    set('mLo',d.location);
+    // Notes / extras → stuff into service contract or warranty if generic-ish; otherwise leave for user
+    const extras=[d.year?'Year: '+d.year:'',d.voltage?'Voltage: '+d.voltage:'',d.power?'Power: '+d.power:'',d.weight?'Weight: '+d.weight:'',d.assetTag?'Asset: '+d.assetTag:'',d.notes||''].filter(Boolean).join(' | ');
+    if(extras){const sc=document.getElementById('mSC');if(sc&&(!sc.value||sc.value==='Nil'))sc.value=extras.slice(0,120);}
+    // Category — if AI guessed a type, try to match
+    if(d.type){
+      const sel=document.getElementById('mCat');
+      if(sel){for(const o of sel.options)if(o.value.toLowerCase()===d.type.toLowerCase()){sel.value=o.value;break;}}
+    }
+    toast('Form prefilled. Review before saving.','success');
+  },120);
+}
+async function aiImportReport(){
+  const d=await aiImport('report');if(!d)return;
+  // Reports use a full-page form (showPage('create-report')); just stash + tell user
+  showPage('create-report');
+  setTimeout(()=>{
+    const set=(id,v)=>{const el=document.getElementById(id);if(el&&v!=null&&v!=='')el.value=v;};
+    // Common field IDs — best effort; user reviews before save
+    set('rDt',d.reportDate);
+    set('rEng',d.technician);
+    set('rCu',d.customer);
+    set('rSr',d.serial);
+    set('rMd',d.machine);
+    set('rWk',d.workPerformed);
+    set('rFn',d.findings);
+    set('rHr',d.laborHours);
+    set('rFu',d.followUpNotes);
+    if(d.partsUsed&&d.partsUsed.length){
+      const pTxt=d.partsUsed.map(p=>`${p.part||''}${p.qty?' × '+p.qty:''}`).join('\n');
+      const pEl=document.getElementById('rPt')||document.getElementById('rParts');
+      if(pEl)pEl.value=pTxt;
+    }
+    toast('Report prefilled where fields matched. Review carefully.','success');
+  },200);
+}
+/* ============================================================ */
 function openModal(title,bodyHTML,footerHTML){const mc=document.getElementById('globalModalContent');mc.innerHTML=`<div class="mh"><h2>${title}</h2><button class="btn-i" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="mb">${bodyHTML}</div>${footerHTML?`<div class="mf">${footerHTML}</div>`:''}`;document.getElementById('globalModal').classList.add('open')}
 function closeModal(keepContent){document.getElementById('globalModal').classList.remove('open');if(!keepContent)setTimeout(()=>{if(!document.getElementById('globalModal').classList.contains('open'))document.getElementById('globalModalContent').innerHTML='';},350);}
 function switchModal(fn){document.getElementById('globalModal').classList.remove('open');setTimeout(()=>{fn();},50);}
@@ -1235,7 +1365,7 @@ function renderJobs(){
   const activeCount=DB.jobs.filter(j=>j.status!=='Completed').length;
 
   document.getElementById('jobsContent').innerHTML=`
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px"><h2 style="font-size:var(--fs-xl)">Job Board</h2><div style="display:flex;gap:8px"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search jobs..." oninput="renderJobs()"></div><button class="btn btn-p btn-sm" onclick="openNewJobModal()">+ Job</button></div></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px"><h2 style="font-size:var(--fs-xl)">Job Board</h2><div style="display:flex;gap:8px"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search jobs..." oninput="renderJobs()"></div><button class="btn btn-s btn-sm" onclick="aiImportJob()" title="Import PO/quote PDF or photo">📥 Import</button><button class="btn btn-p btn-sm" onclick="openNewJobModal()">+ Job</button></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
       <button class="fc-chip${curJF==='active'?' active':''}" onclick="curJF='active';renderJobs()" style="${activeCount&&curJF!=='active'?'border-color:var(--ac);color:var(--ac)':''}">Active (${activeCount})</button>
       ${['Open','Assigned','In Progress','Completed','all'].map(f=>`<button class="fc-chip${curJF===f?' active':''}" onclick="curJF='${f}';renderJobs()">${f==='all'?'All':f}</button>`).join('')}
@@ -1786,7 +1916,7 @@ function renderReports(){
     signed:allReps.filter(r=>r.signed).length
   };
   document.getElementById('reportsContent').innerHTML=`
-    <div class="tw"><div class="th"><h3>Service Reports</h3><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="rSrch" oninput="filterReports()"></div></div>
+    <div class="tw"><div class="th"><h3>Service Reports</h3><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="rSrch" oninput="filterReports()"></div><button class="btn btn-s btn-sm" onclick="aiImportReport()" title="Import service report PDF or photo">📥 Import</button></div></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;padding:0 16px">
       <button class="fc-chip${curRptF==='all'?' active':''}" onclick="curRptF='all';renderReports()">All (${counts.all})</button>
       <button class="fc-chip${curRptF==='outstanding'?' active':''}" onclick="curRptF='outstanding';renderReports()" style="${counts.outstanding&&curRptF!=='outstanding'?'border-color:var(--er);color:var(--er)':''}">Outstanding (${counts.outstanding})</button>
@@ -2427,7 +2557,7 @@ function renderMachines(){
   if(curMachF==='defective')filtered=filtered.filter(m=>(m.issues||[]).length>0);
   else if(curMachF==='pm-overdue')filtered=filtered.filter(m=>m.pmFreq&&m.pmNextDate&&m.pmNextDate<=today);
   else if(curMachF==='cal-overdue')filtered=filtered.filter(m=>m.hasScale&&m.calFreq&&m.calNextDate&&m.calNextDate<=today);
-  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-sm btn-s" onclick="showPMDashboard()">🔧 PM</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
+  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-sm btn-s" onclick="showPMDashboard()">🔧 PM</button><button class="btn btn-sm btn-s" onclick="aiImportMachine()" title="Import nameplate photo or spec sheet">📥 Import</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--bdr)">
     <button class="fc-chip${curMachF==='all'?' active':''}" onclick="curMachF='all';renderMachines()">Status: All</button>
     <button class="fc-chip${curMachF==='defective'?' active':''}" onclick="curMachF='defective';renderMachines()" style="${defectiveCount&&curMachF!=='defective'?'border-color:var(--er);color:var(--er)':''}">⚠ Defective (${defectiveCount})</button>
@@ -3968,7 +4098,7 @@ function renderPOs(){
     </div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
       <button class="fc-chip${curPOF==='all'?' active':''}" onclick="curPOF='all';renderPOs()">All (${DB.pos.length})</button>
-      <button class="fc-chip${curPOF==='Outstanding'?' active':''}" onclick="curPOF='Outstanding';renderPOs()" style="${outCount?'border-color:var(--er);color:var(--er)':''}">Outstanding (${outCount})</button>
+      <button class="fc-chip${curPOF==='Outstanding'?' active':''}" onclick="curPOF='Outstanding';renderPOs()" style="${outCount&&curPOF!=='Outstanding'?'border-color:var(--er);color:var(--er)':''}">Outstanding (${outCount})</button>
       <button class="fc-chip${curPOF==='Completed'?' active':''}" onclick="curPOF='Completed';renderPOs()">Completed (${compCount})</button>
       <button class="fc-chip${curPOF==='Cancelled'?' active':''}" onclick="curPOF='Cancelled';renderPOs()">Cancelled (${DB.pos.filter(p=>p.status==='Cancelled').length})</button>
     </div>
