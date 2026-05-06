@@ -331,6 +331,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
     <div id="syncDot" style="display:flex;align-items:center"></div>
   </div>
   <div class="tb-a">
+    <button class="btn-i" onclick="toggleNotifPanel()" id="bellBtn" title="Notifications" style="position:relative;background:transparent;border:none;cursor:pointer;padding:8px;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg><span id="bellBadge" style="display:none;position:absolute;top:2px;right:2px;background:var(--er);color:#fff;font-size:10px;font-weight:700;border-radius:10px;min-width:16px;height:16px;padding:0 4px;display:none;align-items:center;justify-content:center;line-height:1">0</span></button>
     <button class="btn btn-s btn-sm" onclick="openNewJobModal()">+ Job</button>
     <button class="btn btn-p btn-sm" onclick="showPage('create-report')">+ Report</button>
   </div>
@@ -384,6 +385,7 @@ function initFB(){
         if(!d){
           // Empty cloud — push our local data up so other devices can sync down later
           setTimeout(()=>syncToFirebase(),100);
+          try{ _notifSnap = _snapStatuses(DB); }catch(e){}
           return;
         }
         // Coerce arrays — Firebase converts arrays to objects when sparse
@@ -407,6 +409,7 @@ function initFB(){
           DB.nI=Math.max(1,...(DB.inventory||[]).map(i=>(i&&i.id)||0))+1;
         }catch(e){DB.nR=DB.nR||1;DB.nJ=DB.nJ||1;DB.nT=DB.nT||1;DB.nC=DB.nC||1;DB.nU=DB.nU||4;DB.nM=DB.nM||200;DB.nA=DB.nA||1;DB.nP=DB.nP||1;}
         try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+        try{ _notifSnap = _snapStatuses(DB); }catch(e){}
         try{refreshPage();}catch(e){}
         return;
       }
@@ -414,6 +417,7 @@ function initFB(){
       // but do NOT auto-merge, do NOT re-render. The user will pull manually or push by saving.
       if(_fbSyncBusy)return;
       if(!d)return;
+      try{ notifyDiffFromCloud(d); }catch(e){}
       const cloudFp=_dbFingerprint(d);
       const localFp=_dbFingerprint(DB);
       if(cloudFp!==localFp){
@@ -423,6 +427,112 @@ function initFB(){
     });
   }catch(e){console.warn('FB err:',e)}
 }
+
+// ===== NOTIFICATIONS =====
+let _notifLog = [];                  // recent events {id,type,title,body,ts,read}
+let _notifSnap = null;                // last snapshot for diffing
+let _notifPanelOpen = false;
+const NOTIF_LS_KEY = 'ocrm_notif_log';
+const NOTIF_PERM_LS = 'ocrm_notif_perm_asked';
+const NOTIF_MAX = 50;
+
+try{ const raw=localStorage.getItem(NOTIF_LS_KEY); if(raw){ _notifLog=JSON.parse(raw)||[]; } }catch(e){}
+
+function _saveNotifLog(){ try{ localStorage.setItem(NOTIF_LS_KEY, JSON.stringify(_notifLog.slice(0, NOTIF_MAX))); }catch(e){} }
+
+function _bellUnread(){ return _notifLog.filter(n=>!n.read).length; }
+
+function _refreshBell(){
+  const b=document.getElementById('bellBadge'); if(!b) return;
+  const u=_bellUnread();
+  if(u>0){ b.textContent=u>99?'99+':String(u); b.style.display='flex'; }
+  else { b.style.display='none'; }
+}
+
+function _snapStatuses(db){
+  const m={ jobs:{}, reports:{}, pos:{} };
+  (db.jobs||[]).forEach(j=>{ if(j&&j.id!=null) m.jobs[j.id]={status:j.status||'',title:j.title||'',customer:j.customer||''}; });
+  (db.reports||[]).forEach(r=>{ if(r&&r.id!=null) m.reports[r.id]={status:r.status||'',jobNo:r.jobNo||'',customer:r.customer||''}; });
+  (db.pos||[]).forEach(p=>{ if(p&&p.id!=null) m.pos[p.id]={status:p.status||'',poNo:p.poNo||'',customer:p.customer||''}; });
+  return m;
+}
+
+function _diffNotify(prev, next){
+  if(!prev||!next) return [];
+  const events=[];
+  const check=(kind, label, getLabel)=>{
+    const pa=prev[kind]||{}, na=next[kind]||{};
+    Object.keys(na).forEach(id=>{
+      const p=pa[id], n=na[id];
+      if(!p){
+        // New record
+        events.push({ kind, id, type:'new', title:`New ${label}: ${n.status||''}`.trim(), body:getLabel(n) });
+      } else if(p.status && n.status && p.status !== n.status){
+        events.push({ kind, id, type:'status', title:`${label} status: ${p.status} → ${n.status}`, body:getLabel(n) });
+      }
+    });
+  };
+  check('jobs','Job', n=>`${n.title||'(no title)'} — ${n.customer||''}`);
+  check('reports','Report', n=>`${n.jobNo||'(no #)'} — ${n.customer||''}`);
+  check('pos','PO', n=>`${n.poNo||'(no #)'} — ${n.customer||''}`);
+  return events;
+}
+
+function _pushNotif(ev){
+  const item={ id:Date.now()+'_'+Math.random().toString(36).slice(2,7), kind:ev.kind, refId:ev.id, type:ev.type, title:ev.title, body:ev.body, ts:Date.now(), read:false };
+  _notifLog.unshift(item);
+  if(_notifLog.length>NOTIF_MAX) _notifLog.length=NOTIF_MAX;
+  _saveNotifLog();
+  _refreshBell();
+  try{ toast(`🔔 ${ev.title}`, 'info'); }catch(e){}
+  if(typeof Notification!=='undefined' && Notification.permission==='granted'){
+    try{ const n=new Notification(ev.title,{ body:ev.body, tag:`${ev.kind}-${ev.id}`, icon:'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%231d4ed8"><circle cx="12" cy="12" r="11"/></svg>' }); n.onclick=()=>{ try{ window.focus(); }catch(e){} n.close(); }; }catch(e){}
+  }
+}
+
+function notifyDiffFromCloud(cloudDB){
+  try{
+    const cur = _snapStatuses(cloudDB);
+    if(!_notifSnap){ _notifSnap = cur; return; }       // first snapshot — baseline only
+    const events = _diffNotify(_notifSnap, cur);
+    events.forEach(_pushNotif);
+    _notifSnap = cur;
+  }catch(e){ console.warn('notifyDiff err:',e); }
+}
+
+function ensureNotifPermission(){
+  if(typeof Notification==='undefined') return;
+  if(Notification.permission==='granted' || Notification.permission==='denied') return;
+  if(localStorage.getItem(NOTIF_PERM_LS)==='1') return;
+  // Ask once after first interaction
+  const ask=()=>{ try{ Notification.requestPermission().then(p=>{ localStorage.setItem(NOTIF_PERM_LS,'1'); if(p==='granted') toast('🔔 Notifications enabled.','success'); }); }catch(e){} document.removeEventListener('click',ask); };
+  document.addEventListener('click', ask, { once:true });
+}
+
+function toggleNotifPanel(){
+  _notifPanelOpen = !_notifPanelOpen;
+  let panel = document.getElementById('notifPanel');
+  if(!panel){
+    panel = document.createElement('div');
+    panel.id='notifPanel';
+    panel.style.cssText='position:fixed;top:60px;right:16px;width:340px;max-width:calc(100vw - 32px);max-height:70vh;overflow-y:auto;background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);box-shadow:0 8px 32px rgba(0,0,0,.18);z-index:9999;padding:0;display:none';
+    document.body.appendChild(panel);
+  }
+  if(!_notifPanelOpen){ panel.style.display='none'; return; }
+  panel.innerHTML = `<div style="padding:12px 14px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;gap:8px"><strong>🔔 Notifications</strong><div style="display:flex;gap:6px">${_notifLog.length?`<button class="btn btn-sm btn-s" onclick="markAllNotifRead()" style="font-size:11px;padding:3px 8px;min-height:24px">Mark read</button><button class="btn btn-sm btn-s" onclick="clearAllNotif()" style="font-size:11px;padding:3px 8px;min-height:24px">Clear</button>`:''}</div></div>
+  ${_notifLog.length ? _notifLog.map(n=>`
+    <div style="padding:10px 14px;border-bottom:1px solid var(--bdr);${n.read?'opacity:.6':''}">
+      <div style="font-size:var(--fs-sm);font-weight:600;color:var(--t1)">${E(n.title)}</div>
+      <div style="font-size:var(--fs-xs);color:var(--t2);margin-top:2px">${E(n.body||'')}</div>
+      <div style="font-size:11px;color:var(--t3);margin-top:4px">${new Date(n.ts).toLocaleString()}</div>
+    </div>`).join('') : '<div style="padding:24px;text-align:center;color:var(--t3);font-size:var(--fs-sm)">No notifications yet.</div>'}`;
+  panel.style.display='block';
+  // Close on outside click
+  setTimeout(()=>{ const off=(e)=>{ if(panel && !panel.contains(e.target) && e.target.id!=='bellBtn' && !document.getElementById('bellBtn')?.contains(e.target)){ _notifPanelOpen=false; panel.style.display='none'; document.removeEventListener('click',off); } }; document.addEventListener('click', off); }, 50);
+}
+
+function markAllNotifRead(){ _notifLog.forEach(n=>n.read=true); _saveNotifLog(); _refreshBell(); _notifPanelOpen=false; toggleNotifPanel(); }
+function clearAllNotif(){ if(!confirm('Clear all notifications?')) return; _notifLog=[]; _saveNotifLog(); _refreshBell(); _notifPanelOpen=false; toggleNotifPanel(); }
 
 // ===== COMPANIES =====
 const CO={
@@ -639,7 +749,19 @@ function saveDB(){
   
   // Save to localStorage immediately
   try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){console.warn('localStorage save failed:',e);}
-  
+
+  // Local notifications: detect new records + status changes since last snapshot
+  try{
+    if(typeof _snapStatuses==='function'){
+      const cur=_snapStatuses(DB);
+      if(_notifSnap){
+        const evs=_diffNotify(_notifSnap,cur);
+        evs.forEach(_pushNotif);
+      }
+      _notifSnap=cur;
+    }
+  }catch(e){console.warn('local notif err:',e);}
+
   // Debounced Firebase sync — short window so phone backgrounding doesn't lose it
   clearTimeout(window._fbSyncTimer);
   window._fbSyncTimer=setTimeout(()=>{syncToFirebase();},300);
@@ -4995,6 +5117,7 @@ function restoreDB(data){
 loadDB();
 tryAutoLogin();
 publishCalendarToShared();
+try{ _refreshBell(); ensureNotifPermission(); }catch(e){}
 
 // Enter key on login
 document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
