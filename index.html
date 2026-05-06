@@ -4390,6 +4390,21 @@ function renderDataMgmt(){
   document.getElementById('dataMgmtContent').innerHTML=`<div style="max-width:800px">
     <h2 style="margin-bottom:8px">Data Import / Export</h2>
     <p style="color:var(--t2);margin-bottom:24px">Export your database to CSV files for backup or editing, and import CSV files to update records.</p>
+
+    <div class="oc"><h3>🤖 AI Import (Claude)</h3>
+      <p>Configure the Cloudflare Worker that proxies PDF / image scans to Claude. Once set on this device, the 📥 Import buttons on Jobs / Machines / Reports will work.</p>
+      <div class="fr" style="margin-top:12px">
+        <div class="fg"><label>Worker URL</label><input class="fc" id="aiCfgUrl" placeholder="https://...workers.dev"></div>
+        <div class="fg"><label>Shared Secret (optional)</label><input class="fc" id="aiCfgSecret" type="password" placeholder="leave blank if none"></div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+        <button class="btn btn-p btn-sm" onclick="saveAICfg()">💾 Save</button>
+        <button class="btn btn-s btn-sm" onclick="testAICfg()">🧪 Test connection</button>
+        <button class="btn btn-s btn-sm" onclick="clearAICfg()">🗑 Clear</button>
+      </div>
+      <p id="aiCfgStatus" style="font-size:12px;color:var(--t3);margin-top:10px"></p>
+      <p style="font-size:12px;color:var(--t3);margin-top:6px">⚠ Saved per-device in this browser only. Set on every device that needs AI import.</p>
+    </div>
     
     <div class="oc"><h3>📲 Download App</h3>
       <p>Save a copy of this app as an HTML file to your phone or computer. Open the saved file later to use OctoCRM offline (data still syncs to the cloud when online).</p>
@@ -4456,6 +4471,48 @@ function renderDataMgmt(){
       </div>
     </div>
   </div>`;
+  // Restore AI config values + status
+  setTimeout(()=>{
+    const u=localStorage.getItem('octopack_proxy_url')||'';
+    const s=localStorage.getItem('octopack_proxy_secret')||'';
+    const uEl=document.getElementById('aiCfgUrl'),sEl=document.getElementById('aiCfgSecret'),st=document.getElementById('aiCfgStatus');
+    if(uEl)uEl.value=u;if(sEl)sEl.value=s;
+    if(st)st.textContent=u?'✓ Configured. Reload page after saving any change.':'⚠ Not configured yet.';
+  },50);
+}
+
+// AI config helpers (used by Data Import/Export page)
+function saveAICfg(){
+  const u=(document.getElementById('aiCfgUrl').value||'').trim();
+  const s=(document.getElementById('aiCfgSecret').value||'').trim();
+  if(u&&!/^https:\/\/.+/.test(u)){toast('URL must start with https://','error');return;}
+  localStorage.setItem('octopack_proxy_url',u);
+  localStorage.setItem('octopack_proxy_secret',s);
+  toast('Saved. Reload page to apply.','success');
+  const st=document.getElementById('aiCfgStatus');if(st)st.textContent='✓ Saved. Reload page to apply.';
+}
+function clearAICfg(){
+  if(!confirm('Clear AI Import settings on this device?'))return;
+  localStorage.removeItem('octopack_proxy_url');
+  localStorage.removeItem('octopack_proxy_secret');
+  document.getElementById('aiCfgUrl').value='';
+  document.getElementById('aiCfgSecret').value='';
+  toast('Cleared. Reload page to apply.','info');
+}
+async function testAICfg(){
+  const u=(document.getElementById('aiCfgUrl').value||'').trim();
+  const s=(document.getElementById('aiCfgSecret').value||'').trim();
+  const st=document.getElementById('aiCfgStatus');
+  if(!u){if(st)st.textContent='⚠ Enter Worker URL first.';return;}
+  if(st)st.textContent='Testing…';
+  try{
+    const r=await fetch(u,{method:'POST',headers:Object.assign({'Content-Type':'application/json'},s?{'X-Shared-Secret':s}:{}),body:JSON.stringify({ping:true})});
+    const j=await r.json().catch(()=>({}));
+    // We expect 400 ("Missing kind/mediaType/data") if URL+secret good, or 401 if secret wrong
+    if(r.status===401){if(st)st.textContent='✕ 401 Unauthorized — secret does not match Worker.';return;}
+    if(r.status===400){if(st)st.textContent='✓ Worker reachable + secret OK.';return;}
+    if(st)st.textContent='⚠ Unexpected '+r.status+': '+(j.error||'');
+  }catch(e){if(st)st.textContent='✕ Cannot reach Worker: '+e.message;}
 }
 
 // CSV helpers
