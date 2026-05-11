@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,interactive-widget=resizes-content,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=5.0,user-scalable=yes,interactive-widget=resizes-content,viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f8fafc">
@@ -394,7 +394,7 @@ function initFB(){
 const CO={
   octopack:{name:'OCTOPACK SEA PTE LTD',addr:'7 Yishun Industrial Street 1 #03-49 North Spring Bizhub, Singapore 768162',tel:'+65 6909 8136',email:'CS@octopack.com.sg',uen:'201709641E',color:'#1d4ed8',tag:'OCTOPACK - The Better Way To Pack'},
   jw:{name:'JW Supplies & Works Pte Ltd',addr:'9 Yishun Industrial Street 1 #03-76 North Spring Bizhub, Singapore 768163',tel:'+65 9061 8811',email:'joyce@jwsupplies.sg',uen:'201822151K',color:'#2563eb',tag:'JW Supplies & Works Pte Ltd'},
-  redbox:{name:'REDBOX GLOBAL SOLUTIONS PTE LTD',addr:'7 Yishun Industrial Street 1 #03-49 North Spring Bizhub, Singapore 768162',tel:'+65 6909 8136',email:'engineering@redboxgs.com',uen:'201710953N',color:'#dc2626',tag:'Redbox Global Solutions'}
+  redbox:{name:'Redbox Global Solutions Pte Ltd',addr:'7 Yishun Industrial Street 1 #03-49 North Spring Bizhub, Singapore 768162',tel:'+65 6909 8136',email:'engineering@redboxgs.com',uen:'201710953N',color:'#dc2626',tag:'Redbox Global Solutions'}
 };
 
 // ===== DATA =====
@@ -417,6 +417,18 @@ function loadDB(){
       // Only use if it has the expected structure
       if(parsed && typeof parsed==='object'){
         DB=parsed;
+      }
+    }else{
+      // No active DB — check if a stable seed was saved (post-reset baseline)
+      const seedStr=localStorage.getItem('ocrm4_seed');
+      if(seedStr){
+        try{
+          const seed=JSON.parse(seedStr);
+          if(seed&&seed.data&&typeof seed.data==='object'){
+            DB=JSON.parse(JSON.stringify(seed.data));// deep clone so saves don't mutate seed
+            console.log('Loaded from stable seed saved at:',seed.savedAt);
+          }
+        }catch(e){console.warn('seed load err',e);}
       }
     }
   }catch(e){console.warn('loadDB parse error:',e);}
@@ -809,6 +821,8 @@ function renderJobs(){
       <div class="jc-a">
         ${!j.startTime?`<button class="btn btn-sm btn-ok" onclick="startWork(${j.id})">▶ Start Work</button>`:''}
         ${isRunning?`<button class="btn btn-sm btn-d" onclick="stopWork(${j.id})">■ Finish Work</button>`:''}
+        ${isRunning?`<button class="btn btn-sm btn-s" onclick="undoStartWork(${j.id})" title="Pressed start by accident? Undo it.">↶ Undo Start</button>`:''}
+        ${isDone?`<button class="btn btn-sm btn-s" onclick="undoFinishWork(${j.id})" title="Resume work — undo the finish.">↶ Resume Work</button>`:''}
         ${isDone?`<button class="btn btn-sm btn-p" onclick="generateReportFromJob(${j.id})">📝 Generate Report</button>`:''}
         ${j.status!=='Completed'?`<button class="btn btn-sm btn-wa" onclick="sendJWA(${j.id})">📱 WhatsApp</button>`:''}
         <button class="btn btn-sm btn-s" onclick="openFollowUpModal(${j.id})">📌 Follow-up</button>
@@ -839,6 +853,23 @@ function stopWork(id){
   if(!j.startTime){toast('Start work first.','error');return;}
   j.endTime=new Date().toISOString();
   saveDB();renderJobs();toast('Work finished — ready to generate report.','success');
+}
+
+function undoStartWork(id){
+  const j=DB.jobs.find(x=>x.id===id);if(!j)return;
+  if(!j.startTime){toast('Not started.','info');return;}
+  if(!confirm('Undo Start Work? The recorded start time will be cleared.'))return;
+  j.startTime=null;j.endTime=null;
+  if(j.status==='In Progress')j.status=(j.techIds&&j.techIds.length)?'Assigned':'Open';
+  saveDB();renderJobs();toast('Start time cleared.','info');
+}
+
+function undoFinishWork(id){
+  const j=DB.jobs.find(x=>x.id===id);if(!j)return;
+  if(!j.endTime){toast('Not finished.','info');return;}
+  if(!confirm('Resume work? The recorded finish time will be cleared and job goes back to In Progress.'))return;
+  j.endTime=null;j.status='In Progress';
+  saveDB();renderJobs();toast('Finish time cleared — work resumed.','info');
 }
 
 function openFollowUpModal(id){
@@ -1242,7 +1273,26 @@ function renderCreateReport(){
   document.getElementById('createReportContent').innerHTML=`
     <div style="max-width:800px">
       <h2 style="margin-bottom:8px">Create Service Report</h2>
-      <p style="color:var(--t2);margin-bottom:20px">Select company, fill details, capture signature, and email.</p>
+      <p style="color:var(--t2);margin-bottom:12px">Select company, fill details, capture signature, and email.</p>
+
+      <div style="background:linear-gradient(135deg,var(--acs),var(--pus));border:1px solid var(--bdr);border-radius:var(--rl);padding:16px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:18px">📋</span>
+          <div style="flex:1;min-width:200px">
+            <div style="font-weight:700;font-size:var(--fs-sm);color:var(--t1);margin-bottom:2px">Load Template</div>
+            <div style="font-size:var(--fs-xs);color:var(--t2)">Pre-fill common report fields for PM visits</div>
+          </div>
+          <select id="crTplSel" class="fc" style="width:auto;min-width:220px;background:#fff" onchange="loadPMTemplate(this.value)">
+            <option value="">— Select template —</option>
+            <option value="pm_std">🔧 Standard Preventive Maintenance</option>
+            <option value="pm_full">🔧 Full PM — Motors, Belts & Sensors</option>
+            <option value="bd_call">⚡ Breakdown Call</option>
+            <option value="install">🏗 New Installation</option>
+            <option value="inspect">🔍 Inspection Visit</option>
+          </select>
+        </div>
+      </div>
+
       <div class="fg"><label>Company</label><select class="fc" id="crCo"><option value="octopack">Octopack SEA</option><option value="jw">JW Supplies & Works</option><option value="redbox">Redbox Global Solutions</option></select></div>
       <div class="fr"><div class="fg"><label>Job No.</label><input class="fc" id="crJN" value="SR-${String(DB.nR).padStart(5,'0')}"></div><div class="fg"><label>Date</label><input class="fc" type="date" id="crDt" value="${new Date().toISOString().split('T')[0]}"></div></div>
       
@@ -1340,6 +1390,61 @@ function renderCreateReport(){
     initSig('sigC');initSig('sigE');
     updateEmailPickers();
   },100);
+}
+
+// ===== PM TEMPLATES =====
+const PM_TEMPLATES={
+  pm_std:{
+    type:'Preventive Maintenance',
+    status:'Completed',
+    timeStart:'09:00',timeEnd:'11:00',
+    remarks:'Performed standard preventive maintenance:\n- Visual inspection of machine\n- Check and tighten belts and tension\n- Lubricate moving parts\n- Check motor operation\n- Clean machine surfaces\n- Test run and verify operation',
+    recommendations:'Machine operating in normal condition. No immediate action required.'
+  },
+  pm_full:{
+    type:'Preventive Maintenance',
+    status:'Completed',
+    timeStart:'09:00',timeEnd:'13:00',
+    remarks:'Performed full preventive maintenance:\n- Check all motors for abnormal noise/vibration\n- Inspect and adjust belt tension\n- Check and clean all sensors and limit switches\n- Lubricate chains, gears and bearings\n- Inspect heater elements and sealing bars\n- Clean machine interior and exterior\n- Check electrical connections and wiring\n- Verify safety guards and interlocks\n- Test run with load',
+    recommendations:'All components checked and in working order. Recommend next PM in 6 months.'
+  },
+  bd_call:{
+    type:'Breakdown Call',
+    status:'Completed',
+    timeStart:'',timeEnd:'',
+    remarks:'Attended breakdown call.\n- Fault diagnosis performed\n- Identified fault: [describe fault here]\n- Replaced/repaired: [describe parts/action]\n- Test run after repair',
+    recommendations:'Machine restored to working condition. Monitor for recurrence.'
+  },
+  install:{
+    type:'Installation',
+    status:'Completed',
+    timeStart:'09:00',timeEnd:'17:00',
+    remarks:'Performed new machine installation:\n- Unpack and position machine\n- Level and anchor machine\n- Electrical connection and wiring check\n- Program settings per customer requirement\n- Test run and calibration\n- Operator training provided',
+    recommendations:'Installation complete. Next PM recommended in 6 months.'
+  },
+  inspect:{
+    type:'Inspection',
+    status:'Pending Follow-Up',
+    timeStart:'09:00',timeEnd:'10:30',
+    remarks:'Conducted inspection visit:\n- Overall machine condition assessed\n- Identified wear items: [list here]\n- Measurements taken: [values here]\n- Photos documented',
+    recommendations:'Recommend scheduling maintenance for items noted above.'
+  }
+};
+
+function loadPMTemplate(key){
+  if(!key)return;
+  const t=PM_TEMPLATES[key];
+  if(!t){toast('Template not found.','error');return;}
+  const tyEl=document.getElementById('crTy');
+  if(tyEl)for(let o of tyEl.options)if(o.text===t.type){tyEl.value=o.value;break;}
+  const stEl=document.getElementById('crSt');
+  if(stEl)for(let o of stEl.options)if(o.text===t.status){stEl.value=o.value;break;}
+  if(t.timeStart&&document.getElementById('crTS'))document.getElementById('crTS').value=t.timeStart;
+  if(t.timeEnd&&document.getElementById('crTE'))document.getElementById('crTE').value=t.timeEnd;
+  if(document.getElementById('crRm'))document.getElementById('crRm').value=t.remarks;
+  if(document.getElementById('crRc'))document.getElementById('crRc').value=t.recommendations;
+  document.getElementById('crTplSel').value='';
+  toast('Template loaded: '+t.type,'success');
 }
 
 // Smart linked dropdowns
@@ -2834,14 +2939,95 @@ function renderDataMgmt(){
       <div id="impPreview" style="display:none;margin-top:16px"></div>
     </div>
     
-    <div class="oc"><h3>💾 Full Backup</h3><p>Export the entire database as a single JSON file for full backup and restore.</p>
+    <div class="oc"><h3>💾 Full Backup &amp; Restore</h3><p>Export the entire database (customers, machines, reports, jobs, technicians, agents, parts, stock) as a single JSON file. Use this for full backup, transferring between devices, or moving to a fresh browser.</p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
-        <button class="btn btn-p btn-sm" onclick="exportJSON()">📤 Export JSON Backup</button>
-        <button class="btn btn-s btn-sm" onclick="document.getElementById('jsonImpFile').click()">📥 Restore from JSON</button>
+        <button class="btn btn-p btn-sm" onclick="exportJSON()">📤 Export Full Backup (JSON)</button>
+        <button class="btn btn-s btn-sm" onclick="document.getElementById('jsonImpFile').click()">📥 Restore from JSON Backup</button>
         <input type="file" accept=".json" id="jsonImpFile" style="display:none" onchange="importJSON(this.files[0])">
       </div>
+      <p style="font-size:var(--fs-xs);color:var(--t3);margin-top:10px">💡 Tip: Export weekly. Restore replaces the entire current database — back up first if unsure.</p>
+    </div>
+
+    <div class="oc" style="border:1px solid var(--wn);background:#fffbeb"><h3>🌱 Save Current Database as Stable Seed</h3>
+      <p>Save the current state of your database as the "stable seed" — this becomes the reset baseline. The next time you (or anyone) clicks <b>Reset all data &amp; start fresh</b> on the login screen, the system will reload this seed instead of the original demo data.</p>
+      <p style="font-size:var(--fs-sm);color:var(--t2);margin-top:6px">Use this once you've cleaned up customers, machines, and reports to a state you want as the team's working baseline.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+        <button class="btn btn-p btn-sm" onclick="saveStableSeed()">🌱 Save Current as Stable Seed</button>
+        <button class="btn btn-s btn-sm" onclick="exportSeedFile()">📦 Download Seed (.json)</button>
+        <button class="btn btn-s btn-sm" onclick="document.getElementById('seedImpFile').click()">📥 Load Seed from File</button>
+        <input type="file" accept=".json" id="seedImpFile" style="display:none" onchange="importSeedFile(this.files[0])">
+        <button class="btn btn-d btn-sm" onclick="clearStableSeed()">🗑 Clear Stable Seed</button>
+      </div>
+      <p style="font-size:var(--fs-xs);color:var(--t3);margin-top:10px" id="seedStatus"></p>
     </div>
   </div>`;
+  setTimeout(updateSeedStatus,50);
+}
+
+// ===== STABLE SEED (latest baseline DB for reset) =====
+function getStoredSeed(){
+  try{const s=localStorage.getItem('ocrm4_seed');return s?JSON.parse(s):null;}catch(e){return null;}
+}
+
+function updateSeedStatus(){
+  const el=document.getElementById('seedStatus');if(!el)return;
+  const seed=getStoredSeed();
+  if(seed&&seed.savedAt){
+    const dt=new Date(seed.savedAt).toLocaleString();
+    const counts=`${(seed.data?.custs||[]).length} customers, ${(seed.data?.machines||[]).length} machines, ${(seed.data?.reports||[]).length} reports`;
+    el.innerHTML=`✅ Stable seed saved on <b>${dt}</b> — ${counts}`;
+    el.style.color='var(--ok)';
+  }else{
+    el.textContent='ℹ No stable seed saved yet. Reset will use the built-in demo data.';
+    el.style.color='var(--t3)';
+  }
+}
+
+function saveStableSeed(){
+  if(!confirm('Save the CURRENT database as the stable seed?\n\nThis will become the baseline when anyone resets the app. Any previous stable seed will be overwritten.'))return;
+  try{
+    const seed={savedAt:new Date().toISOString(),savedBy:CUR_USER?.username||'unknown',data:JSON.parse(JSON.stringify(DB))};
+    localStorage.setItem('ocrm4_seed',JSON.stringify(seed));
+    toast('Stable seed saved. This is now the reset baseline.','success');
+    updateSeedStatus();
+  }catch(e){toast('Failed to save seed: '+e.message,'error');}
+}
+
+function exportSeedFile(){
+  const seed=getStoredSeed();
+  if(!seed){
+    if(!confirm('No stable seed has been saved yet. Download a seed file from the CURRENT database state instead?'))return;
+    const data={savedAt:new Date().toISOString(),savedBy:CUR_USER?.username||'unknown',data:JSON.parse(JSON.stringify(DB))};
+    downloadFile(JSON.stringify(data,null,2),`octocrm_seed_${new Date().toISOString().split('T')[0]}.json`,'application/json');
+    toast('Seed file downloaded (from current DB).','success');
+    return;
+  }
+  downloadFile(JSON.stringify(seed,null,2),`octocrm_seed_${new Date().toISOString().split('T')[0]}.json`,'application/json');
+  toast('Stable seed downloaded.','success');
+}
+
+function importSeedFile(file){
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      const obj=JSON.parse(e.target.result);
+      const seed=obj.data?obj:{savedAt:new Date().toISOString(),savedBy:'imported',data:obj};
+      if(!seed.data||!seed.data.custs){toast('Invalid seed file.','error');return;}
+      if(!confirm(`Load this seed file as the stable seed?\n\nSaved: ${seed.savedAt||'(unknown)'}\nContains: ${(seed.data.custs||[]).length} customers, ${(seed.data.machines||[]).length} machines, ${(seed.data.reports||[]).length} reports`))return;
+      localStorage.setItem('ocrm4_seed',JSON.stringify(seed));
+      toast('Seed file loaded as stable seed.','success');
+      updateSeedStatus();
+    }catch(err){toast('Failed to load seed: '+err.message,'error');}
+  };
+  reader.readAsText(file);
+}
+
+function clearStableSeed(){
+  if(!confirm('Clear the saved stable seed?\n\nFuture resets will fall back to the built-in demo data.'))return;
+  localStorage.removeItem('ocrm4_seed');
+  toast('Stable seed cleared.','info');
+  updateSeedStatus();
 }
 
 // CSV helpers
@@ -3229,12 +3415,12 @@ function buildReportHTMLForPDF(r){
   const today=new Date().toISOString().split('T')[0];
   return`<div id="pdfContent" style="background:#fff;color:#000;padding:32px;font-family:Arial,Helvetica,sans-serif;font-size:11px;width:740px;line-height:1.45">
     <!-- LETTERHEAD -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
-      <div>
-        <div style="font-size:22px;font-weight:900;color:${co.color};letter-spacing:0.3px">${co.name}</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:14px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:22px;font-weight:900;color:${co.color};letter-spacing:0.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${co.name}</div>
         <div style="font-size:10px;color:#444;margin-top:6px;line-height:1.55">${co.addr}<br>Tel: ${co.tel}&nbsp; |&nbsp; Email: ${co.email}<br>UEN: ${co.uen}&nbsp; |&nbsp; GST Reg No.: ${co.uen}</div>
       </div>
-      <div style="border:2px solid ${co.color};padding:10px 22px;text-align:center"><div style="font-size:14px;font-weight:800;color:${co.color};letter-spacing:1.5px">SERVICE REPORT</div></div>
+      <div style="border:2px solid ${co.color};padding:10px 22px;text-align:center;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:#000;letter-spacing:1.5px;white-space:nowrap">SERVICE REPORT</div></div>
     </div>
     <!-- HEADER STRIP -->
     <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:14px;border-top:2px solid ${co.color}">
@@ -3246,29 +3432,29 @@ function buildReportHTMLForPDF(r){
       </tr>
     </table>
     <!-- SECTION 1 -->
-    <div style="background:#eef4ff;color:${co.color};font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px">SECTION 1 — CUSTOMER INFORMATION</div>
+    <div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px">SECTION 1 — CUSTOMER INFORMATION</div>
     <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:14px">
-      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">CUSTOMER<br>NAME</th><td colspan="3" style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(r.customer||'')}</td></tr>
-      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">SITE ADDRESS</th><td colspan="3" style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.siteAddress||(DB.custs.find(c=>c.name===r.customer)?.address)||'')}</td></tr>
-      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">CONTACT<br>PERSON</th><td style="border:1px solid #c9d6ee;padding:8px 10px;width:32%">${E(r.contact||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">CONTACT NO.</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.contactNum||'')}</td></tr>
+      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">CUSTOMER<br>NAME</th><td colspan="3" style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(r.customer||'')}</td></tr>
+      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">SITE ADDRESS</th><td colspan="3" style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.siteAddress||(DB.custs.find(c=>c.name===r.customer)?.address)||'')}</td></tr>
+      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">CONTACT<br>PERSON</th><td style="border:1px solid #c9d6ee;padding:8px 10px;width:32%">${E(r.contact||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">CONTACT NO.</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.contactNum||'')}</td></tr>
     </table>
     <!-- SECTION 2 -->
-    <div style="background:#eef4ff;color:${co.color};font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px">SECTION 2 — EQUIPMENT &amp; SERVICE DETAILS</div>
+    <div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px">SECTION 2 — EQUIPMENT &amp; SERVICE DETAILS</div>
     <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:14px">
-      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">EQUIPMENT /<br>MODEL</th><td style="border:1px solid #c9d6ee;padding:8px 10px;width:32%;font-weight:700">${E(r.model||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">SERIAL NO.</th><td style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(r.serial||'')}</td></tr>
-      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">TYPE OF<br>SERVICE</th><td style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(r.type||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">SERVICE<br>STATUS</th><td style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(r.status||'')}</td></tr>
-      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">SERVICE<br>ENGINEER(S)</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(engineers)}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">NEXT VISIT</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.nextVisit||'N/A')}</td></tr>
-      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">TIME START</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.timeStart||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">TIME END</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.timeEnd||'')}</td></tr>
+      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">EQUIPMENT /<br>MODEL</th><td style="border:1px solid #c9d6ee;padding:8px 10px;width:32%;font-weight:700">${E(r.model||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">SERIAL NO.</th><td style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(r.serial||'')}</td></tr>
+      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">TYPE OF<br>SERVICE</th><td style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(r.type||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">SERVICE<br>STATUS</th><td style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(r.status||'')}</td></tr>
+      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">SERVICE<br>ENGINEER(S)</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(engineers)}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">NEXT VISIT</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.nextVisit||'N/A')}</td></tr>
+      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">TIME START</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.timeStart||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">TIME END</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.timeEnd||'')}</td></tr>
     </table>
     <!-- SECTION 3 -->
-    <div style="background:#eef4ff;color:${co.color};font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px">SECTION 3 — DESCRIPTION OF WORK PERFORMED</div>
+    <div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px">SECTION 3 — DESCRIPTION OF WORK PERFORMED</div>
     <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:14px">
-      <tr><th style="border:1px solid #c9d6ee;padding:10px;background:#f6f9ff;text-align:left;width:18%;vertical-align:top;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">ISSUES / WORK<br>DONE</th><td style="border:1px solid #c9d6ee;padding:10px;white-space:pre-line;min-height:120px;vertical-align:top">${E(r.remarks||'')}</td></tr>
-      <tr><th style="border:1px solid #c9d6ee;padding:10px;background:#f6f9ff;text-align:left;vertical-align:top;color:${co.color};font-weight:700;font-size:9.5px;letter-spacing:0.5px">RECOMMENDATIONS /<br><br>FOLLOW-UP<br>ACTIONS</th><td style="border:1px solid #c9d6ee;padding:10px;white-space:pre-line;vertical-align:top">${E(r.recommendations||'')}</td></tr>
+      <tr><th style="border:1px solid #c9d6ee;padding:10px;background:#f6f9ff;text-align:left;width:18%;vertical-align:top;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">ISSUES / WORK<br>DONE</th><td style="border:1px solid #c9d6ee;padding:10px;white-space:pre-line;min-height:120px;vertical-align:top">${E(r.remarks||'')}</td></tr>
+      <tr><th style="border:1px solid #c9d6ee;padding:10px;background:#f6f9ff;text-align:left;vertical-align:top;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">RECOMMENDATIONS /<br><br>FOLLOW-UP<br>ACTIONS</th><td style="border:1px solid #c9d6ee;padding:10px;white-space:pre-line;vertical-align:top">${E(r.recommendations||'')}</td></tr>
     </table>
-    ${photos.length?`<div style="margin-bottom:14px"><div style="background:#eef4ff;color:${co.color};font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;letter-spacing:0.5px">PHOTOS</div><div style="border:1px solid #c9d6ee;border-top:none;padding:10px;display:flex;flex-wrap:wrap;gap:6px">${photos.map(p=>`<img src="${p.dataUrl}" style="width:140px;height:105px;object-fit:cover;border:1px solid #c9d6ee">`).join('')}</div></div>`:''}
+    ${photos.length?`<div style="margin-bottom:14px"><div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;letter-spacing:0.5px">PHOTOS</div><div style="border:1px solid #c9d6ee;border-top:none;padding:10px;display:flex;flex-wrap:wrap;gap:6px">${photos.map(p=>`<img src="${p.dataUrl}" style="width:140px;height:105px;object-fit:cover;border:1px solid #c9d6ee">`).join('')}</div></div>`:''}
     <!-- SECTION 4 -->
-    <div style="background:#eef4ff;color:${co.color};font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px">SECTION 4 — ACKNOWLEDGEMENT &amp; SIGNATURES</div>
+    <div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px">SECTION 4 — ACKNOWLEDGEMENT &amp; SIGNATURES</div>
     <div style="border:1px solid #c9d6ee;padding:12px 14px;margin-bottom:0">
       <p style="font-size:9.5px;color:#444;margin:0 0 10px 0;line-height:1.55">I/We hereby acknowledge that the service described above has been performed to my/our satisfaction. The information stated in this Service Report is true and accurate to the best of our knowledge. Any parts replaced remain the property of ${co.name} unless otherwise agreed in writing.</p>
       <table style="width:100%;border-collapse:collapse">
@@ -3289,7 +3475,7 @@ function buildReportHTMLForPDF(r){
       </table>
     </div>
     <!-- TERMS & CONDITIONS -->
-    <div style="background:#eef4ff;color:${co.color};font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-top:none;border-bottom:none;margin-top:14px;letter-spacing:0.5px">TERMS &amp; CONDITIONS</div>
+    <div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-top:none;border-bottom:none;margin-top:14px;letter-spacing:0.5px">TERMS &amp; CONDITIONS</div>
     <div style="border:1px solid #c9d6ee;padding:10px 14px;font-size:9px;color:#333;line-height:1.55">
       <div>1. All services are performed in accordance with the terms of the service agreement or purchase order referenced above.</div>
       <div>2. ${co.name} shall not be liable for any loss or damage arising from the use or inability to use the equipment after service, except where caused by gross negligence.</div>
