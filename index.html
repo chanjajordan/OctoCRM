@@ -331,7 +331,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
     <div id="syncDot" style="display:flex;align-items:center"></div>
   </div>
   <div class="tb-a">
-    <button class="btn-i" onclick="toggleNotifPanel()" id="bellBtn" title="Notifications" style="position:relative;background:transparent;border:none;cursor:pointer;padding:8px;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg><span id="bellBadge" style="display:none;position:absolute;top:2px;right:2px;background:var(--er);color:#fff;font-size:10px;font-weight:700;border-radius:10px;min-width:16px;height:16px;padding:0 4px;align-items:center;justify-content:center;line-height:1">0</span></button>
+    <button class="btn-i" id="bellBtn" onclick="toggleNotifPanel()" style="position:relative" title="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span id="bellBadge" style="position:absolute;top:-2px;right:-2px;background:var(--er);color:#fff;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:none;align-items:center;justify-content:center;padding:0 4px">0</span></button>
     <button class="btn btn-s btn-sm" onclick="openNewJobModal()">+ Job</button>
     <button class="btn btn-p btn-sm" onclick="showPage('create-report')">+ Report</button>
   </div>
@@ -362,6 +362,17 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
 <div class="dp" id="detPnl"><div class="dp-h"><h3 id="dpT">Details</h3><button class="btn-i" onclick="closePnl()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="dp-b" id="dpB"></div></div>
 <div class="photo-lightbox" id="photoLB"><button class="lb-close" onclick="closeLB()">✕</button><img id="lbImg"><div id="lbCaption" style="color:#ccc;font-size:var(--fs-sm);margin-top:12px;text-align:center"></div><div class="lb-nav"><button onclick="lbNav(-1)">← Prev</button><span id="lbCount" style="color:#888;font-size:var(--fs-sm);display:flex;align-items:center"></span><button onclick="lbNav(1)">Next →</button></div></div>
 <div class="tc-c" id="toastC"></div>
+<!-- Notification panel -->
+<div id="notifPanel" style="display:none;position:fixed;top:64px;right:16px;width:340px;max-width:calc(100vw - 32px);max-height:70vh;background:#fff;border:1px solid var(--bdr);border-radius:var(--rl);box-shadow:var(--sh2);z-index:300;overflow:hidden;flex-direction:column">
+  <div style="padding:14px 16px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between">
+    <strong style="font-size:var(--fs-sm)">🔔 Notifications</strong>
+    <div style="display:flex;gap:6px">
+      <button class="btn btn-s btn-sm" onclick="markAllNotifRead()" style="font-size:var(--fs-xs);padding:6px 10px;min-height:30px">Mark read</button>
+      <button class="btn btn-d btn-sm" onclick="clearAllNotif()" style="font-size:var(--fs-xs);padding:6px 10px;min-height:30px">Clear</button>
+    </div>
+  </div>
+  <div id="notifList" style="overflow-y:auto;flex:1;padding:8px"></div>
+</div>
 
 <script>
 // ===== FIREBASE =====
@@ -377,7 +388,6 @@ function initFB(){
     fbDB.ref('octoCRM_v4').on('value',s=>{
       const d=s.val();
       if(d){
-        try{notifyDiffFromCloud(d)}catch(e){}
         DB=d;
         // Always ensure users exist (Firebase data may not have them)
         if(!DB.users||!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
@@ -386,6 +396,7 @@ function initFB(){
         if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;
         if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=DB.users.length+1;
         try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+        notifyDiffFromCloud();
         refreshPage();
       }
     });
@@ -402,6 +413,80 @@ const CO={
 // ===== DATA =====
 let DB={reports:[],jobs:[],techs:[],custs:[],users:[],nR:1,nJ:1,nT:1,nC:1,nU:1,olConn:false};
 let CUR_USER=null; // current logged-in user
+
+// ===== NOTIFICATIONS =====
+let _notifLog=[];let _notifSnap=null;let _notifPanelOpen=false;let _notifReady=false;
+function _loadNotifLog(){try{_notifLog=JSON.parse(localStorage.getItem('ocrm_notif_log')||'[]');}catch(e){_notifLog=[];}}
+function _saveNotifLog(){try{if(_notifLog.length>50)_notifLog=_notifLog.slice(-50);localStorage.setItem('ocrm_notif_log',JSON.stringify(_notifLog));}catch(e){}}
+function _pushNotif(type,title,msg){
+  const n={id:Date.now()+Math.random(),ts:new Date().toISOString(),type,title,msg,read:false};
+  _notifLog.push(n);_saveNotifLog();_refreshBell();
+  if(_notifPanelOpen)renderNotifPanel();
+  // Browser notification
+  if('Notification' in window && Notification.permission==='granted'){
+    try{new Notification(title,{body:msg,icon:'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%232563eb"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9z"/></svg>'});}catch(e){}
+  }
+}
+function _refreshBell(){
+  const badge=document.getElementById('bellBadge');if(!badge)return;
+  const unread=_notifLog.filter(n=>!n.read).length;
+  badge.textContent=unread>99?'99+':unread;
+  badge.style.display=unread>0?'flex':'none';
+}
+function _snapStatuses(){
+  const s={jobs:{},reports:{},pos:{}};
+  (DB.jobs||[]).forEach(j=>{s.jobs[j.id]={status:j.status,title:j.title};});
+  (DB.reports||[]).forEach(r=>{s.reports[r.id]={status:r.status,jobNo:r.jobNo};});
+  (DB.pos||[]).forEach(p=>{s.pos[p.id]={status:p.status,poNo:p.poNo};});
+  return s;
+}
+function _diffNotify(prev,curr){
+  if(!prev)return;
+  // Jobs
+  for(const id in curr.jobs){
+    if(!prev.jobs[id]){_pushNotif('job','New Job',`${curr.jobs[id].title||'Job #'+id} created`);}
+    else if(prev.jobs[id].status!==curr.jobs[id].status){_pushNotif('job','Job status changed',`${curr.jobs[id].title||'Job #'+id}: ${prev.jobs[id].status} → ${curr.jobs[id].status}`);}
+  }
+  // Reports
+  for(const id in curr.reports){
+    if(!prev.reports[id]){_pushNotif('report','New Report',`${curr.reports[id].jobNo||'Report #'+id} created`);}
+    else if(prev.reports[id].status!==curr.reports[id].status){_pushNotif('report','Report status changed',`${curr.reports[id].jobNo}: ${prev.reports[id].status} → ${curr.reports[id].status}`);}
+  }
+  // POs
+  for(const id in curr.pos){
+    if(!prev.pos[id]){_pushNotif('po','New PO',`${curr.pos[id].poNo||'PO #'+id} created`);}
+    else if(prev.pos[id].status!==curr.pos[id].status){_pushNotif('po','PO status changed',`${curr.pos[id].poNo}: ${prev.pos[id].status} → ${curr.pos[id].status}`);}
+  }
+}
+function notifyDiffFromCloud(){
+  const curr=_snapStatuses();
+  if(_notifReady)_diffNotify(_notifSnap,curr);
+  _notifSnap=curr;_notifReady=true;
+}
+function toggleNotifPanel(){
+  const p=document.getElementById('notifPanel');if(!p)return;
+  _notifPanelOpen=!_notifPanelOpen;
+  p.style.display=_notifPanelOpen?'flex':'none';
+  if(_notifPanelOpen){
+    renderNotifPanel();
+    // Request permission first open
+    if('Notification' in window && Notification.permission==='default'){try{Notification.requestPermission();}catch(e){}}
+  }
+}
+function renderNotifPanel(){
+  const list=document.getElementById('notifList');if(!list)return;
+  if(!_notifLog.length){list.innerHTML='<div style="padding:24px 16px;text-align:center;color:var(--t3);font-size:var(--fs-sm)">No notifications yet.</div>';return;}
+  const sorted=[..._notifLog].sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+  list.innerHTML=sorted.map(n=>{
+    const icon={job:'📋',report:'📝',po:'📄'}[n.type]||'🔔';
+    const t=new Date(n.ts);
+    const tStr=t.toLocaleString('en-SG',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+    return`<div style="padding:10px 12px;border-radius:var(--r);margin-bottom:4px;background:${n.read?'transparent':'var(--acs)'};border:1px solid ${n.read?'transparent':'var(--bdr)'}"><div style="display:flex;align-items:flex-start;gap:8px"><span>${icon}</span><div style="flex:1;min-width:0"><div style="font-weight:600;font-size:var(--fs-sm);color:var(--t1)">${n.title}</div><div style="font-size:var(--fs-xs);color:var(--t2);margin-top:2px">${n.msg}</div><div style="font-size:10px;color:var(--t3);margin-top:4px">${tStr}</div></div></div></div>`;
+  }).join('');
+}
+function markAllNotifRead(){_notifLog.forEach(n=>n.read=true);_saveNotifLog();_refreshBell();renderNotifPanel();}
+function clearAllNotif(){if(!confirm('Clear all notifications?'))return;_notifLog=[];_saveNotifLog();_refreshBell();renderNotifPanel();}
+_loadNotifLog();
 
 // Default users
 const DEF_USERS=[
@@ -630,6 +715,7 @@ function showApp(){
   document.getElementById('navTech').style.display=(isAdmin||isMgr)?'':'none';
   renderDash();
   updSync();
+  _refreshBell();
 }
 
 function canEdit(){return CUR_USER&&(CUR_USER.role==='admin'||CUR_USER.role==='manager');}
@@ -700,22 +786,6 @@ function jsBd(s){const m={'Open':'bd-pu','Assigned':'bd-ac','In Progress':'bd-wn
 function prBd(p){const m={'Low':'bd-tl','Medium':'bd-ac','High':'bd-wn','Urgent':'bd-er'};return`<span class="bd ${m[p]||'bd-ac'}">${E(p)}</span>`}
 function tyBd(t){const m={'Preventive Maintenance':'bd-ok','Corrective Maintenance':'bd-wn','Breakdown Call':'bd-er','Installation':'bd-ac','Inspection':'bd-pu','Emergency':'bd-er'};return`<span class="bd ${m[t]||'bd-ac'}">${E(t)}</span>`}
 function toast(msg,type='info'){const c=document.getElementById('toastC'),t=document.createElement('div');t.className=`ts ${type}`;const i={success:'✓',error:'✕',info:'ℹ'};t.innerHTML=`<span style="font-weight:700;font-size:18px">${i[type]||'ℹ'}</span><span>${msg}</span>`;c.appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300)},3e3)}
-
-// ===== NOTIFICATIONS =====
-let _notifLog=[],_notifSnap=null,_notifPanelOpen=false;
-const NOTIF_LS_KEY='ocrm_notif_log',NOTIF_PERM_LS='ocrm_notif_perm_asked',NOTIF_MAX=50;
-try{const raw=localStorage.getItem(NOTIF_LS_KEY);if(raw){_notifLog=JSON.parse(raw)||[]}}catch(e){}
-function _saveNotifLog(){try{localStorage.setItem(NOTIF_LS_KEY,JSON.stringify(_notifLog.slice(0,NOTIF_MAX)))}catch(e){}}
-function _bellUnread(){return _notifLog.filter(n=>!n.read).length}
-function _refreshBell(){const b=document.getElementById('bellBadge');if(!b)return;const u=_bellUnread();if(u>0){b.textContent=u>99?'99+':String(u);b.style.display='flex'}else{b.style.display='none'}}
-function _snapStatuses(db){const m={jobs:{},reports:{},pos:{}};(db.jobs||[]).forEach(j=>{if(j&&j.id!=null)m.jobs[j.id]={status:j.status||'',title:j.title||'',customer:j.customer||''}});(db.reports||[]).forEach(r=>{if(r&&r.id!=null)m.reports[r.id]={status:r.status||'',jobNo:r.jobNo||'',customer:r.customer||''}});(db.pos||[]).forEach(p=>{if(p&&p.id!=null)m.pos[p.id]={status:p.status||'',poNo:p.poNo||'',customer:p.customer||''}});return m}
-function _diffNotify(prev,next){if(!prev||!next)return[];const events=[];const check=(kind,label,getLabel)=>{const pa=prev[kind]||{},na=next[kind]||{};Object.keys(na).forEach(id=>{const p=pa[id],n=na[id];if(!p){events.push({kind,id,type:'new',title:`New ${label}: ${n.status||''}`.trim(),body:getLabel(n)})}else if(p.status&&n.status&&p.status!==n.status){events.push({kind,id,type:'status',title:`${label} status: ${p.status} → ${n.status}`,body:getLabel(n)})}})};check('jobs','Job',n=>`${n.title||'(no title)'} — ${n.customer||''}`);check('reports','Report',n=>`${n.jobNo||'(no #)'} — ${n.customer||''}`);check('pos','PO',n=>`${n.poNo||'(no #)'} — ${n.customer||''}`);return events}
-function _pushNotif(ev){const item={id:Date.now()+'_'+Math.random().toString(36).slice(2,7),kind:ev.kind,refId:ev.id,type:ev.type,title:ev.title,body:ev.body,ts:Date.now(),read:false};_notifLog.unshift(item);if(_notifLog.length>NOTIF_MAX)_notifLog.length=NOTIF_MAX;_saveNotifLog();_refreshBell();try{toast(`🔔 ${ev.title}`,'info')}catch(e){}if(typeof Notification!=='undefined'&&Notification.permission==='granted'){try{const n=new Notification(ev.title,{body:ev.body,tag:`${ev.kind}-${ev.id}`});n.onclick=()=>{try{window.focus()}catch(e){}n.close()}}catch(e){}}}
-function notifyDiffFromCloud(cloudDB){try{const cur=_snapStatuses(cloudDB);if(!_notifSnap){_notifSnap=cur;return}const events=_diffNotify(_notifSnap,cur);events.forEach(_pushNotif);_notifSnap=cur}catch(e){console.warn('notifyDiff err:',e)}}
-function ensureNotifPermission(){if(typeof Notification==='undefined')return;if(Notification.permission==='granted'||Notification.permission==='denied')return;if(localStorage.getItem(NOTIF_PERM_LS)==='1')return;const ask=()=>{try{Notification.requestPermission().then(p=>{localStorage.setItem(NOTIF_PERM_LS,'1');if(p==='granted')toast('🔔 Notifications enabled.','success')})}catch(e){}document.removeEventListener('click',ask)};document.addEventListener('click',ask,{once:true})}
-function toggleNotifPanel(){_notifPanelOpen=!_notifPanelOpen;let panel=document.getElementById('notifPanel');if(!panel){panel=document.createElement('div');panel.id='notifPanel';panel.style.cssText='position:fixed;top:60px;right:16px;width:340px;max-width:calc(100vw - 32px);max-height:70vh;overflow-y:auto;background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);box-shadow:0 8px 32px rgba(0,0,0,.18);z-index:9999;padding:0;display:none';document.body.appendChild(panel)}if(!_notifPanelOpen){panel.style.display='none';return}panel.innerHTML=`<div style="padding:12px 14px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;gap:8px"><strong>🔔 Notifications</strong><div style="display:flex;gap:6px">${_notifLog.length?`<button class="btn btn-sm btn-s" onclick="markAllNotifRead()" style="font-size:11px;padding:3px 8px;min-height:24px">Mark read</button><button class="btn btn-sm btn-s" onclick="clearAllNotif()" style="font-size:11px;padding:3px 8px;min-height:24px">Clear</button>`:''}</div></div>${_notifLog.length?_notifLog.map(n=>`<div style="padding:10px 14px;border-bottom:1px solid var(--bdr);${n.read?'opacity:.6':''}"><div style="font-size:var(--fs-sm);font-weight:600;color:var(--t1)">${E(n.title)}</div><div style="font-size:var(--fs-xs);color:var(--t2);margin-top:2px">${E(n.body||'')}</div><div style="font-size:11px;color:var(--t3);margin-top:4px">${new Date(n.ts).toLocaleString()}</div></div>`).join(''):'<div style="padding:24px;text-align:center;color:var(--t3);font-size:var(--fs-sm)">No notifications yet.</div>'}`;panel.style.display='block';setTimeout(()=>{const off=(e)=>{if(panel&&!panel.contains(e.target)&&e.target.id!=='bellBtn'&&!document.getElementById('bellBtn')?.contains(e.target)){_notifPanelOpen=false;panel.style.display='none';document.removeEventListener('click',off)}};document.addEventListener('click',off)},50)}
-function markAllNotifRead(){_notifLog.forEach(n=>n.read=true);_saveNotifLog();_refreshBell();_notifPanelOpen=false;toggleNotifPanel()}
-function clearAllNotif(){if(!confirm('Clear all notifications?'))return;_notifLog=[];_saveNotifLog();_refreshBell();_notifPanelOpen=false;toggleNotifPanel()}
 function openModal(title,bodyHTML,footerHTML){const mc=document.getElementById('globalModalContent');mc.innerHTML=`<div class="mh"><h2>${title}</h2><button class="btn-i" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="mb">${bodyHTML}</div>${footerHTML?`<div class="mf">${footerHTML}</div>`:''}`;document.getElementById('globalModal').classList.add('open')}
 function closeModal(){document.getElementById('globalModal').classList.remove('open')}
 function closePnl(){document.getElementById('detPnl').classList.remove('open')}
@@ -763,18 +833,18 @@ function renderDash(){
   document.getElementById('dashContent').innerHTML=`
     <div class="sg">
       <div class="sc"><div class="si" style="background:var(--acs);color:var(--ac)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div><div class="sv">${DB.reports.length}</div><div class="sl">Total Reports</div></div>
-      <div class="sc" onclick="showPage('reports')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><div class="sv" style="color:var(--er)">${outstandingRpts.length}</div><div class="sl">Outstanding Reports</div></div>
-      <div class="sc" onclick="showPage('jobs')" style="cursor:pointer"><div class="si" style="background:var(--wns);color:var(--wn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></div><div class="sv">${aj.length}</div><div class="sl">Active Jobs</div></div>
+      <div class="sc" onclick="curRptF='Outstanding';showPage('reports')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><div class="sv" style="color:var(--er)">${outstandingRpts.length}</div><div class="sl">Outstanding Reports</div></div>
+      <div class="sc" onclick="curJF='Active';showPage('jobs')" style="cursor:pointer"><div class="si" style="background:var(--wns);color:var(--wn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></div><div class="sv">${aj.length}</div><div class="sl">Active Jobs</div></div>
       <div class="sc" onclick="curJF='Follow-Up';showPage('jobs')" style="cursor:pointer"><div class="si" style="background:var(--wns);color:var(--wn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="sv" style="color:var(--wn)">${followUpJobs.length}</div><div class="sl">To Follow-Up</div></div>
-      <div class="sc" onclick="showPage('machines')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="sv" style="color:var(--er)">${defectiveMachines.length}</div><div class="sl">Defective Machines</div></div>
+      <div class="sc" onclick="curMachCat='Defective';showPage('machines')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="sv" style="color:var(--er)">${defectiveMachines.length}</div><div class="sl">Defective Machines</div></div>
       <div class="sc" onclick="showPage('parts')" style="cursor:pointer"><div class="si" style="background:var(--pus);color:var(--pu)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg></div><div class="sv" style="color:${lowStock.length?'var(--er)':'var(--pu)'}">${lowStock.length}</div><div class="sl">Low Stock</div></div>
     </div>
     ${followUpJobs.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--wn)"><div class="th"><h3 style="color:var(--wn)">📌 To Follow-Up</h3><button class="btn btn-sm btn-s" onclick="curJF='Follow-Up';showPage('jobs')">View All →</button></div>
-    ${followUpJobs.slice(0,5).map(j=>`<div class="rpt-card" onclick="showPage('jobs')" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title)}</span><span class="bd bd-wn">JOB-${String(j.id).padStart(4,'0')}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer||'')}</span></div><div class="rpt-card-row"><span class="rc-label">Follow-up</span><span class="rc-val" style="max-width:65%">${E((j.followUp||'').substring(0,120))}</span></div></div>`).join('')}</div>`:''}
+    ${followUpJobs.slice(0,5).map(j=>`<div class="rpt-card" onclick="showJobById(${j.id})" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title)}</span><span class="bd bd-wn">JOB-${String(j.id).padStart(4,'0')}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer||'')}</span></div><div class="rpt-card-row"><span class="rc-label">Follow-up</span><span class="rc-val" style="max-width:65%">${E((j.followUp||'').substring(0,120))}</span></div></div>`).join('')}</div>`:''}
     ${overduePM.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--er)"><div class="th"><h3 style="color:var(--er)">🚨 Overdue PM (no job created yet)</h3><button class="btn btn-sm btn-s" onclick="showPage('pm-schedule')">View All →</button></div>
     ${overduePM.slice(0,5).map(({m,pm})=>`<div class="rpt-card" onclick="showPage('pm-schedule')" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(m.model)} — ${E(m.serial)}</span><span class="bd bd-er">${pm.statusLabel}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(m.customer||'')}</span></div><div class="rpt-card-row"><span class="rc-label">Was due</span><span class="rc-val">${E(pm.nextDue||'')}</span></div></div>`).join('')}</div>`:''}
     ${upcomingPM.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--ac)"><div class="th"><h3 style="color:var(--ac)">📅 Upcoming PM (next 30 days)</h3><button class="btn btn-sm btn-s" onclick="showPage('pm-schedule')">View All →</button></div>
-    ${upcomingPM.slice(0,5).map(j=>{const dl=Math.round((new Date(j.date)-today)/86400000);return`<div class="rpt-card" onclick="showPage('jobs')" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title)}</span><span class="bd ${dl<=7?'bd-er':'bd-ac'}">${dl<=0?'TODAY':'in '+dl+'d'}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer||'')}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div>${j.autoScheduled?'<div class="rpt-card-row"><span class="rc-label">Source</span><span class="rc-val"><span class="bd bd-pu">🤖 Auto-scheduled</span></span></div>':''}</div>`}).join('')}</div>`:''}
+    ${upcomingPM.slice(0,5).map(j=>{const dl=Math.round((new Date(j.date)-today)/86400000);return`<div class="rpt-card" onclick="showJobById(${j.id})" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title)}</span><span class="bd ${dl<=7?'bd-er':'bd-ac'}">${dl<=0?'TODAY':'in '+dl+'d'}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer||'')}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div>${j.autoScheduled?'<div class="rpt-card-row"><span class="rc-label">Source</span><span class="rc-val"><span class="bd bd-pu">🤖 Auto-scheduled</span></span></div>':''}</div>`}).join('')}</div>`:''}
     ${lowStock.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--er)"><div class="th"><h3 style="color:var(--er)">⚠ Low Stock Parts</h3><button class="btn btn-sm btn-s" onclick="curPartsTab='stock';showPage('parts')">View All →</button></div>
     ${lowStock.slice(0,5).map(s=>`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(s.name)}</span><span class="bd bd-er">${s.qty} in stock</span></div><div class="rpt-card-row"><span class="rc-label">Reorder at</span><span class="rc-val">${s.reorderAt}</span></div></div>`).join('')}</div>`:''}
     ${outstandingRpts.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--er)"><div class="th"><h3 style="color:var(--er)">⚠ Outstanding Reports</h3><button class="btn btn-sm btn-s" onclick="showPage('reports')">View All →</button></div>
@@ -782,7 +852,7 @@ function renderDash(){
     ${defectiveMachines.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--wn)"><div class="th"><h3 style="color:var(--wn)">🔧 Defective Machines</h3><button class="btn btn-sm btn-s" onclick="showPage('machines')">View All →</button></div>
     ${defectiveMachines.slice(0,5).map(m=>`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(m.serial)}</span><span class="bd bd-er">${(m.issues||[]).length} issue(s)</span></div><div class="rpt-card-row"><span class="rc-label">Model</span><span class="rc-val">${E(m.model)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(m.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Last Issue</span><span class="rc-val">${E(m.issues[m.issues.length-1]?.status||'')}</span></div></div>`).join('')}</div>`:''}
     <div class="tw" style="margin-bottom:16px"><div class="th"><h3>Active Jobs</h3><button class="btn btn-sm btn-s" onclick="showPage('jobs')">View All →</button></div>
-    ${aj.length?aj.slice(0,5).map(j=>{ return`<div class="rpt-card" onclick="showPage('jobs')"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title?.substring(0,40))}</span>${prBd(j.priority)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Technician(s)</span><span class="rc-val">${E(getJobTechNames(j))}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div><div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${jsBd(j.status)}</span></div></div>`}).join(''):'<div class="es" style="padding:24px"><p>No active jobs.</p></div>'}
+    ${aj.length?aj.slice(0,5).map(j=>{ return`<div class="rpt-card" onclick="showJobById(${j.id})" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title?.substring(0,40))}</span>${prBd(j.priority)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Technician(s)</span><span class="rc-val">${E(getJobTechNames(j))}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(j.date)}</span></div><div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${jsBd(j.status)}</span></div></div>`}).join(''):'<div class="es" style="padding:24px"><p>No active jobs.</p></div>'}
     </div>
     <div class="tw"><div class="th"><h3>Recent Reports</h3></div>
     ${DB.reports.length?[...DB.reports].sort((a,b)=>b.id-a.id).slice(0,5).map(r=>`<div class="rpt-card" onclick="showPage('reports')"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span><span class="bd" style="background:${CO[r.company]?.color||'var(--ac)'}15;color:${CO[r.company]?.color||'var(--ac)'};font-size:11px">${E(r.company)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Status</span><span class="rc-val">${stBd(r.status)}</span></div></div>`).join(''):'<div class="es" style="padding:24px"><p>No reports yet.</p></div>'}
@@ -792,24 +862,40 @@ function renderDash(){
 }
 
 // ===== JOBS (with status update) =====
+function showJobById(id){
+  // Reset filter to all so the job is visible
+  curJF='all';
+  showPage('jobs');
+  setTimeout(()=>{
+    const el=document.getElementById('job-'+id);
+    if(el){
+      el.scrollIntoView({behavior:'smooth',block:'center'});
+      el.style.transition='box-shadow .3s ease';
+      el.style.boxShadow='0 0 0 3px var(--ac), var(--sh2)';
+      setTimeout(()=>{el.style.boxShadow='';},3000);
+    }
+  },150);
+}
+
 function renderJobs(){
   const s=(document.querySelector('#page-jobs .sx input')?.value||'').toLowerCase();
   let jobs=[...DB.jobs].sort((a,b)=>b.id-a.id);
   if(curJF!=='all'){
     if(curJF==='Follow-Up')jobs=jobs.filter(j=>j.status==='Pending Follow-Up'||(j.followUp&&j.followUp.trim()));
+    else if(curJF==='Active')jobs=jobs.filter(j=>j.status!=='Completed');
     else jobs=jobs.filter(j=>j.status===curJF);
   }
   if(s)jobs=jobs.filter(j=>(j.title+j.customer+j.desc+(j.poNo||'')+(j.address||'')).toLowerCase().includes(s));
 
   document.getElementById('jobsContent').innerHTML=`
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px"><h2 style="font-size:var(--fs-xl)">Job Board</h2><div style="display:flex;gap:8px"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search jobs..." oninput="renderJobs()"></div><button class="btn btn-p btn-sm" onclick="openNewJobModal()">+ Job</button></div></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${['all','Open','Assigned','In Progress','Follow-Up','Completed'].map(f=>`<button class="fc-chip${curJF===f?' active':''}" onclick="curJF='${f}';renderJobs()">${f==='all'?'All':f}</button>`).join('')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${['all','Active','Open','Assigned','In Progress','Follow-Up','Completed'].map(f=>`<button class="fc-chip${curJF===f?' active':''}" onclick="curJF='${f}';renderJobs()">${f==='all'?'All':f}</button>`).join('')}</div>
     ${jobs.length?jobs.map(j=>{
       const isRunning=j.startTime&&!j.endTime;
       const isDone=j.startTime&&j.endTime;
       const elapsed=isDone?fmtElapsed(j.startTime,j.endTime):(isRunning?fmtElapsed(j.startTime,new Date().toISOString()):'');
       const chgBd=j.chargeable==='FOC'?'<span class="bd bd-ok">FOC</span>':'<span class="bd bd-wn">Chargeable</span>';
-      return`<div class="jc"><div class="jc-h"><div><h4>${E(j.title)}</h4><span style="font-size:var(--fs-xs);color:var(--t3)">JOB-${String(j.id).padStart(4,'0')}</span></div><div style="display:flex;gap:6px;flex-wrap:wrap">${prBd(j.priority)}${chgBd}</div></div>
+      return`<div class="jc" id="job-${j.id}"><div class="jc-h"><div><h4>${E(j.title)}</h4><span style="font-size:var(--fs-xs);color:var(--t3)">JOB-${String(j.id).padStart(4,'0')}</span></div><div style="display:flex;gap:6px;flex-wrap:wrap">${prBd(j.priority)}${chgBd}</div></div>
       <div class="jc-m">
         <span>🏢 ${E(j.customer||'—')}</span>
         ${j.address?`<span>📍 ${E(j.address)}</span>`:''}
@@ -827,7 +913,9 @@ function renderJobs(){
       <div class="jc-a">
         ${!j.startTime?`<button class="btn btn-sm btn-ok" onclick="startWork(${j.id})">▶ Start Work</button>`:''}
         ${isRunning?`<button class="btn btn-sm btn-d" onclick="stopWork(${j.id})">■ Finish Work</button>`:''}
+        ${isRunning?`<button class="btn btn-sm btn-s" onclick="undoStartWork(${j.id})">↩ Undo Start</button>`:''}
         ${isDone?`<button class="btn btn-sm btn-p" onclick="generateReportFromJob(${j.id})">📝 Generate Report</button>`:''}
+        ${isDone?`<button class="btn btn-sm btn-s" onclick="undoFinishWork(${j.id})">↩ Undo Finish</button>`:''}
         ${j.status!=='Completed'?`<button class="btn btn-sm btn-wa" onclick="sendJWA(${j.id})">📱 WhatsApp</button>`:''}
         <button class="btn btn-sm btn-s" onclick="openFollowUpModal(${j.id})">📌 Follow-up</button>
         ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editJob(${j.id})">Edit</button>`:''}
@@ -857,6 +945,22 @@ function stopWork(id){
   if(!j.startTime){toast('Start work first.','error');return;}
   j.endTime=new Date().toISOString();
   saveDB();renderJobs();toast('Work finished — ready to generate report.','success');
+}
+
+function undoStartWork(id){
+  const j=DB.jobs.find(x=>x.id===id);if(!j)return;
+  if(!j.startTime){toast('No start time to undo.','error');return;}
+  delete j.startTime;delete j.endTime;
+  if(j.status==='In Progress')j.status='Assigned';
+  saveDB();renderJobs();toast('Start work undone.','info');
+}
+
+function undoFinishWork(id){
+  const j=DB.jobs.find(x=>x.id===id);if(!j)return;
+  if(!j.endTime){toast('No finish time to undo.','error');return;}
+  delete j.endTime;
+  j.status='In Progress';
+  saveDB();renderJobs();toast('Finish work undone — job resumed.','info');
 }
 
 function openFollowUpModal(id){
@@ -1142,13 +1246,17 @@ function sendJWA(jid){
 function delJob(id){if(!confirm('Delete?'))return;DB.jobs=DB.jobs.filter(j=>j.id!==id);saveDB();renderJobs();renderDash();toast('Deleted.','info');}
 
 // ===== REPORTS =====
+let curRptF='all';
 function renderReports(){
-  const reps=[...DB.reports].sort((a,b)=>b.id-a.id);
+  const allReps=[...DB.reports].sort((a,b)=>b.id-a.id);
+  const reps=curRptF==='all'?allReps:curRptF==='Outstanding'?allReps.filter(r=>r.status!=='Completed'):allReps.filter(r=>r.status===curRptF);
+  const outCt=allReps.filter(r=>r.status!=='Completed').length;
   document.getElementById('reportsContent').innerHTML=`
     <div class="tw"><div class="th"><h3>Service Reports</h3><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="rSrch" oninput="filterReports()"></div></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${['all','Outstanding','Completed','Pending Follow-Up','In Progress','Requires Parts'].map(f=>`<button class="fc-chip${curRptF===f?' active':''}" onclick="curRptF='${f}';renderReports()">${f==='all'?'All ('+allReps.length+')':f==='Outstanding'?'⚠ Outstanding ('+outCt+')':f}</button>`).join('')}</div>
     <div id="rptList">${renderRptCards(reps)}</div></div>`;
 }
-function filterReports(){const s=(document.getElementById('rSrch')?.value||'').toLowerCase();const f=DB.reports.filter(x=>(x.jobNo+x.customer+x.serial+x.company+x.engineer).toLowerCase().includes(s)).sort((a,b)=>b.id-a.id);document.getElementById('rptList').innerHTML=renderRptCards(f);}
+function filterReports(){const s=(document.getElementById('rSrch')?.value||'').toLowerCase();const allReps=DB.reports.sort((a,b)=>b.id-a.id);const base=curRptF==='all'?allReps:curRptF==='Outstanding'?allReps.filter(r=>r.status!=='Completed'):allReps.filter(r=>r.status===curRptF);const f=base.filter(x=>(x.jobNo+x.customer+x.serial+x.company+x.engineer).toLowerCase().includes(s));document.getElementById('rptList').innerHTML=renderRptCards(f);}
 
 function renderRptCards(reps){
   if(!reps.length)return'<div class="es" style="padding:24px"><p>No reports found.</p></div>';
@@ -1253,6 +1361,88 @@ function viewRptPreview(id){
 
 // ===== CREATE REPORT (simplified for performance) =====
 let crPhotos=[];
+// ===== PM TEMPLATES =====
+const PM_TEMPLATES={
+  pm_std:{
+    type:'Preventive Maintenance',status:'Completed',
+    timeStart:'09:00',timeEnd:'11:00',
+    remarks:'Performed standard preventive maintenance:\n- Visual inspection of machine\n- Check and tighten belts and tension\n- Lubricate moving parts\n- Check motor operation\n- Clean machine surfaces\n- Test run and verify operation',
+    recommendations:'Machine operating in normal condition. Next PM as per schedule.'
+  },
+  pm_full:{
+    type:'Preventive Maintenance',status:'Completed',
+    timeStart:'09:00',timeEnd:'13:00',
+    remarks:'Full preventive maintenance performed:\n- Check motors, belts and chain tension\n- Visual inspection of sensors and limit switches\n- Cleaning of heater element and sealing bars\n- Check pneumatic system for leaks\n- Lubricate gearbox and bearings\n- Inspect electrical wiring and connections\n- Replace consumables (Teflon tape, sealing wire if needed)\n- Test run both machines under load',
+    recommendations:'All systems working in normal condition. Recommend monitoring belt wear at next visit.'
+  },
+  bd_call:{
+    type:'Breakdown Call',status:'Completed',
+    timeStart:'',timeEnd:'',
+    remarks:'Breakdown call attended:\n- Identified fault: \n- Root cause: \n- Action taken: \n- Parts replaced: ',
+    recommendations:'Monitor machine operation. Spare parts to be stocked for future emergencies.'
+  },
+  install:{
+    type:'Installation',status:'Completed',
+    timeStart:'09:00',timeEnd:'16:00',
+    remarks:'New machine installation:\n- Unboxing and inspection of components\n- Positioning and leveling of machine\n- Electrical connection\n- Pneumatic / hydraulic connection\n- Initial commissioning and testing\n- Customer training on operation',
+    recommendations:'Installation completed. Customer trained on basic operation. Recommend first PM after 3 months.'
+  },
+  inspect:{
+    type:'Inspection',status:'Completed',
+    timeStart:'10:00',timeEnd:'11:00',
+    remarks:'Site inspection visit:\n- Visual condition of machine\n- Operating performance check\n- Identified issues: \n- Required parts: ',
+    recommendations:'Quotation for repair/parts will be issued separately.'
+  }
+};
+
+function loadPMTemplate(key){
+  if(!key)return;
+  // Check user templates first
+  const userTpls=getUserTemplates();
+  const t=PM_TEMPLATES[key]||userTpls[key];
+  if(!t)return;
+  const setVal=(id,v)=>{const el=document.getElementById(id);if(el)el.value=v;};
+  setVal('crTy',t.type);setVal('crSt',t.status);
+  setVal('crTS',t.timeStart);setVal('crTE',t.timeEnd);
+  setVal('crRm',t.remarks);setVal('crRc',t.recommendations);
+  toast('Template loaded — review and edit as needed.','success');
+}
+
+function getUserTemplates(){try{return JSON.parse(localStorage.getItem('ocrm_user_tpls')||'{}');}catch(e){return{};}}
+function saveUserTemplates(tpls){try{localStorage.setItem('ocrm_user_tpls',JSON.stringify(tpls));}catch(e){}}
+
+function saveAsTemplate(){
+  const name=prompt('Enter a name for this template:');
+  if(!name||!name.trim())return;
+  const key='user_'+Date.now();
+  const tpls=getUserTemplates();
+  tpls[key]={
+    name:name.trim(),
+    type:document.getElementById('crTy')?.value||'',
+    status:document.getElementById('crSt')?.value||'Completed',
+    timeStart:document.getElementById('crTS')?.value||'',
+    timeEnd:document.getElementById('crTE')?.value||'',
+    remarks:document.getElementById('crRm')?.value||'',
+    recommendations:document.getElementById('crRc')?.value||''
+  };
+  saveUserTemplates(tpls);
+  toast('Template saved: '+name.trim(),'success');
+  renderCreateReport();// refresh dropdown
+}
+
+function deleteUserTemplate(){
+  const sel=document.getElementById('crTplSel');
+  const key=sel?.value;
+  if(!key||!key.startsWith('user_')){toast('Select a custom template to delete.','error');return;}
+  const tpls=getUserTemplates();
+  const name=tpls[key]?.name||key;
+  if(!confirm('Delete template "'+name+'"?'))return;
+  delete tpls[key];
+  saveUserTemplates(tpls);
+  toast('Template deleted.','info');
+  renderCreateReport();
+}
+
 function renderCreateReport(){
   crPhotos=[];
   const cs=getAllCusts();
@@ -1260,7 +1450,33 @@ function renderCreateReport(){
   document.getElementById('createReportContent').innerHTML=`
     <div style="max-width:800px">
       <h2 style="margin-bottom:8px">Create Service Report</h2>
-      <p style="color:var(--t2);margin-bottom:20px">Select company, fill details, capture signature, and email.</p>
+      <p style="color:var(--t2);margin-bottom:12px">Select company, fill details, capture signature, and email.</p>
+
+      <div style="background:linear-gradient(135deg,var(--acs),var(--pus));border:1px solid var(--bdr);border-radius:var(--rl);padding:16px;margin-bottom:20px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:18px">📋</span>
+          <div style="flex:1;min-width:160px">
+            <div style="font-weight:700;font-size:var(--fs-sm);color:var(--t1);margin-bottom:2px">Load Template</div>
+            <div style="font-size:var(--fs-xs);color:var(--t2)">Pre-fill fields or save your own</div>
+          </div>
+          <select id="crTplSel" class="fc" style="width:auto;min-width:220px;background:#fff" onchange="loadPMTemplate(this.value)">
+            <option value="">— Select template —</option>
+            <optgroup label="Built-in">
+              <option value="pm_std">🔧 Standard Preventive Maintenance</option>
+              <option value="pm_full">🔧 Full PM — Motors, Belts &amp; Sensors</option>
+              <option value="bd_call">⚡ Breakdown Call</option>
+              <option value="install">🏗 New Installation</option>
+              <option value="inspect">🔍 Inspection Visit</option>
+            </optgroup>
+            ${(()=>{const ut=getUserTemplates();const keys=Object.keys(ut);return keys.length?'<optgroup label="My Templates">'+keys.map(k=>'<option value="'+k+'">⭐ '+E(ut[k].name)+'</option>').join('')+'</optgroup>':'';})()}
+          </select>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+          <button class="btn btn-sm btn-ok" onclick="saveAsTemplate()" style="font-size:var(--fs-xs)">💾 Save Current as Template</button>
+          <button class="btn btn-sm btn-d" onclick="deleteUserTemplate()" style="font-size:var(--fs-xs)">🗑 Delete Selected</button>
+        </div>
+      </div>
+
       <div class="fg"><label>Company</label><select class="fc" id="crCo"><option value="octopack">Octopack SEA</option><option value="jw">JW Supplies & Works</option><option value="redbox">Redbox Global Solutions</option></select></div>
       <div class="fr"><div class="fg"><label>Job No.</label><input class="fc" id="crJN" value="SR-${String(DB.nR).padStart(5,'0')}"></div><div class="fg"><label>Date</label><input class="fc" type="date" id="crDt" value="${new Date().toISOString().split('T')[0]}"></div></div>
       
@@ -1645,16 +1861,18 @@ function renderMachines(){
   const cats=getMachineCategories();
   const catCounts={};
   ms.forEach(m=>{const c=m.category||'Uncategorized';catCounts[c]=(catCounts[c]||0)+1;});
-  const filtered=curMachCat==='all'?ms:ms.filter(m=>(m.category||'Uncategorized')===curMachCat);
+  const defCount=ms.filter(m=>(m.issues||[]).length>0).length;
+  const filtered=curMachCat==='all'?ms:curMachCat==='Defective'?ms.filter(m=>(m.issues||[]).length>0):ms.filter(m=>(m.category||'Uncategorized')===curMachCat);
   document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--bdr)">
     <button class="fc-chip${curMachCat==='all'?' active':''}" onclick="curMachCat='all';renderMachines()">All (${ms.length})</button>
+    ${defCount?`<button class="fc-chip${curMachCat==='Defective'?' active':''}" onclick="curMachCat='Defective';renderMachines()" style="${curMachCat==='Defective'?'background:var(--er);border-color:var(--er)':''}">⚠ Defective (${defCount})</button>`:''}
     ${cats.map(c=>catCounts[c]?`<button class="fc-chip${curMachCat===c?' active':''}" onclick="curMachCat='${E(c)}';renderMachines()">${E(c)} (${catCounts[c]||0})</button>`:'').join('')}
     ${catCounts['Uncategorized']?`<button class="fc-chip${curMachCat==='Uncategorized'?' active':''}" onclick="curMachCat='Uncategorized';renderMachines()">Uncategorized (${catCounts['Uncategorized']})</button>`:''}
   </div>
   <div id="mList">${mCards(filtered)}</div></div>`;
 }
-function filterMachines(){const s=(document.getElementById('mSrch')?.value||'').toLowerCase();const ms=getAllMachinesDB().filter(m=>(curMachCat==='all'||(m.category||'Uncategorized')===curMachCat)&&(m.serial+m.model+m.customer+(m.location||'')+(m.category||'')).toLowerCase().includes(s));document.getElementById('mList').innerHTML=mCards(ms);}
+function filterMachines(){const s=(document.getElementById('mSrch')?.value||'').toLowerCase();const ms=getAllMachinesDB().filter(m=>(curMachCat==='all'||curMachCat==='Defective'?(curMachCat==='Defective'?(m.issues||[]).length>0:true):(m.category||'Uncategorized')===curMachCat)&&(m.serial+m.model+m.customer+(m.location||'')+(m.category||'')).toLowerCase().includes(s));document.getElementById('mList').innerHTML=mCards(ms);}
 function mCards(ms){
   if(!ms.length)return'<div class="es"><p>No machines found.</p></div>';
   return ms.map(m=>{
@@ -2859,6 +3077,16 @@ function renderDataMgmt(){
         <input type="file" accept=".json" id="jsonImpFile" style="display:none" onchange="importJSON(this.files[0])">
       </div>
     </div>
+
+    <div class="oc" style="border-left:4px solid var(--ok)"><h3>🌱 Seed Data (Stable Baseline)</h3>
+      <p>Save current data as a stable baseline. When you reset the app, it will reload from this seed instead of starting empty.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+        <button class="btn btn-ok btn-sm" onclick="saveSeedData()">💾 Save Current as Seed</button>
+        <button class="btn btn-s btn-sm" onclick="loadSeedData()">📥 Load from Seed</button>
+        <button class="btn btn-d btn-sm" onclick="clearSeedData()">🗑 Clear Seed</button>
+      </div>
+      <div style="margin-top:8px;font-size:var(--fs-xs);color:var(--t3)" id="seedInfo">${localStorage.getItem('ocrm4_seed')?'✅ Seed saved: '+(() => {try{const s=JSON.parse(localStorage.getItem('ocrm4_seed'));return s.savedAt?new Date(s.savedAt).toLocaleString('en-SG'):'unknown date';}catch(e){return'unknown';}})():'⚠ No seed data saved yet.'}</div>
+    </div>
   </div>`;
 }
 
@@ -3206,18 +3434,55 @@ function mergeSerials(serial){
 }
 
 // ===== RESET =====
-function resetAllData(){
-  if(!confirm('This will DELETE all reports, jobs, customers, and settings.\n\nAre you sure?'))return;
-  if(!confirm('FINAL WARNING: All data will be permanently erased from this device AND the cloud database.\n\nProceed?'))return;
-  // Clear localStorage
-  localStorage.removeItem('ocrm4');
-  localStorage.removeItem('ocrm4_session');
-  // Clear Firebase
+// ===== SEED DATA =====
+function saveSeedData(){
+  if(!confirm('Save current database as seed baseline?\nThis will overwrite any previous seed.'))return;
+  const seed={data:JSON.parse(JSON.stringify(DB)),savedAt:new Date().toISOString()};
+  try{localStorage.setItem('ocrm4_seed',JSON.stringify(seed));toast('Seed data saved. Reset will restore to this point.','success');renderDataMgmt();}
+  catch(e){toast('Failed to save seed — data may be too large.','error');}
+}
+function loadSeedData(){
+  const raw=localStorage.getItem('ocrm4_seed');
+  if(!raw){toast('No seed data found. Save one first.','error');return;}
+  if(!confirm('Load seed data? This will REPLACE your current data.'))return;
   try{
-    if(typeof firebase!=='undefined'&&firebase.apps&&firebase.apps.length){
-      firebase.database().ref('octoCRM_v4').remove().then(()=>{location.reload();}).catch(()=>{location.reload();});
-    }else{location.reload();}
-  }catch(e){location.reload();}
+    const seed=JSON.parse(raw);
+    DB=JSON.parse(JSON.stringify(seed.data));
+    saveDB();refreshPage();toast('Seed data loaded.','success');
+  }catch(e){toast('Failed to parse seed data.','error');}
+}
+function clearSeedData(){
+  if(!confirm('Clear saved seed data?'))return;
+  localStorage.removeItem('ocrm4_seed');
+  toast('Seed data cleared.','info');renderDataMgmt();
+}
+
+function resetAllData(){
+  const hasSeed=!!localStorage.getItem('ocrm4_seed');
+  const msg=hasSeed
+    ?'This will reset data to your saved seed baseline.\n\nProceed?'
+    :'This will DELETE all reports, jobs, customers, and settings.\n\nAre you sure?';
+  if(!confirm(msg))return;
+  if(!hasSeed&&!confirm('FINAL WARNING: All data will be permanently erased from this device AND the cloud database.\n\nProceed?'))return;
+  if(hasSeed){
+    // Restore from seed
+    try{
+      const seed=JSON.parse(localStorage.getItem('ocrm4_seed'));
+      DB=JSON.parse(JSON.stringify(seed.data));
+      localStorage.setItem('ocrm4',JSON.stringify(DB));
+      if(USE_FB&&fbDB)fbDB.ref('octoCRM_v4').set(DB).then(()=>location.reload()).catch(()=>location.reload());
+      else location.reload();
+    }catch(e){toast('Seed restore failed.','error');}
+  } else {
+    // Full wipe
+    localStorage.removeItem('ocrm4');
+    localStorage.removeItem('ocrm4_session');
+    try{
+      if(typeof firebase!=='undefined'&&firebase.apps&&firebase.apps.length){
+        firebase.database().ref('octoCRM_v4').remove().then(()=>{location.reload();}).catch(()=>{location.reload();});
+      }else{location.reload();}
+    }catch(e){location.reload();}
+  }
 }
 
 // ===== INIT =====
@@ -3232,8 +3497,6 @@ document.getElementById('loginUser').addEventListener('keydown',e=>{if(e.key==='
 
 // Firebase + PDF libraries
 if(USE_FB){const s1=document.createElement('script');s1.src='https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js';s1.onload=()=>{const s2=document.createElement('script');s2.src='https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js';s2.onload=()=>initFB();document.head.appendChild(s2)};document.head.appendChild(s1);}
-
-try{_refreshBell();ensureNotifPermission();}catch(e){}
 
 // PDF libs loaded via script tags in <head>
 let pdfLibsReady=false;
@@ -3254,7 +3517,7 @@ function buildReportHTMLForPDF(r){
         <div style="font-size:22px;font-weight:900;color:${co.color};letter-spacing:0.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${co.name}</div>
         <div style="font-size:10px;color:#444;margin-top:6px;line-height:1.55">${co.addr}<br>Tel: ${co.tel}&nbsp; |&nbsp; Email: ${co.email}<br>UEN: ${co.uen}&nbsp; |&nbsp; GST Reg No.: ${co.uen}</div>
       </div>
-      <div style="border:2px solid ${co.color};padding:10px 22px;text-align:center;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:${co.color};letter-spacing:1.5px">SERVICE REPORT</div></div>
+      <div style="border:2px solid ${co.color};padding:10px 22px;text-align:center;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:#000;letter-spacing:1.5px">SERVICE REPORT</div></div>
     </div>
     <!-- HEADER STRIP -->
     <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:14px;border-top:2px solid ${co.color}">
