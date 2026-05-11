@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,minimum-scale=1.0,maximum-scale=5.0,user-scalable=yes,interactive-widget=resizes-content,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,interactive-widget=resizes-content,viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f8fafc">
@@ -331,6 +331,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
     <div id="syncDot" style="display:flex;align-items:center"></div>
   </div>
   <div class="tb-a">
+    <button class="btn-i" onclick="toggleNotifPanel()" id="bellBtn" title="Notifications" style="position:relative;background:transparent;border:none;cursor:pointer;padding:8px;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:22px;height:22px"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg><span id="bellBadge" style="display:none;position:absolute;top:2px;right:2px;background:var(--er);color:#fff;font-size:10px;font-weight:700;border-radius:10px;min-width:16px;height:16px;padding:0 4px;align-items:center;justify-content:center;line-height:1">0</span></button>
     <button class="btn btn-s btn-sm" onclick="openNewJobModal()">+ Job</button>
     <button class="btn btn-p btn-sm" onclick="showPage('create-report')">+ Report</button>
   </div>
@@ -376,6 +377,7 @@ function initFB(){
     fbDB.ref('octoCRM_v4').on('value',s=>{
       const d=s.val();
       if(d){
+        try{notifyDiffFromCloud(d)}catch(e){}
         DB=d;
         // Always ensure users exist (Firebase data may not have them)
         if(!DB.users||!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
@@ -417,18 +419,6 @@ function loadDB(){
       // Only use if it has the expected structure
       if(parsed && typeof parsed==='object'){
         DB=parsed;
-      }
-    }else{
-      // No active DB — check if a stable seed was saved (post-reset baseline)
-      const seedStr=localStorage.getItem('ocrm4_seed');
-      if(seedStr){
-        try{
-          const seed=JSON.parse(seedStr);
-          if(seed&&seed.data&&typeof seed.data==='object'){
-            DB=JSON.parse(JSON.stringify(seed.data));// deep clone so saves don't mutate seed
-            console.log('Loaded from stable seed saved at:',seed.savedAt);
-          }
-        }catch(e){console.warn('seed load err',e);}
       }
     }
   }catch(e){console.warn('loadDB parse error:',e);}
@@ -710,6 +700,22 @@ function jsBd(s){const m={'Open':'bd-pu','Assigned':'bd-ac','In Progress':'bd-wn
 function prBd(p){const m={'Low':'bd-tl','Medium':'bd-ac','High':'bd-wn','Urgent':'bd-er'};return`<span class="bd ${m[p]||'bd-ac'}">${E(p)}</span>`}
 function tyBd(t){const m={'Preventive Maintenance':'bd-ok','Corrective Maintenance':'bd-wn','Breakdown Call':'bd-er','Installation':'bd-ac','Inspection':'bd-pu','Emergency':'bd-er'};return`<span class="bd ${m[t]||'bd-ac'}">${E(t)}</span>`}
 function toast(msg,type='info'){const c=document.getElementById('toastC'),t=document.createElement('div');t.className=`ts ${type}`;const i={success:'✓',error:'✕',info:'ℹ'};t.innerHTML=`<span style="font-weight:700;font-size:18px">${i[type]||'ℹ'}</span><span>${msg}</span>`;c.appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300)},3e3)}
+
+// ===== NOTIFICATIONS =====
+let _notifLog=[],_notifSnap=null,_notifPanelOpen=false;
+const NOTIF_LS_KEY='ocrm_notif_log',NOTIF_PERM_LS='ocrm_notif_perm_asked',NOTIF_MAX=50;
+try{const raw=localStorage.getItem(NOTIF_LS_KEY);if(raw){_notifLog=JSON.parse(raw)||[]}}catch(e){}
+function _saveNotifLog(){try{localStorage.setItem(NOTIF_LS_KEY,JSON.stringify(_notifLog.slice(0,NOTIF_MAX)))}catch(e){}}
+function _bellUnread(){return _notifLog.filter(n=>!n.read).length}
+function _refreshBell(){const b=document.getElementById('bellBadge');if(!b)return;const u=_bellUnread();if(u>0){b.textContent=u>99?'99+':String(u);b.style.display='flex'}else{b.style.display='none'}}
+function _snapStatuses(db){const m={jobs:{},reports:{},pos:{}};(db.jobs||[]).forEach(j=>{if(j&&j.id!=null)m.jobs[j.id]={status:j.status||'',title:j.title||'',customer:j.customer||''}});(db.reports||[]).forEach(r=>{if(r&&r.id!=null)m.reports[r.id]={status:r.status||'',jobNo:r.jobNo||'',customer:r.customer||''}});(db.pos||[]).forEach(p=>{if(p&&p.id!=null)m.pos[p.id]={status:p.status||'',poNo:p.poNo||'',customer:p.customer||''}});return m}
+function _diffNotify(prev,next){if(!prev||!next)return[];const events=[];const check=(kind,label,getLabel)=>{const pa=prev[kind]||{},na=next[kind]||{};Object.keys(na).forEach(id=>{const p=pa[id],n=na[id];if(!p){events.push({kind,id,type:'new',title:`New ${label}: ${n.status||''}`.trim(),body:getLabel(n)})}else if(p.status&&n.status&&p.status!==n.status){events.push({kind,id,type:'status',title:`${label} status: ${p.status} → ${n.status}`,body:getLabel(n)})}})};check('jobs','Job',n=>`${n.title||'(no title)'} — ${n.customer||''}`);check('reports','Report',n=>`${n.jobNo||'(no #)'} — ${n.customer||''}`);check('pos','PO',n=>`${n.poNo||'(no #)'} — ${n.customer||''}`);return events}
+function _pushNotif(ev){const item={id:Date.now()+'_'+Math.random().toString(36).slice(2,7),kind:ev.kind,refId:ev.id,type:ev.type,title:ev.title,body:ev.body,ts:Date.now(),read:false};_notifLog.unshift(item);if(_notifLog.length>NOTIF_MAX)_notifLog.length=NOTIF_MAX;_saveNotifLog();_refreshBell();try{toast(`🔔 ${ev.title}`,'info')}catch(e){}if(typeof Notification!=='undefined'&&Notification.permission==='granted'){try{const n=new Notification(ev.title,{body:ev.body,tag:`${ev.kind}-${ev.id}`});n.onclick=()=>{try{window.focus()}catch(e){}n.close()}}catch(e){}}}
+function notifyDiffFromCloud(cloudDB){try{const cur=_snapStatuses(cloudDB);if(!_notifSnap){_notifSnap=cur;return}const events=_diffNotify(_notifSnap,cur);events.forEach(_pushNotif);_notifSnap=cur}catch(e){console.warn('notifyDiff err:',e)}}
+function ensureNotifPermission(){if(typeof Notification==='undefined')return;if(Notification.permission==='granted'||Notification.permission==='denied')return;if(localStorage.getItem(NOTIF_PERM_LS)==='1')return;const ask=()=>{try{Notification.requestPermission().then(p=>{localStorage.setItem(NOTIF_PERM_LS,'1');if(p==='granted')toast('🔔 Notifications enabled.','success')})}catch(e){}document.removeEventListener('click',ask)};document.addEventListener('click',ask,{once:true})}
+function toggleNotifPanel(){_notifPanelOpen=!_notifPanelOpen;let panel=document.getElementById('notifPanel');if(!panel){panel=document.createElement('div');panel.id='notifPanel';panel.style.cssText='position:fixed;top:60px;right:16px;width:340px;max-width:calc(100vw - 32px);max-height:70vh;overflow-y:auto;background:var(--card);border:1px solid var(--bdr);border-radius:var(--rl);box-shadow:0 8px 32px rgba(0,0,0,.18);z-index:9999;padding:0;display:none';document.body.appendChild(panel)}if(!_notifPanelOpen){panel.style.display='none';return}panel.innerHTML=`<div style="padding:12px 14px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;gap:8px"><strong>🔔 Notifications</strong><div style="display:flex;gap:6px">${_notifLog.length?`<button class="btn btn-sm btn-s" onclick="markAllNotifRead()" style="font-size:11px;padding:3px 8px;min-height:24px">Mark read</button><button class="btn btn-sm btn-s" onclick="clearAllNotif()" style="font-size:11px;padding:3px 8px;min-height:24px">Clear</button>`:''}</div></div>${_notifLog.length?_notifLog.map(n=>`<div style="padding:10px 14px;border-bottom:1px solid var(--bdr);${n.read?'opacity:.6':''}"><div style="font-size:var(--fs-sm);font-weight:600;color:var(--t1)">${E(n.title)}</div><div style="font-size:var(--fs-xs);color:var(--t2);margin-top:2px">${E(n.body||'')}</div><div style="font-size:11px;color:var(--t3);margin-top:4px">${new Date(n.ts).toLocaleString()}</div></div>`).join(''):'<div style="padding:24px;text-align:center;color:var(--t3);font-size:var(--fs-sm)">No notifications yet.</div>'}`;panel.style.display='block';setTimeout(()=>{const off=(e)=>{if(panel&&!panel.contains(e.target)&&e.target.id!=='bellBtn'&&!document.getElementById('bellBtn')?.contains(e.target)){_notifPanelOpen=false;panel.style.display='none';document.removeEventListener('click',off)}};document.addEventListener('click',off)},50)}
+function markAllNotifRead(){_notifLog.forEach(n=>n.read=true);_saveNotifLog();_refreshBell();_notifPanelOpen=false;toggleNotifPanel()}
+function clearAllNotif(){if(!confirm('Clear all notifications?'))return;_notifLog=[];_saveNotifLog();_refreshBell();_notifPanelOpen=false;toggleNotifPanel()}
 function openModal(title,bodyHTML,footerHTML){const mc=document.getElementById('globalModalContent');mc.innerHTML=`<div class="mh"><h2>${title}</h2><button class="btn-i" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="mb">${bodyHTML}</div>${footerHTML?`<div class="mf">${footerHTML}</div>`:''}`;document.getElementById('globalModal').classList.add('open')}
 function closeModal(){document.getElementById('globalModal').classList.remove('open')}
 function closePnl(){document.getElementById('detPnl').classList.remove('open')}
@@ -821,8 +827,6 @@ function renderJobs(){
       <div class="jc-a">
         ${!j.startTime?`<button class="btn btn-sm btn-ok" onclick="startWork(${j.id})">▶ Start Work</button>`:''}
         ${isRunning?`<button class="btn btn-sm btn-d" onclick="stopWork(${j.id})">■ Finish Work</button>`:''}
-        ${isRunning?`<button class="btn btn-sm btn-s" onclick="undoStartWork(${j.id})" title="Pressed start by accident? Undo it.">↶ Undo Start</button>`:''}
-        ${isDone?`<button class="btn btn-sm btn-s" onclick="undoFinishWork(${j.id})" title="Resume work — undo the finish.">↶ Resume Work</button>`:''}
         ${isDone?`<button class="btn btn-sm btn-p" onclick="generateReportFromJob(${j.id})">📝 Generate Report</button>`:''}
         ${j.status!=='Completed'?`<button class="btn btn-sm btn-wa" onclick="sendJWA(${j.id})">📱 WhatsApp</button>`:''}
         <button class="btn btn-sm btn-s" onclick="openFollowUpModal(${j.id})">📌 Follow-up</button>
@@ -853,23 +857,6 @@ function stopWork(id){
   if(!j.startTime){toast('Start work first.','error');return;}
   j.endTime=new Date().toISOString();
   saveDB();renderJobs();toast('Work finished — ready to generate report.','success');
-}
-
-function undoStartWork(id){
-  const j=DB.jobs.find(x=>x.id===id);if(!j)return;
-  if(!j.startTime){toast('Not started.','info');return;}
-  if(!confirm('Undo Start Work? The recorded start time will be cleared.'))return;
-  j.startTime=null;j.endTime=null;
-  if(j.status==='In Progress')j.status=(j.techIds&&j.techIds.length)?'Assigned':'Open';
-  saveDB();renderJobs();toast('Start time cleared.','info');
-}
-
-function undoFinishWork(id){
-  const j=DB.jobs.find(x=>x.id===id);if(!j)return;
-  if(!j.endTime){toast('Not finished.','info');return;}
-  if(!confirm('Resume work? The recorded finish time will be cleared and job goes back to In Progress.'))return;
-  j.endTime=null;j.status='In Progress';
-  saveDB();renderJobs();toast('Finish time cleared — work resumed.','info');
 }
 
 function openFollowUpModal(id){
@@ -1273,26 +1260,7 @@ function renderCreateReport(){
   document.getElementById('createReportContent').innerHTML=`
     <div style="max-width:800px">
       <h2 style="margin-bottom:8px">Create Service Report</h2>
-      <p style="color:var(--t2);margin-bottom:12px">Select company, fill details, capture signature, and email.</p>
-
-      <div style="background:linear-gradient(135deg,var(--acs),var(--pus));border:1px solid var(--bdr);border-radius:var(--rl);padding:16px;margin-bottom:20px">
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <span style="font-size:18px">📋</span>
-          <div style="flex:1;min-width:200px">
-            <div style="font-weight:700;font-size:var(--fs-sm);color:var(--t1);margin-bottom:2px">Load Template</div>
-            <div style="font-size:var(--fs-xs);color:var(--t2)">Pre-fill common report fields for PM visits</div>
-          </div>
-          <select id="crTplSel" class="fc" style="width:auto;min-width:220px;background:#fff" onchange="loadPMTemplate(this.value)">
-            <option value="">— Select template —</option>
-            <option value="pm_std">🔧 Standard Preventive Maintenance</option>
-            <option value="pm_full">🔧 Full PM — Motors, Belts & Sensors</option>
-            <option value="bd_call">⚡ Breakdown Call</option>
-            <option value="install">🏗 New Installation</option>
-            <option value="inspect">🔍 Inspection Visit</option>
-          </select>
-        </div>
-      </div>
-
+      <p style="color:var(--t2);margin-bottom:20px">Select company, fill details, capture signature, and email.</p>
       <div class="fg"><label>Company</label><select class="fc" id="crCo"><option value="octopack">Octopack SEA</option><option value="jw">JW Supplies & Works</option><option value="redbox">Redbox Global Solutions</option></select></div>
       <div class="fr"><div class="fg"><label>Job No.</label><input class="fc" id="crJN" value="SR-${String(DB.nR).padStart(5,'0')}"></div><div class="fg"><label>Date</label><input class="fc" type="date" id="crDt" value="${new Date().toISOString().split('T')[0]}"></div></div>
       
@@ -1390,61 +1358,6 @@ function renderCreateReport(){
     initSig('sigC');initSig('sigE');
     updateEmailPickers();
   },100);
-}
-
-// ===== PM TEMPLATES =====
-const PM_TEMPLATES={
-  pm_std:{
-    type:'Preventive Maintenance',
-    status:'Completed',
-    timeStart:'09:00',timeEnd:'11:00',
-    remarks:'Performed standard preventive maintenance:\n- Visual inspection of machine\n- Check and tighten belts and tension\n- Lubricate moving parts\n- Check motor operation\n- Clean machine surfaces\n- Test run and verify operation',
-    recommendations:'Machine operating in normal condition. No immediate action required.'
-  },
-  pm_full:{
-    type:'Preventive Maintenance',
-    status:'Completed',
-    timeStart:'09:00',timeEnd:'13:00',
-    remarks:'Performed full preventive maintenance:\n- Check all motors for abnormal noise/vibration\n- Inspect and adjust belt tension\n- Check and clean all sensors and limit switches\n- Lubricate chains, gears and bearings\n- Inspect heater elements and sealing bars\n- Clean machine interior and exterior\n- Check electrical connections and wiring\n- Verify safety guards and interlocks\n- Test run with load',
-    recommendations:'All components checked and in working order. Recommend next PM in 6 months.'
-  },
-  bd_call:{
-    type:'Breakdown Call',
-    status:'Completed',
-    timeStart:'',timeEnd:'',
-    remarks:'Attended breakdown call.\n- Fault diagnosis performed\n- Identified fault: [describe fault here]\n- Replaced/repaired: [describe parts/action]\n- Test run after repair',
-    recommendations:'Machine restored to working condition. Monitor for recurrence.'
-  },
-  install:{
-    type:'Installation',
-    status:'Completed',
-    timeStart:'09:00',timeEnd:'17:00',
-    remarks:'Performed new machine installation:\n- Unpack and position machine\n- Level and anchor machine\n- Electrical connection and wiring check\n- Program settings per customer requirement\n- Test run and calibration\n- Operator training provided',
-    recommendations:'Installation complete. Next PM recommended in 6 months.'
-  },
-  inspect:{
-    type:'Inspection',
-    status:'Pending Follow-Up',
-    timeStart:'09:00',timeEnd:'10:30',
-    remarks:'Conducted inspection visit:\n- Overall machine condition assessed\n- Identified wear items: [list here]\n- Measurements taken: [values here]\n- Photos documented',
-    recommendations:'Recommend scheduling maintenance for items noted above.'
-  }
-};
-
-function loadPMTemplate(key){
-  if(!key)return;
-  const t=PM_TEMPLATES[key];
-  if(!t){toast('Template not found.','error');return;}
-  const tyEl=document.getElementById('crTy');
-  if(tyEl)for(let o of tyEl.options)if(o.text===t.type){tyEl.value=o.value;break;}
-  const stEl=document.getElementById('crSt');
-  if(stEl)for(let o of stEl.options)if(o.text===t.status){stEl.value=o.value;break;}
-  if(t.timeStart&&document.getElementById('crTS'))document.getElementById('crTS').value=t.timeStart;
-  if(t.timeEnd&&document.getElementById('crTE'))document.getElementById('crTE').value=t.timeEnd;
-  if(document.getElementById('crRm'))document.getElementById('crRm').value=t.remarks;
-  if(document.getElementById('crRc'))document.getElementById('crRc').value=t.recommendations;
-  document.getElementById('crTplSel').value='';
-  toast('Template loaded: '+t.type,'success');
 }
 
 // Smart linked dropdowns
@@ -2939,95 +2852,14 @@ function renderDataMgmt(){
       <div id="impPreview" style="display:none;margin-top:16px"></div>
     </div>
     
-    <div class="oc"><h3>💾 Full Backup &amp; Restore</h3><p>Export the entire database (customers, machines, reports, jobs, technicians, agents, parts, stock) as a single JSON file. Use this for full backup, transferring between devices, or moving to a fresh browser.</p>
+    <div class="oc"><h3>💾 Full Backup</h3><p>Export the entire database as a single JSON file for full backup and restore.</p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
-        <button class="btn btn-p btn-sm" onclick="exportJSON()">📤 Export Full Backup (JSON)</button>
-        <button class="btn btn-s btn-sm" onclick="document.getElementById('jsonImpFile').click()">📥 Restore from JSON Backup</button>
+        <button class="btn btn-p btn-sm" onclick="exportJSON()">📤 Export JSON Backup</button>
+        <button class="btn btn-s btn-sm" onclick="document.getElementById('jsonImpFile').click()">📥 Restore from JSON</button>
         <input type="file" accept=".json" id="jsonImpFile" style="display:none" onchange="importJSON(this.files[0])">
       </div>
-      <p style="font-size:var(--fs-xs);color:var(--t3);margin-top:10px">💡 Tip: Export weekly. Restore replaces the entire current database — back up first if unsure.</p>
-    </div>
-
-    <div class="oc" style="border:1px solid var(--wn);background:#fffbeb"><h3>🌱 Save Current Database as Stable Seed</h3>
-      <p>Save the current state of your database as the "stable seed" — this becomes the reset baseline. The next time you (or anyone) clicks <b>Reset all data &amp; start fresh</b> on the login screen, the system will reload this seed instead of the original demo data.</p>
-      <p style="font-size:var(--fs-sm);color:var(--t2);margin-top:6px">Use this once you've cleaned up customers, machines, and reports to a state you want as the team's working baseline.</p>
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
-        <button class="btn btn-p btn-sm" onclick="saveStableSeed()">🌱 Save Current as Stable Seed</button>
-        <button class="btn btn-s btn-sm" onclick="exportSeedFile()">📦 Download Seed (.json)</button>
-        <button class="btn btn-s btn-sm" onclick="document.getElementById('seedImpFile').click()">📥 Load Seed from File</button>
-        <input type="file" accept=".json" id="seedImpFile" style="display:none" onchange="importSeedFile(this.files[0])">
-        <button class="btn btn-d btn-sm" onclick="clearStableSeed()">🗑 Clear Stable Seed</button>
-      </div>
-      <p style="font-size:var(--fs-xs);color:var(--t3);margin-top:10px" id="seedStatus"></p>
     </div>
   </div>`;
-  setTimeout(updateSeedStatus,50);
-}
-
-// ===== STABLE SEED (latest baseline DB for reset) =====
-function getStoredSeed(){
-  try{const s=localStorage.getItem('ocrm4_seed');return s?JSON.parse(s):null;}catch(e){return null;}
-}
-
-function updateSeedStatus(){
-  const el=document.getElementById('seedStatus');if(!el)return;
-  const seed=getStoredSeed();
-  if(seed&&seed.savedAt){
-    const dt=new Date(seed.savedAt).toLocaleString();
-    const counts=`${(seed.data?.custs||[]).length} customers, ${(seed.data?.machines||[]).length} machines, ${(seed.data?.reports||[]).length} reports`;
-    el.innerHTML=`✅ Stable seed saved on <b>${dt}</b> — ${counts}`;
-    el.style.color='var(--ok)';
-  }else{
-    el.textContent='ℹ No stable seed saved yet. Reset will use the built-in demo data.';
-    el.style.color='var(--t3)';
-  }
-}
-
-function saveStableSeed(){
-  if(!confirm('Save the CURRENT database as the stable seed?\n\nThis will become the baseline when anyone resets the app. Any previous stable seed will be overwritten.'))return;
-  try{
-    const seed={savedAt:new Date().toISOString(),savedBy:CUR_USER?.username||'unknown',data:JSON.parse(JSON.stringify(DB))};
-    localStorage.setItem('ocrm4_seed',JSON.stringify(seed));
-    toast('Stable seed saved. This is now the reset baseline.','success');
-    updateSeedStatus();
-  }catch(e){toast('Failed to save seed: '+e.message,'error');}
-}
-
-function exportSeedFile(){
-  const seed=getStoredSeed();
-  if(!seed){
-    if(!confirm('No stable seed has been saved yet. Download a seed file from the CURRENT database state instead?'))return;
-    const data={savedAt:new Date().toISOString(),savedBy:CUR_USER?.username||'unknown',data:JSON.parse(JSON.stringify(DB))};
-    downloadFile(JSON.stringify(data,null,2),`octocrm_seed_${new Date().toISOString().split('T')[0]}.json`,'application/json');
-    toast('Seed file downloaded (from current DB).','success');
-    return;
-  }
-  downloadFile(JSON.stringify(seed,null,2),`octocrm_seed_${new Date().toISOString().split('T')[0]}.json`,'application/json');
-  toast('Stable seed downloaded.','success');
-}
-
-function importSeedFile(file){
-  if(!file)return;
-  const reader=new FileReader();
-  reader.onload=function(e){
-    try{
-      const obj=JSON.parse(e.target.result);
-      const seed=obj.data?obj:{savedAt:new Date().toISOString(),savedBy:'imported',data:obj};
-      if(!seed.data||!seed.data.custs){toast('Invalid seed file.','error');return;}
-      if(!confirm(`Load this seed file as the stable seed?\n\nSaved: ${seed.savedAt||'(unknown)'}\nContains: ${(seed.data.custs||[]).length} customers, ${(seed.data.machines||[]).length} machines, ${(seed.data.reports||[]).length} reports`))return;
-      localStorage.setItem('ocrm4_seed',JSON.stringify(seed));
-      toast('Seed file loaded as stable seed.','success');
-      updateSeedStatus();
-    }catch(err){toast('Failed to load seed: '+err.message,'error');}
-  };
-  reader.readAsText(file);
-}
-
-function clearStableSeed(){
-  if(!confirm('Clear the saved stable seed?\n\nFuture resets will fall back to the built-in demo data.'))return;
-  localStorage.removeItem('ocrm4_seed');
-  toast('Stable seed cleared.','info');
-  updateSeedStatus();
 }
 
 // CSV helpers
@@ -3401,6 +3233,8 @@ document.getElementById('loginUser').addEventListener('keydown',e=>{if(e.key==='
 // Firebase + PDF libraries
 if(USE_FB){const s1=document.createElement('script');s1.src='https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js';s1.onload=()=>{const s2=document.createElement('script');s2.src='https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js';s2.onload=()=>initFB();document.head.appendChild(s2)};document.head.appendChild(s1);}
 
+try{_refreshBell();ensureNotifPermission();}catch(e){}
+
 // PDF libs loaded via script tags in <head>
 let pdfLibsReady=false;
 function checkPDFLibs(){pdfLibsReady=(typeof html2canvas!=='undefined'&&typeof window.jspdf!=='undefined');return pdfLibsReady;}
@@ -3420,7 +3254,7 @@ function buildReportHTMLForPDF(r){
         <div style="font-size:22px;font-weight:900;color:${co.color};letter-spacing:0.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${co.name}</div>
         <div style="font-size:10px;color:#444;margin-top:6px;line-height:1.55">${co.addr}<br>Tel: ${co.tel}&nbsp; |&nbsp; Email: ${co.email}<br>UEN: ${co.uen}&nbsp; |&nbsp; GST Reg No.: ${co.uen}</div>
       </div>
-      <div style="border:2px solid ${co.color};padding:10px 22px;text-align:center;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:#000;letter-spacing:1.5px;white-space:nowrap">SERVICE REPORT</div></div>
+      <div style="border:2px solid ${co.color};padding:10px 22px;text-align:center;flex-shrink:0"><div style="font-size:14px;font-weight:800;color:${co.color};letter-spacing:1.5px">SERVICE REPORT</div></div>
     </div>
     <!-- HEADER STRIP -->
     <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:14px;border-top:2px solid ${co.color}">
