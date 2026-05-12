@@ -395,6 +395,10 @@ function initFB(){
         if(!Array.isArray(DB.partsStock))DB.partsStock=[];
         if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;
         if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=DB.users.length+1;
+        // Merge persisted company letterhead overrides from cloud
+        if(DB.companies&&typeof DB.companies==='object'){
+          Object.keys(DB.companies).forEach(k=>{if(CO[k])Object.assign(CO[k],DB.companies[k]);});
+        }
         try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
         notifyDiffFromCloud();
         refreshPage();
@@ -406,7 +410,7 @@ function initFB(){
 // ===== COMPANIES =====
 const CO={
   octopack:{name:'OCTOPACK SEA PTE LTD',addr:'7 Yishun Industrial Street 1 #03-49 North Spring Bizhub, Singapore 768162',tel:'+65 6909 8136',email:'CS@octopack.com.sg',uen:'201709641E',color:'#1d4ed8',tag:'OCTOPACK - The Better Way To Pack'},
-  jw:{name:'JW Supplies & Works Pte Ltd',addr:'9 Yishun Industrial Street 1 #03-76 North Spring Bizhub, Singapore 768163',tel:'+65 9061 8811',email:'joyce@jwsupplies.sg',uen:'201822151K',color:'#2563eb',tag:'JW Supplies & Works Pte Ltd'},
+  jw:{name:'JW Supplies & Works Pte Ltd',addr:'9 Yishun Industrial Street 1 #02-37 North Spring Bizhub, Singapore 768163',tel:'+65 9061 8811',email:'joyce@jwsupplies.sg',uen:'201822151K',color:'#2563eb',tag:'JW Supplies & Works Pte Ltd'},
   redbox:{name:'Redbox Global Solutions Pte Ltd',addr:'7 Yishun Industrial Street 1 #03-49 North Spring Bizhub, Singapore 768162',tel:'+65 6909 8136',email:'engineering@redboxgs.com',uen:'201710953N',color:'#dc2626',tag:'Redbox Global Solutions'}
 };
 
@@ -469,9 +473,18 @@ function toggleNotifPanel(){
   p.style.display=_notifPanelOpen?'flex':'none';
   if(_notifPanelOpen){
     renderNotifPanel();
-    // Request permission first open
     if('Notification' in window && Notification.permission==='default'){try{Notification.requestPermission();}catch(e){}}
+    setTimeout(()=>{document.addEventListener('mousedown',_notifOutsideClick);document.addEventListener('touchstart',_notifOutsideClick,{passive:true});},10);
+  }else{
+    document.removeEventListener('mousedown',_notifOutsideClick);document.removeEventListener('touchstart',_notifOutsideClick);
   }
+}
+function _notifOutsideClick(e){
+  const p=document.getElementById('notifPanel');const bell=document.getElementById('bellBtn');
+  if(!p||!_notifPanelOpen)return;
+  if(p.contains(e.target)||(bell&&bell.contains(e.target)))return;
+  _notifPanelOpen=false;p.style.display='none';
+  document.removeEventListener('mousedown',_notifOutsideClick);document.removeEventListener('touchstart',_notifOutsideClick);
 }
 function renderNotifPanel(){
   const list=document.getElementById('notifList');if(!list)return;
@@ -521,6 +534,11 @@ function loadDB(){
   if(!Array.isArray(DB.parts))DB.parts=[];
   if(!Array.isArray(DB.partsStock))DB.partsStock=[];
   if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;
+
+  // Merge persisted company letterhead overrides
+  if(DB.companies&&typeof DB.companies==='object'){
+    Object.keys(DB.companies).forEach(k=>{if(CO[k])Object.assign(CO[k],DB.companies[k]);});
+  }
 
   // Always ensure default users exist
   if(!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
@@ -789,7 +807,8 @@ function toast(msg,type='info'){const c=document.getElementById('toastC'),t=docu
 function openModal(title,bodyHTML,footerHTML){const mc=document.getElementById('globalModalContent');mc.innerHTML=`<div class="mh"><h2>${title}</h2><button class="btn-i" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="mb">${bodyHTML}</div>${footerHTML?`<div class="mf">${footerHTML}</div>`:''}`;document.getElementById('globalModal').classList.add('open')}
 function closeModal(){document.getElementById('globalModal').classList.remove('open')}
 function closePnl(){document.getElementById('detPnl').classList.remove('open')}
-document.getElementById('globalModal').addEventListener('click',e=>{if(e.target.id==='globalModal')closeModal()});
+document.getElementById('globalModal').addEventListener('mousedown',e=>{window._modalMouseDownTarget=e.target;});
+document.getElementById('globalModal').addEventListener('click',e=>{if(e.target.id==='globalModal'&&window._modalMouseDownTarget&&window._modalMouseDownTarget.id==='globalModal')closeModal();});
 
 function getMachs(){const m={};DB.reports.forEach(r=>{if(!r.serial)return;if(!m[r.serial])m[r.serial]={serial:r.serial,model:r.model,customer:r.customer,reports:[],lastService:r.date,issues:[]};m[r.serial].reports.push(r);if(r.date>m[r.serial].lastService){m[r.serial].lastService=r.date;m[r.serial].customer=r.customer;}if(r.status!=='Completed')m[r.serial].issues.push(r)});return Object.values(m)}
 function getAllCusts(){
@@ -833,7 +852,7 @@ function renderDash(){
   document.getElementById('dashContent').innerHTML=`
     <div class="sg">
       <div class="sc"><div class="si" style="background:var(--acs);color:var(--ac)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div><div class="sv">${DB.reports.length}</div><div class="sl">Total Reports</div></div>
-      <div class="sc" onclick="curRptF='Outstanding';showPage('reports')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><div class="sv" style="color:var(--er)">${outstandingRpts.length}</div><div class="sl">Outstanding Reports</div></div>
+      <div class="sc" onclick="curRptF='Outstanding';_rptFilterSticky=true;showPage('reports')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><div class="sv" style="color:var(--er)">${outstandingRpts.length}</div><div class="sl">Outstanding Reports</div></div>
       <div class="sc" onclick="curJF='Active';showPage('jobs')" style="cursor:pointer"><div class="si" style="background:var(--wns);color:var(--wn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></div><div class="sv">${aj.length}</div><div class="sl">Active Jobs</div></div>
       <div class="sc" onclick="curJF='Follow-Up';showPage('jobs')" style="cursor:pointer"><div class="si" style="background:var(--wns);color:var(--wn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="sv" style="color:var(--wn)">${followUpJobs.length}</div><div class="sl">To Follow-Up</div></div>
       <div class="sc" onclick="curMachCat='Defective';showPage('machines')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="sv" style="color:var(--er)">${defectiveMachines.length}</div><div class="sl">Defective Machines</div></div>
@@ -998,6 +1017,14 @@ function generateReportFromJob(id){
 
 function applyJobPrefill(j){
   try{
+    // Company letterhead — derive from customer's agent
+    const custObj=DB.custs.find(c=>c.name===j.customer);
+    const agent=(custObj?.agent||'').toLowerCase();
+    let coKey='octopack';
+    if(agent.includes('jw'))coKey='jw';
+    else if(agent.includes('redbox'))coKey='redbox';
+    else if(agent.includes('octopack'))coKey='octopack';
+    const coSel=document.getElementById('crCo');if(coSel)coSel.value=coKey;
     // Customer
     const cuSel=document.getElementById('crCu');
     if(cuSel&&[...cuSel.options].find(o=>o.value===j.customer)){cuSel.value=j.customer;onCustChange();}
@@ -1246,17 +1273,26 @@ function sendJWA(jid){
 function delJob(id){if(!confirm('Delete?'))return;DB.jobs=DB.jobs.filter(j=>j.id!==id);saveDB();renderJobs();renderDash();toast('Deleted.','info');}
 
 // ===== REPORTS =====
-let curRptF='all';
+let curRptF='recent';
+let _rptFilterSticky=false;// true if set by dashboard click (skip reset once)
 function renderReports(){
+  // Reset to 'recent' on every page entry unless dashboard preselected
+  if(!_rptFilterSticky)curRptF='recent';
+  _rptFilterSticky=false;
   const allReps=[...DB.reports].sort((a,b)=>b.id-a.id);
-  const reps=curRptF==='all'?allReps:curRptF==='Outstanding'?allReps.filter(r=>r.status!=='Completed'):allReps.filter(r=>r.status===curRptF);
+  // Recent = last 30 days by report.date OR last 20 by id
+  const now=new Date();const cutoff=new Date(now.getTime()-30*24*60*60*1000);
+  const recentReps=allReps.filter(r=>{if(!r.date)return false;const d=new Date(r.date);return !isNaN(d)&&d>=cutoff;});
+  // Fallback: if no dated reports, take top 20 by id
+  const recentList=recentReps.length?recentReps:allReps.slice(0,20);
+  const reps=curRptF==='all'?allReps:curRptF==='recent'?recentList:curRptF==='Outstanding'?allReps.filter(r=>r.status!=='Completed'):allReps.filter(r=>r.status===curRptF);
   const outCt=allReps.filter(r=>r.status!=='Completed').length;
   document.getElementById('reportsContent').innerHTML=`
     <div class="tw"><div class="th"><h3>Service Reports</h3><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="rSrch" oninput="filterReports()"></div></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${['all','Outstanding','Completed','Pending Follow-Up','In Progress','Requires Parts'].map(f=>`<button class="fc-chip${curRptF===f?' active':''}" onclick="curRptF='${f}';renderReports()">${f==='all'?'All ('+allReps.length+')':f==='Outstanding'?'⚠ Outstanding ('+outCt+')':f}</button>`).join('')}</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${['recent','all','Outstanding','Completed','Pending Follow-Up','In Progress','Requires Parts'].map(f=>`<button class="fc-chip${curRptF===f?' active':''}" onclick="curRptF='${f}';_rptFilterSticky=true;renderReports()">${f==='recent'?'🆕 Recently Added ('+recentList.length+')':f==='all'?'All ('+allReps.length+')':f==='Outstanding'?'⚠ Outstanding ('+outCt+')':f}</button>`).join('')}</div>
     <div id="rptList">${renderRptCards(reps)}</div></div>`;
 }
-function filterReports(){const s=(document.getElementById('rSrch')?.value||'').toLowerCase();const allReps=DB.reports.sort((a,b)=>b.id-a.id);const base=curRptF==='all'?allReps:curRptF==='Outstanding'?allReps.filter(r=>r.status!=='Completed'):allReps.filter(r=>r.status===curRptF);const f=base.filter(x=>(x.jobNo+x.customer+x.serial+x.company+x.engineer).toLowerCase().includes(s));document.getElementById('rptList').innerHTML=renderRptCards(f);}
+function filterReports(){const s=(document.getElementById('rSrch')?.value||'').toLowerCase();const allReps=[...DB.reports].sort((a,b)=>b.id-a.id);const now=new Date();const cutoff=new Date(now.getTime()-30*24*60*60*1000);const recentReps=allReps.filter(r=>{if(!r.date)return false;const d=new Date(r.date);return !isNaN(d)&&d>=cutoff;});const recentList=recentReps.length?recentReps:allReps.slice(0,20);const base=curRptF==='all'?allReps:curRptF==='recent'?recentList:curRptF==='Outstanding'?allReps.filter(r=>r.status!=='Completed'):allReps.filter(r=>r.status===curRptF);const f=base.filter(x=>((x.jobNo||'')+(x.customer||'')+(x.serial||'')+(x.company||'')+(x.engineer||'')).toLowerCase().includes(s));document.getElementById('rptList').innerHTML=renderRptCards(f);}
 
 function renderRptCards(reps){
   if(!reps.length)return'<div class="es" style="padding:24px"><p>No reports found.</p></div>';
@@ -1286,6 +1322,17 @@ function viewRptPhotos(id){const r=DB.reports.find(x=>x.id===id);if(!r?.photos?.
 
 function editReport(id){
   const r=DB.reports.find(x=>x.id===id);if(!r)return;
+  window._erId=id;
+  window._erPhotos=Array.isArray(r.photos)?JSON.parse(JSON.stringify(r.photos)):[];
+  let clArr=[];
+  if(Array.isArray(r.checklists)&&r.checklists.length)clArr=JSON.parse(JSON.stringify(r.checklists));
+  else if(r.checklist&&r.checklist.tplId)clArr=[JSON.parse(JSON.stringify(r.checklist))];
+  // Ensure each has serial field
+  clArr.forEach(cl=>{if(typeof cl.serial==='undefined')cl.serial=r.serial||'';});
+  window._erChecklists=clArr;
+  window._erCustSig=r.custSig||'';
+  window._erEngSig=r.engSig||'';
+
   const cs=getAllCusts();const techs=DB.techs||[];
   const types=['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Installation','Inspection','Emergency'];
   const statuses=['Completed','Pending Follow-Up','In Progress','Requires Parts'];
@@ -1306,13 +1353,131 @@ function editReport(id){
     <div class="fg"><label>Issues / Remarks</label><textarea class="fc" id="erRm">${E(r.remarks||'')}</textarea></div>
     <div class="fg"><label>Recommendations</label><textarea class="fc" id="erRc">${E(r.recommendations||'')}</textarea></div>
     <div class="fg"><label>Next Visit</label><input class="fc" type="date" id="erNV" value="${E(r.nextVisit||'')}"></div>
-    ${(r.checklist&&r.checklist.tplId)?`
-    <div style="background:linear-gradient(135deg,var(--acs),var(--pus));border:1px solid var(--bdr);border-radius:var(--rl);padding:14px;margin-top:10px">
-      <div style="font-weight:700;font-size:var(--fs-sm)">✅ Attached Checklist: ${E(PM_CHECKLISTS[r.checklist.tplId]?.name||r.checklist.tplId)}</div>
-      <div style="font-size:var(--fs-xs);color:var(--t2);margin-top:4px">${(r.checklist.items||[]).length} inspection items · ${(r.checklist.readings||[]).length} readings</div>
-      <button class="btn btn-sm btn-d" onclick="if(confirm('Remove attached checklist?')){const rep=DB.reports.find(x=>x.id===${r.id});if(rep){rep.checklist=null;saveDB();closeModal();editReport(${r.id});toast('Checklist removed.','info');}}" style="margin-top:8px;font-size:var(--fs-xs)">🗑 Remove Checklist</button>
-    </div>`:''}
+
+    <div style="background:var(--input);border:1px solid var(--bdr);border-radius:var(--rl);padding:14px;margin-top:12px">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <strong style="font-size:var(--fs-sm)">📸 Photos</strong>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-s btn-sm" onclick="document.getElementById('erPhIn').click()" style="font-size:var(--fs-xs)">📷 Take</button>
+          <button class="btn btn-s btn-sm" onclick="document.getElementById('erPhGal').click()" style="font-size:var(--fs-xs)">🖼 Gallery</button>
+        </div>
+      </div>
+      <input type="file" accept="image/*" capture="environment" multiple onchange="addErPhotos(this.files)" id="erPhIn" style="display:none">
+      <input type="file" accept="image/*" multiple onchange="addErPhotos(this.files)" id="erPhGal" style="display:none">
+      <div class="photo-grid" id="erPhGrid"></div>
+    </div>
+
+    <div style="background:var(--input);border:1px solid var(--bdr);border-radius:var(--rl);padding:14px;margin-top:12px">
+      <strong style="font-size:var(--fs-sm);display:block;margin-bottom:10px">✍ Signatures</strong>
+      <div class="fr">
+        <div class="fg"><label>Customer Name</label><input class="fc" id="erSgNm" value="${E(r.sigName||'')}">
+          <div style="font-size:var(--fs-xs);color:var(--t2);margin-top:6px">Customer Signature</div>
+          <canvas id="erSigC" class="sig-pad" width="400" height="140" style="width:100%;margin-top:4px;background:#fff;border:1px dashed var(--bdr)"></canvas>
+          <div style="display:flex;gap:6px;margin-top:6px"><button class="btn btn-s btn-sm" onclick="clrSig('erSigC');window._erCustSig=''" style="font-size:var(--fs-xs)">Clear</button>${r.custSig?'<span style="font-size:var(--fs-xs);color:var(--t2);align-self:center">Draw new to replace</span>':''}</div>
+        </div>
+        <div class="fg"><label>Engineer Signature</label>
+          <canvas id="erSigE" class="sig-pad" width="400" height="140" style="width:100%;margin-top:4px;background:#fff;border:1px dashed var(--bdr)"></canvas>
+          <div style="display:flex;gap:6px;margin-top:6px"><button class="btn btn-s btn-sm" onclick="clrSig('erSigE');window._erEngSig=''" style="font-size:var(--fs-xs)">Clear</button>${r.engSig?'<span style="font-size:var(--fs-xs);color:var(--t2);align-self:center">Draw new to replace</span>':''}</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:linear-gradient(135deg,var(--acs),var(--pus));border:1px solid var(--bdr);border-radius:var(--rl);padding:14px;margin-top:12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <strong style="font-size:var(--fs-sm)">✅ PM Checklists</strong>
+        <select class="fc" id="erClSel" onchange="erAddChecklist(this.value)" style="width:auto;min-width:220px;background:#fff;margin-left:auto">
+          <option value="">+ Add machine checklist</option>
+          ${Object.keys(PM_CHECKLISTS).map(k=>`<option value="${k}">${E(PM_CHECKLISTS[k].name)}</option>`).join('')}
+        </select>
+      </div>
+      <div id="erClBody"></div>
+    </div>
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveEditReport()">Save Changes</button>`);
+
+  setTimeout(()=>{
+    initSig('erSigC');initSig('erSigE');
+    if(window._erCustSig)_paintSigCanvas('erSigC',window._erCustSig);
+    if(window._erEngSig)_paintSigCanvas('erSigE',window._erEngSig);
+    updErPhGrid();erRenderChecklists();
+  },80);
+}
+
+function _paintSigCanvas(cid,dataUrl){
+  const c=document.getElementById(cid);if(!c||!dataUrl)return;
+  const ctx=c.getContext('2d');const img=new Image();
+  img.onload=function(){ctx.clearRect(0,0,c.width,c.height);ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);ctx.drawImage(img,0,0,c.width,c.height);c._drawn=true;};
+  img.src=dataUrl;
+}
+
+function addErPhotos(files){if(!files)return;Array.from(files).forEach(f=>{if(window._erPhotos.length>=10)return;const r=new FileReader();r.onload=e=>{compImg(e.target.result,800,.7,d=>{window._erPhotos.push({dataUrl:d,caption:'Photo '+(window._erPhotos.length+1),timestamp:new Date().toLocaleString()});updErPhGrid();});};r.readAsDataURL(f);});}
+function updErPhGrid(){const g=document.getElementById('erPhGrid');if(!g)return;const ps=window._erPhotos||[];if(!ps.length){g.innerHTML='<span style="color:var(--t3);font-size:var(--fs-sm)">No photos.</span>';return;}g.innerHTML=ps.map((p,i)=>`<div class="photo-thumb"><img src="${p.dataUrl}" onclick="openLBx(window._erPhotos,${i})"><button class="photo-del" onclick="event.stopPropagation();window._erPhotos.splice(${i},1);updErPhGrid()">✕</button></div>`).join('');}
+
+function erAddChecklist(tplId){
+  if(!tplId)return;
+  const tpl=PM_CHECKLISTS[tplId];if(!tpl){toast('Checklist not found.','error');return;}
+  const cl={tplId:tplId,serial:'',items:[],readings:[]};
+  tpl.sections.forEach(sec=>{sec.items.forEach(it=>{cl.items.push({section:sec.title,name:it,status:'',remarks:''});});});
+  if(tpl.readings)tpl.readings.forEach(r=>{cl.readings.push({label:r.label,unit:r.unit||'',value:''});});
+  window._erChecklists.push(cl);
+  document.getElementById('erClSel').value='';
+  erRenderChecklists();
+}
+function erRemoveChecklist(idx){if(!confirm('Remove this checklist?'))return;window._erChecklists.splice(idx,1);erRenderChecklists();}
+function _erSerialFieldHTML(ci,curSerial,custName){
+  const serials=_getCustomerSerials(custName,'');
+  const inList=curSerial&&serials.includes(curSerial);
+  return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:#fff8e6;border:1px solid #f0c969;border-radius:var(--r);padding:6px 10px;margin-bottom:8px">
+    <span style="font-size:var(--fs-xs);font-weight:700;color:#8a6300">Serial:</span>
+    <select class="fc" style="font-size:11px;padding:4px 6px;min-height:30px;flex:1;min-width:140px;display:${inList||!curSerial?'':'none'}" id="erClSrSel_${ci}" onchange="if(this.value==='__custom__'){this.style.display='none';document.getElementById('erClSrIn_'+${ci}).style.display='';document.getElementById('erClSrIn_'+${ci}).focus();}else{window._erChecklists[${ci}].serial=this.value;}">
+      <option value="">— Select serial —</option>
+      ${serials.map(s=>`<option value="${E(s)}"${s===curSerial?' selected':''}>${E(s)}</option>`).join('')}
+      <option value="__custom__">✏ Type new serial...</option>
+    </select>
+    <input class="fc" id="erClSrIn_${ci}" placeholder="Type serial number" value="${E(curSerial||'')}" style="font-size:11px;padding:4px 6px;min-height:30px;flex:1;min-width:140px;display:${curSerial&&!inList?'':'none'}" oninput="window._erChecklists[${ci}].serial=this.value">
+  </div>`;
+}
+function erRenderChecklists(){
+  const host=document.getElementById('erClBody');if(!host)return;
+  const arr=window._erChecklists||[];
+  const custName=document.getElementById('erCu')?.value.trim()||'';
+  if(!arr.length){host.innerHTML='<p style="color:var(--t3);font-size:var(--fs-sm);margin:0">No checklists attached. Use dropdown above to add one or more.</p>';return;}
+  let html='';
+  arr.forEach((cl,ci)=>{
+    const tpl=PM_CHECKLISTS[cl.tplId];if(!tpl)return;
+    html+=`<div style="margin-top:10px;border:2px solid var(--ac);border-radius:var(--r);padding:10px;background:#fff">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px">
+        <div style="font-weight:800;font-size:var(--fs-sm);color:var(--ac)">Checklist #${ci+1} — ${E(tpl.name)}</div>
+        <button class="btn btn-sm btn-d" onclick="erRemoveChecklist(${ci})" style="font-size:var(--fs-xs);padding:4px 10px;min-height:28px">🗑 Remove</button>
+      </div>
+      ${_erSerialFieldHTML(ci,cl.serial,custName)}`;
+    const bySec={};cl.items.forEach((it,i)=>{(bySec[it.section]=bySec[it.section]||[]).push({it:it,gIdx:i});});
+    Object.keys(bySec).forEach(sec=>{
+      html+=`<div style="margin-top:8px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);padding:8px"><div style="font-weight:700;font-size:var(--fs-xs);color:var(--ac);margin-bottom:6px">${E(sec)}</div>`;
+      bySec[sec].forEach(o=>{
+        const it=o.it;const idx=o.gIdx;
+        html+=`<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:6px;align-items:center;padding:4px 0;border-bottom:1px dashed var(--bdr)">
+          <div style="font-size:var(--fs-xs)">${E(it.name)}</div>
+          <div style="display:flex;gap:3px">
+            ${['OK','NG','NA'].map(s=>`<label style="display:inline-flex;align-items:center;gap:2px;font-size:10px;padding:3px 6px;border:1px solid var(--bdr);border-radius:4px;cursor:pointer;background:var(--input)"><input type="radio" name="er_cl_${ci}_${idx}" value="${s}" ${it.status===s?'checked':''} onchange="window._erChecklists[${ci}].items[${idx}].status='${s}'" style="width:13px;height:13px">${s}</label>`).join('')}
+          </div>
+          <input class="fc" placeholder="Remarks" value="${E(it.remarks||'')}" style="font-size:10px;padding:3px 6px;min-height:28px" onchange="window._erChecklists[${ci}].items[${idx}].remarks=this.value">
+        </div>`;
+      });
+      html+='</div>';
+    });
+    if(cl.readings&&cl.readings.length){
+      html+='<div style="margin-top:8px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);padding:8px"><div style="font-weight:700;font-size:var(--fs-xs);color:var(--ac);margin-bottom:6px">Readings</div>';
+      cl.readings.forEach((rd,i)=>{
+        html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:4px 0;border-bottom:1px dashed var(--bdr)">
+          <div style="font-size:var(--fs-xs);align-self:center">${E(rd.label)}${rd.unit?' <span style="color:var(--t3)">('+E(rd.unit)+')</span>':''}</div>
+          <input class="fc" placeholder="Value" value="${E(rd.value||'')}" style="font-size:10px;padding:3px 6px;min-height:28px" onchange="window._erChecklists[${ci}].readings[${i}].value=this.value">
+        </div>`;
+      });
+      html+='</div>';
+    }
+    html+='</div>';
+  });
+  host.innerHTML=html;
 }
 
 function saveEditReport(){
@@ -1321,6 +1486,10 @@ function saveEditReport(){
   const checkedEng=[...document.querySelectorAll('.erEnChk:checked')].map(c=>c.value);
   const customEng=(document.getElementById('erEnCustom')?.value||'').trim();
   if(customEng)checkedEng.push(...customEng.split(',').map(s=>s.trim()).filter(Boolean));
+  const sc=document.getElementById('erSigC');const se=document.getElementById('erSigE');
+  const newCustSig=sc&&sc._drawn?sc.toDataURL():(window._erCustSig||'');
+  const newEngSig=se&&se._drawn?se.toDataURL():(window._erEngSig||'');
+  const cls=Array.isArray(window._erChecklists)?window._erChecklists:[];
   DB.reports[i]={...DB.reports[i],
     company:document.getElementById('erCo').value,
     jobNo:document.getElementById('erJN').value.trim(),
@@ -1339,7 +1508,14 @@ function saveEditReport(){
     timeEnd:document.getElementById('erTE').value,
     remarks:document.getElementById('erRm').value.trim(),
     recommendations:document.getElementById('erRc').value.trim(),
-    nextVisit:document.getElementById('erNV').value
+    nextVisit:document.getElementById('erNV').value,
+    sigName:document.getElementById('erSgNm')?.value.trim()||DB.reports[i].sigName||'',
+    custSig:newCustSig,
+    engSig:newEngSig,
+    signed:!!newCustSig,
+    photos:Array.isArray(window._erPhotos)?JSON.parse(JSON.stringify(window._erPhotos)):(DB.reports[i].photos||[]),
+    checklist:cls.length?JSON.parse(JSON.stringify(cls[0])):null,
+    checklists:cls.length?JSON.parse(JSON.stringify(cls)):[]
   };
   saveDB();closeModal();renderReports();renderDash();toast('Report updated.','success');
 }
@@ -1359,7 +1535,7 @@ function viewRptPreview(id){
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Issues/Remarks</th><td colspan="3" style="border:1px solid #ccc;padding:8px;white-space:pre-line">${E(r.remarks)}</td></tr>
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Recommendations</th><td colspan="3" style="border:1px solid #ccc;padding:8px;white-space:pre-line">${E(r.recommendations)}</td></tr>
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Status</th><td style="border:1px solid #ccc;padding:8px;font-weight:700">${E(r.status)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Next Visit</th><td style="border:1px solid #ccc;padding:8px">${E(r.nextVisit||'—')}</td></tr></table>
-    ${(r.checklist&&r.checklist.tplId)?`<div style="margin-top:16px;padding:10px 12px;background:#eef4ff;border:1px solid #c9d6ee;border-radius:6px;font-size:12px"><strong>✅ PM Checklist Attached:</strong> ${E(PM_CHECKLISTS[r.checklist.tplId]?.name||'')} — ${(r.checklist.items||[]).filter(i=>i.status==='OK').length} OK / ${(r.checklist.items||[]).filter(i=>i.status==='NG').length} NG / ${(r.checklist.items||[]).filter(i=>i.status==='NA').length} NA out of ${(r.checklist.items||[]).length} items. <em>Full checklist included in PDF export.</em></div>`:''}
+    ${(()=>{const arr=Array.isArray(r.checklists)&&r.checklists.length?r.checklists:(r.checklist&&r.checklist.tplId?[r.checklist]:[]);if(!arr.length)return'';const tot=arr.reduce((a,c)=>{a.ok+=(c.items||[]).filter(i=>i.status==='OK').length;a.ng+=(c.items||[]).filter(i=>i.status==='NG').length;a.na+=(c.items||[]).filter(i=>i.status==='NA').length;a.n+=(c.items||[]).length;return a;},{ok:0,ng:0,na:0,n:0});return `<div style="margin-top:16px;padding:10px 12px;background:#eef4ff;border:1px solid #c9d6ee;border-radius:6px;font-size:12px"><strong>✅ PM Checklist${arr.length>1?'s':''} Attached:</strong> ${arr.map(c=>E(PM_CHECKLISTS[c.tplId]?.name||c.tplId)+(c.serial?' (S/N: '+E(c.serial)+')':'')).join(', ')} — ${tot.ok} OK / ${tot.ng} NG / ${tot.na} NA out of ${tot.n} items. <em>Full checklist included in PDF export.</em></div>`;})()}
     ${photos.length?`<div style="margin-top:16px;padding-top:12px;border-top:1px solid #ddd"><strong>📸 Photos (${photos.length})</strong><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${photos.map((p,i)=>`<img src="${p.dataUrl}" style="width:100px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #ccc;cursor:pointer" onclick="openLBx(DB.reports.find(x=>x.id===${id}).photos,${i})">`).join('')}</div></div>`:''}
     ${r.engSig||r.custSig?`<div style="display:flex;justify-content:space-between;margin-top:20px;padding-top:16px;border-top:2px solid #333"><div style="text-align:center;width:45%">${r.engSig?`<img src="${r.engSig}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">ENGINEER</div></div><div style="text-align:center;width:45%">${r.custSig?`<img src="${r.custSig}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">${E(r.sigName||'CUSTOMER')}</div></div></div>`:''}
   </div>`;
@@ -1773,7 +1949,7 @@ const PM_CHECKLISTS={
 };
 
 // Current checklist state during CR form
-let crChecklist=null;// {tplId, items:[{section,name,status,remarks}], readings:[{label,unit,value}]}
+let crChecklists=[];// array of {tplId, serial, items, readings}
 
 function onCRTypeChange(){
   const ty=document.getElementById('crTy')?.value;
@@ -1783,42 +1959,91 @@ function onCRTypeChange(){
 }
 
 function loadChecklistForm(tplId){
-  const host=document.getElementById('crClBody');
-  if(!host)return;
-  if(!tplId){host.innerHTML='<p style="color:var(--t3);font-size:var(--fs-sm);margin:0">Select a checklist above to begin.</p>';crChecklist=null;return;}
-  const tpl=PM_CHECKLISTS[tplId];
-  if(!tpl){host.innerHTML='<p style="color:var(--err)">Checklist not found.</p>';return;}
-  // Init state
-  crChecklist={tplId:tplId,items:[],readings:[]};
-  tpl.sections.forEach(sec=>{sec.items.forEach(it=>{crChecklist.items.push({section:sec.title,name:it,status:'',remarks:''});});});
-  if(tpl.readings)tpl.readings.forEach(r=>{crChecklist.readings.push({label:r.label,unit:r.unit||'',value:''});});
-  // Render
+  if(!tplId)return;
+  addChecklistForm(tplId);
+  const sel=document.getElementById('crClSel');if(sel)sel.value='';
+}
+
+function _getCustomerSerials(custName,model){
+  // Collect serials for given customer + optional model filter
+  const set=new Set();
+  (DB.machines||[]).forEach(m=>{if(m.customer===custName&&(!model||m.model===model)&&m.serial)set.add(m.serial);});
+  (DB.reports||[]).forEach(r=>{if(r.customer===custName&&(!model||r.model===model)&&r.serial)set.add(r.serial);});
+  return [...set];
+}
+
+function addChecklistForm(tplId){
+  if(!tplId)return;
+  const tpl=PM_CHECKLISTS[tplId];if(!tpl){toast('Checklist not found.','error');return;}
+  const cl={tplId:tplId,serial:'',items:[],readings:[]};
+  tpl.sections.forEach(sec=>{sec.items.forEach(it=>{cl.items.push({section:sec.title,name:it,status:'',remarks:''});});});
+  if(tpl.readings)tpl.readings.forEach(r=>{cl.readings.push({label:r.label,unit:r.unit||'',value:''});});
+  crChecklists.push(cl);
+  renderAllChecklists();
+}
+
+function removeChecklist(idx){
+  if(!confirm('Remove this checklist?'))return;
+  crChecklists.splice(idx,1);renderAllChecklists();
+}
+
+function _serialFieldHTML(ci,curSerial,custName,model){
+  const serials=_getCustomerSerials(custName,model);
+  const sel=`<select class="fc" style="font-size:11px;padding:4px 6px;min-height:30px;flex:1;min-width:140px" id="crClSrSel_${ci}" onchange="if(this.value==='__custom__'){this.style.display='none';document.getElementById('crClSrIn_'+${ci}).style.display='';document.getElementById('crClSrIn_'+${ci}).focus();}else{crChecklists[${ci}].serial=this.value;}">
+    <option value="">— Select serial —</option>
+    ${serials.map(s=>`<option value="${E(s)}"${s===curSerial?' selected':''}>${E(s)}</option>`).join('')}
+    <option value="__custom__">✏ Type new serial...</option>
+  </select>`;
+  const inp=`<input class="fc" id="crClSrIn_${ci}" placeholder="Type serial number" value="${E(curSerial||'')}" style="font-size:11px;padding:4px 6px;min-height:30px;flex:1;min-width:140px;display:${curSerial&&!serials.includes(curSerial)?'':'none'}" oninput="crChecklists[${ci}].serial=this.value">`;
+  // If current serial not in list, show input instead
+  const showInput=curSerial&&!serials.includes(curSerial);
+  return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:#fff8e6;border:1px solid #f0c969;border-radius:var(--r);padding:6px 10px;margin-bottom:8px">
+    <span style="font-size:var(--fs-xs);font-weight:700;color:#8a6300">Serial:</span>
+    ${showInput?sel.replace('id="crClSrSel_'+ci+'"','id="crClSrSel_'+ci+'" style="display:none"'):sel}
+    ${inp}
+  </div>`;
+}
+
+function renderAllChecklists(){
+  const host=document.getElementById('crClBody');if(!host)return;
+  if(!crChecklists.length){host.innerHTML='<p style="color:var(--t3);font-size:var(--fs-sm);margin:0">Select a checklist above to add. You can add multiple for reports covering more than one machine.</p>';return;}
+  const custName=getFieldVal('crCu','crCuCustom');
   let html='';
-  let idx=0;
-  tpl.sections.forEach(sec=>{
-    html+=`<div style="margin-top:14px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px"><div style="font-weight:700;font-size:var(--fs-sm);color:var(--ac);margin-bottom:8px">${E(sec.title)}</div>`;
-    sec.items.forEach(it=>{
-      html+=`<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--bdr)" class="cl-row">
-        <div style="font-size:var(--fs-xs)">${E(it)}</div>
-        <div style="display:flex;gap:4px">
-          ${['OK','NG','NA'].map(s=>`<label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:4px 8px;border:1px solid var(--bdr);border-radius:4px;cursor:pointer;background:var(--input)"><input type="radio" name="cl_${idx}" value="${s}" onchange="crChecklist.items[${idx}].status='${s}'" style="width:14px;height:14px">${s}</label>`).join('')}
-        </div>
-        <input class="fc" placeholder="Remarks" style="font-size:11px;padding:4px 6px;min-height:30px" onchange="crChecklist.items[${idx}].remarks=this.value">
-      </div>`;
-      idx++;
+  crChecklists.forEach((cl,ci)=>{
+    const tpl=PM_CHECKLISTS[cl.tplId];if(!tpl)return;
+    html+=`<div style="margin-top:14px;border:2px solid var(--ac);border-radius:var(--rl);padding:10px;background:#fff">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px">
+        <div style="font-weight:800;font-size:var(--fs-sm);color:var(--ac)">Checklist #${ci+1} — ${E(tpl.name)}</div>
+        <button class="btn btn-sm btn-d" onclick="removeChecklist(${ci})" style="font-size:var(--fs-xs);padding:4px 10px;min-height:28px">🗑 Remove</button>
+      </div>
+      ${_serialFieldHTML(ci,cl.serial,custName,'')}`;
+    const bySec={};cl.items.forEach((it,i)=>{(bySec[it.section]=bySec[it.section]||[]).push({it:it,gIdx:i});});
+    Object.keys(bySec).forEach(sec=>{
+      html+=`<div style="margin-top:10px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px"><div style="font-weight:700;font-size:var(--fs-sm);color:var(--ac);margin-bottom:8px">${E(sec)}</div>`;
+      bySec[sec].forEach(o=>{
+        const it=o.it;const idx=o.gIdx;
+        html+=`<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--bdr)" class="cl-row">
+          <div style="font-size:var(--fs-xs)">${E(it.name)}</div>
+          <div style="display:flex;gap:4px">
+            ${['OK','NG','NA'].map(s=>`<label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:4px 8px;border:1px solid var(--bdr);border-radius:4px;cursor:pointer;background:var(--input)"><input type="radio" name="cl_${ci}_${idx}" value="${s}" ${it.status===s?'checked':''} onchange="crChecklists[${ci}].items[${idx}].status='${s}'" style="width:14px;height:14px">${s}</label>`).join('')}
+          </div>
+          <input class="fc" placeholder="Remarks" value="${E(it.remarks||'')}" style="font-size:11px;padding:4px 6px;min-height:30px" onchange="crChecklists[${ci}].items[${idx}].remarks=this.value">
+        </div>`;
+      });
+      html+='</div>';
     });
+    if(cl.readings&&cl.readings.length){
+      html+='<div style="margin-top:10px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px"><div style="font-weight:700;font-size:var(--fs-sm);color:var(--ac);margin-bottom:8px">Measurements / Readings</div>';
+      cl.readings.forEach((r,i)=>{
+        html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:6px 0;border-bottom:1px dashed var(--bdr)">
+          <div style="font-size:var(--fs-xs);align-self:center">${E(r.label)}${r.unit?' <span style="color:var(--t3)">('+E(r.unit)+')</span>':''}</div>
+          <input class="fc" placeholder="Value" value="${E(r.value||'')}" style="font-size:11px;padding:4px 6px;min-height:30px" onchange="crChecklists[${ci}].readings[${i}].value=this.value">
+        </div>`;
+      });
+      html+='</div>';
+    }
     html+='</div>';
   });
-  if(tpl.readings&&tpl.readings.length){
-    html+='<div style="margin-top:14px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px"><div style="font-weight:700;font-size:var(--fs-sm);color:var(--ac);margin-bottom:8px">Measurements / Readings</div>';
-    tpl.readings.forEach((r,i)=>{
-      html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:6px 0;border-bottom:1px dashed var(--bdr)">
-        <div style="font-size:var(--fs-xs);align-self:center">${E(r.label)}${r.unit?' <span style="color:var(--t3)">('+E(r.unit)+')</span>':''}</div>
-        <input class="fc" placeholder="Value" style="font-size:11px;padding:4px 6px;min-height:30px" onchange="crChecklist.readings[${i}].value=this.value">
-      </div>`;
-    });
-    html+='</div>';
-  }
   host.innerHTML=html;
 }
 
@@ -1872,7 +2097,7 @@ function deleteUserTemplate(){
 
 function renderCreateReport(){
   crPhotos=[];
-  crChecklist=null;
+  crChecklists=[];
   const cs=getAllCusts();
   const techs=DB.techs||[];
   document.getElementById('createReportContent').innerHTML=`
@@ -1915,6 +2140,12 @@ function renderCreateReport(){
         </select>
         <input class="fc" id="crCuCustom" placeholder="Or type new customer name..." style="margin-top:6px;display:none">
         <button class="btn btn-sm btn-s" onclick="toggleCustomCust()" style="margin-top:6px;font-size:var(--fs-xs)" id="crCuToggle">+ New customer not in list</button>
+        <div id="crCuAddrWrap" style="display:none;margin-top:8px">
+          <label style="font-size:var(--fs-xs);color:var(--t2);font-weight:600">Customer Address (for new customer)</label>
+          <textarea class="fc" id="crCuAddr" placeholder="Street, unit, postal code, country" rows="2" style="margin-top:4px"></textarea>
+          <label style="font-size:var(--fs-xs);color:var(--t2);font-weight:600;margin-top:6px;display:block">Customer Email (optional)</label>
+          <input class="fc" id="crCuEmailNew" placeholder="customer@company.com" style="margin-top:4px">
+        </div>
       </div>
       
       <div class="fr">
@@ -1957,15 +2188,15 @@ function renderCreateReport(){
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
           <span style="font-size:18px">✅</span>
           <div style="flex:1;min-width:160px">
-            <div style="font-weight:700;font-size:var(--fs-sm);color:var(--t1)">PM Checklist Form</div>
-            <div style="font-size:var(--fs-xs);color:var(--t2)">Uses the selected Company's letterhead</div>
+            <div style="font-weight:700;font-size:var(--fs-sm);color:var(--t1)">PM Checklist Forms (add one per machine)</div>
+            <div style="font-size:var(--fs-xs);color:var(--t2)">Each checklist has its own serial number. Uses selected Company letterhead.</div>
           </div>
           <select class="fc" id="crClSel" onchange="loadChecklistForm(this.value)" style="width:auto;min-width:240px;background:#fff">
-            <option value="">— Select machine checklist —</option>
+            <option value="">+ Add machine checklist</option>
             ${Object.keys(PM_CHECKLISTS).map(k=>`<option value="${k}">${E(PM_CHECKLISTS[k].name)}</option>`).join('')}
           </select>
         </div>
-        <div id="crClBody"><p style="color:var(--t3);font-size:var(--fs-sm);margin:0">Select a checklist above to begin.</p></div>
+        <div id="crClBody"><p style="color:var(--t3);font-size:var(--fs-sm);margin:0">Select a checklist above to add. You can add multiple for reports covering more than one machine.</p></div>
       </div>
 
       <div class="fg"><label>PO No.</label><input class="fc" id="crPO" placeholder="Optional"></div>
@@ -2110,14 +2341,25 @@ function toggleCustomCust(){
   if(inp.style.display==='none'){
     inp.style.display='';sel.style.display='none';inp.focus();
     btn.textContent='← Back to customer list';
-    // Reset dependent fields
-    document.getElementById('crCn').innerHTML='<option value="">—</option><option value="__custom__">✏ Type new...</option>';
-    document.getElementById('crCp').innerHTML='<option value="">—</option><option value="__custom__">✏ Type new...</option>';
-    document.getElementById('crMd').innerHTML='<option value="">—</option><option value="__custom__">✏ Type model...</option>';
-    document.getElementById('crSr').innerHTML='<option value="">—</option><option value="__custom__">✏ Type serial...</option>';
+    // Show address field for new customer
+    const adWrap=document.getElementById('crCuAddrWrap');if(adWrap)adWrap.style.display='';
+    // Reset dependent fields with custom switching wired
+    const cn=document.getElementById('crCn');cn.innerHTML='<option value="">—</option><option value="__custom__">✏ Type new...</option>';cn.style.display='';
+    document.getElementById('crCnCustom').style.display='none';document.getElementById('crCnCustom').value='';
+    cn.onchange=function(){if(this.value==='__custom__'){this.style.display='none';const x=document.getElementById('crCnCustom');x.style.display='';x.focus();}};
+    const cp=document.getElementById('crCp');cp.innerHTML='<option value="">—</option><option value="__custom__">✏ Type new...</option>';cp.style.display='';
+    document.getElementById('crCpCustom').style.display='none';document.getElementById('crCpCustom').value='';
+    cp.onchange=function(){if(this.value==='__custom__'){this.style.display='none';const x=document.getElementById('crCpCustom');x.style.display='';x.focus();}};
+    const md=document.getElementById('crMd');md.innerHTML='<option value="">—</option><option value="__custom__">✏ Type model...</option>';md.style.display='';
+    document.getElementById('crMdCustom').style.display='none';document.getElementById('crMdCustom').value='';
+    md.onchange=function(){if(this.value==='__custom__'){this.style.display='none';const x=document.getElementById('crMdCustom');x.style.display='';x.focus();}};
+    const sr=document.getElementById('crSr');sr.innerHTML='<option value="">—</option><option value="__custom__">✏ Type serial...</option>';sr.style.display='';
+    document.getElementById('crSrCustom').style.display='none';document.getElementById('crSrCustom').value='';
+    sr.onchange=function(){if(this.value==='__custom__'){this.style.display='none';const x=document.getElementById('crSrCustom');x.style.display='';x.focus();}};
   }else{
     inp.style.display='none';sel.style.display='';
     btn.textContent='+ New customer not in list';
+    const adWrap=document.getElementById('crCuAddrWrap');if(adWrap)adWrap.style.display='none';
   }
 }
 
@@ -2223,7 +2465,8 @@ function getCRData(){
     signed:!!(sc?._drawn),
     photos:crPhotos.slice(),
     partsText:document.getElementById('crParts')?.value.trim()||'',
-    checklist:(document.getElementById('crTy')?.value==='Preventive Maintenance'&&crChecklist&&crChecklist.tplId)?JSON.parse(JSON.stringify(crChecklist)):null
+    checklist:(document.getElementById('crTy')?.value==='Preventive Maintenance'&&crChecklists&&crChecklists.length)?JSON.parse(JSON.stringify(crChecklists[0])):null,
+    checklists:(document.getElementById('crTy')?.value==='Preventive Maintenance'&&crChecklists&&crChecklists.length)?JSON.parse(JSON.stringify(crChecklists)):[]
   };
 }
 
@@ -2240,7 +2483,7 @@ function savePartsFromCR(){
   });
 }
 
-function saveCR(){const d=getCRData();if(!d.jobNo){toast('Job No. required.','error');return;}d.id=DB.nR++;d.scannedAt=new Date().toISOString();if(window._linkedJobId)d.jobId=window._linkedJobId;DB.reports.push(d);let c=DB.custs.find(x=>x.name===d.customer);if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:'',agent:''});}linkReportToJob(d);savePartsFromCR();saveDB();toast('Report saved!','success');window._linkedJobId=null;showPage('reports');}
+function saveCR(){const d=getCRData();if(!d.jobNo){toast('Job No. required.','error');return;}d.id=DB.nR++;d.scannedAt=new Date().toISOString();if(window._linkedJobId)d.jobId=window._linkedJobId;DB.reports.push(d);let c=DB.custs.find(x=>x.name===d.customer);if(!c&&d.customer){const newAddr=document.getElementById('crCuAddr')?.value.trim()||'';const newEmail=document.getElementById('crCuEmailNew')?.value.trim()||'';DB.custs.push({id:DB.nC++,name:d.customer,address:newAddr,contact:d.contact,phone:d.contactNum,email:newEmail,agent:''});}linkReportToJob(d);savePartsFromCR();saveDB();toast('Report saved!','success');window._linkedJobId=null;showPage('reports');}
 
 // Auto-complete linked job when report signed by both
 function linkReportToJob(rpt){
@@ -2973,7 +3216,17 @@ function lbNav(dir){lbI+=dir;if(lbI<0)lbI=lbP.length-1;if(lbI>=lbP.length)lbI=0;
 // ===== AGENTS / COMPANIES =====
 function renderAgents(){
   const agents=DB.agents||[];
-  document.getElementById('agentsContent').innerHTML=`<div class="tw"><div class="th"><h3>Agents & Companies (${agents.length})</h3>${canEdit()?'<button class="btn btn-p btn-sm" onclick="openAgentModal()">+ Add</button>':''}</div>
+  const coKeys=['octopack','jw','redbox'];
+  const coBlock=`<div class="tw" style="margin-bottom:16px"><div class="th"><h3>🏢 Companies — Letterhead Info</h3><span style="font-size:var(--fs-xs);color:var(--t2)">Edit address, phone, email, UEN used in PDFs</span></div>
+    ${coKeys.map(k=>{const c=CO[k];return `<div class="rpt-card" id="coCard_${k}">
+      <div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs);color:${c.color}">${E(c.name)}</span><span class="bd bd-ac">${k.toUpperCase()}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Address</span><span class="rc-val" style="max-width:70%">${E(c.addr)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Tel</span><span class="rc-val">${E(c.tel)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Email</span><span class="rc-val">${E(c.email)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">UEN</span><span class="rc-val">${E(c.uen)}</span></div>
+      <div class="rpt-card-actions">${canEdit()?`<button class="btn btn-sm btn-p" onclick="editCompanyLetterhead('${k}')">✏ Edit Letterhead</button>`:''}</div>
+    </div>`;}).join('')}</div>`;
+  document.getElementById('agentsContent').innerHTML=coBlock+`<div class="tw"><div class="th"><h3>Agents & Companies (${agents.length})</h3>${canEdit()?'<button class="btn btn-p btn-sm" onclick="openAgentModal()">+ Add</button>':''}</div>
   ${agents.length?agents.map(a=>{
     const custCount=DB.custs.filter(c=>c.agent===a.name).length;
     return`<div class="rpt-card">
@@ -2989,6 +3242,51 @@ function renderAgents(){
       </div>
     </div>`;
   }).join(''):'<div class="es"><p>No agents/companies.</p></div>'}</div>`;
+}
+
+function editCompanyLetterhead(key){
+  const c=CO[key];if(!c){toast('Company not found.','error');return;}
+  openModal('Edit Letterhead — '+c.name,`
+    <input type="hidden" id="coEditKey" value="${key}">
+    <div class="fg"><label>Company Name</label><input class="fc" id="coName" value="${E(c.name)}"></div>
+    <div class="fg"><label>Address (appears on PDF letterhead)</label><textarea class="fc" id="coAddr" rows="2">${E(c.addr)}</textarea></div>
+    <div class="fr"><div class="fg"><label>Telephone</label><input class="fc" id="coTel" value="${E(c.tel)}"></div><div class="fg"><label>Email</label><input class="fc" id="coEmail" value="${E(c.email)}" type="email"></div></div>
+    <div class="fr"><div class="fg"><label>UEN</label><input class="fc" id="coUen" value="${E(c.uen)}"></div><div class="fg"><label>Brand Color (hex)</label><input class="fc" id="coColor" value="${E(c.color)}" placeholder="#1d4ed8"></div></div>
+    <div class="fg"><label>Tagline (footer)</label><input class="fc" id="coTag" value="${E(c.tag||'')}"></div>
+    <p style="font-size:var(--fs-xs);color:var(--t2);margin-top:8px">Changes apply to all future PDFs and existing reports immediately.</p>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-d" onclick="resetCompanyLetterhead('${key}')">Reset to Default</button><button class="btn btn-p" onclick="saveCompanyLetterhead()">Save</button>`);
+}
+
+const _COMPANY_DEFAULTS={
+  octopack:{name:'OCTOPACK SEA PTE LTD',addr:'7 Yishun Industrial Street 1 #03-49 North Spring Bizhub, Singapore 768162',tel:'+65 6909 8136',email:'CS@octopack.com.sg',uen:'201709641E',color:'#1d4ed8',tag:'OCTOPACK - The Better Way To Pack'},
+  jw:{name:'JW Supplies & Works Pte Ltd',addr:'9 Yishun Industrial Street 1 #02-37 North Spring Bizhub, Singapore 768163',tel:'+65 9061 8811',email:'joyce@jwsupplies.sg',uen:'201822151K',color:'#2563eb',tag:'JW Supplies & Works Pte Ltd'},
+  redbox:{name:'Redbox Global Solutions Pte Ltd',addr:'7 Yishun Industrial Street 1 #03-49 North Spring Bizhub, Singapore 768162',tel:'+65 6909 8136',email:'engineering@redboxgs.com',uen:'201710953N',color:'#dc2626',tag:'Redbox Global Solutions'}
+};
+
+function saveCompanyLetterhead(){
+  const key=document.getElementById('coEditKey').value;
+  if(!CO[key]){toast('Invalid company.','error');return;}
+  const upd={
+    name:document.getElementById('coName').value.trim()||CO[key].name,
+    addr:document.getElementById('coAddr').value.trim()||CO[key].addr,
+    tel:document.getElementById('coTel').value.trim()||CO[key].tel,
+    email:document.getElementById('coEmail').value.trim()||CO[key].email,
+    uen:document.getElementById('coUen').value.trim()||CO[key].uen,
+    color:document.getElementById('coColor').value.trim()||CO[key].color,
+    tag:document.getElementById('coTag').value.trim()||CO[key].tag
+  };
+  Object.assign(CO[key],upd);
+  if(!DB.companies)DB.companies={};
+  DB.companies[key]={...DB.companies[key],...upd};
+  saveDB();closeModal();renderAgents();toast('Letterhead updated.','success');
+}
+
+function resetCompanyLetterhead(key){
+  if(!confirm('Reset this company letterhead to factory defaults?'))return;
+  const def=_COMPANY_DEFAULTS[key];if(!def)return;
+  Object.assign(CO[key],def);
+  if(DB.companies)delete DB.companies[key];
+  saveDB();closeModal();renderAgents();toast('Reset to defaults.','success');
 }
 
 function openAgentModal(data){
@@ -3489,6 +3787,7 @@ function renderDataMgmt(){
         <button class="btn btn-p btn-sm" onclick="exportCSV('jobs')">Jobs (${DB.jobs.length})</button>
         <button class="btn btn-p btn-sm" onclick="exportCSV('technicians')">Technicians (${DB.techs.length})</button>
         <button class="btn btn-p btn-sm" onclick="exportCSV('agents')">Agents (${(DB.agents||[]).length})</button>
+        <button class="btn btn-p btn-sm" onclick="exportCSV('companies')">Companies (3)</button>
         <button class="btn btn-s btn-sm" onclick="exportAllCSV()">📦 Export All</button>
       </div>
     </div>
@@ -3503,6 +3802,7 @@ function renderDataMgmt(){
           <option value="jobs">Jobs</option>
           <option value="technicians">Technicians</option>
           <option value="agents">Agents / Companies</option>
+          <option value="companies">Companies Letterhead</option>
         </select>
       </div>
       <div class="fg">
@@ -3566,8 +3866,8 @@ function exportCSV(table){
       headers=['id','serial','model','category','customer','location','installDate','warranty','purchaseRental','serviceContract','maintFrequency'];
       rows=DB.machines||[];break;
     case 'reports':
-      headers=['id','company','jobNo','date','customer','contact','contactNum','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit','checklist'];
-      rows=DB.reports.map(r=>({...r,checklist:r.checklist?JSON.stringify(r.checklist):''}));break;
+      headers=['id','company','jobNo','date','customer','contact','contactNum','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit','checklist','checklists'];
+      rows=DB.reports.map(r=>({...r,checklist:r.checklist?JSON.stringify(r.checklist):'',checklists:(Array.isArray(r.checklists)&&r.checklists.length)?JSON.stringify(r.checklists):''}));break;
     case 'jobs':
       headers=['id','title','customer','machine','model','type','priority','date','time','status','desc','techNames'];
       rows=DB.jobs.map(j=>({...j,techNames:getJobTechNames(j)}));break;
@@ -3577,6 +3877,9 @@ function exportCSV(table){
     case 'agents':
       headers=['id','name','type','address','contact','phone','email'];
       rows=DB.agents||[];break;
+    case 'companies':
+      headers=['key','name','addr','tel','email','uen','color','tag'];
+      rows=['octopack','jw','redbox'].map(k=>({key:k,...CO[k]}));break;
     default:return;
   }
   
@@ -3587,7 +3890,7 @@ function exportCSV(table){
 
 function exportAllCSV(){
   const ts=new Date().toISOString().split('T')[0];
-  ['customers','machines','reports','jobs','technicians','agents'].forEach(t=>exportCSV(t));
+  ['customers','machines','reports','jobs','technicians','agents','companies'].forEach(t=>exportCSV(t));
   toast('All tables exported.','success');
 }
 
@@ -3599,7 +3902,8 @@ function downloadTemplate(){
     reports:'id,company,jobNo,date,customer,contact,contactNum,model,serial,engineer,type,timeStart,timeEnd,remarks,recommendations,status,nextVisit,checklist\n,octopack,SR-99999,2026-04-15,Example Corp,John,+65123,ET300PPS,SN12345,Colin Tan,Preventive Maintenance,09:00,11:00,Performed PM,All OK,Completed,,',
     jobs:'id,title,customer,machine,model,type,priority,date,time,status,desc\n,PM Service Example,Example Corp,SN12345,ET300PPS,Preventive Maintenance,Medium,2026-05-01,09:00,Open,Routine PM check',
     technicians:'id,name,phone,email,spec\n,New Tech,+6599999999,tech@company.com,General',
-    agents:'id,name,type,address,contact,phone,email\n,New Agent Co,Agent,123 Street,Mr Smith,+6512345678,agent@company.com'
+    agents:'id,name,type,address,contact,phone,email\n,New Agent Co,Agent,123 Street,Mr Smith,+6512345678,agent@company.com',
+    companies:'key,name,addr,tel,email,uen,color,tag\noctopack,OCTOPACK SEA PTE LTD,7 Yishun Industrial Street 1 #03-49,+65 6909 8136,CS@octopack.com.sg,201709641E,#1d4ed8,OCTOPACK - The Better Way To Pack\njw,JW Supplies & Works Pte Ltd,9 Yishun Industrial Street 1 #02-37,+65 9061 8811,joyce@jwsupplies.sg,201822151K,#2563eb,JW Supplies & Works Pte Ltd\nredbox,Redbox Global Solutions Pte Ltd,7 Yishun Industrial Street 1 #03-49,+65 6909 8136,engineering@redboxgs.com,201710953N,#dc2626,Redbox Global Solutions'
   };
   downloadFile(templates[type]||'',`octocrm_${type}_template.csv`);
   toast('Template downloaded.','success');
@@ -3672,9 +3976,12 @@ function importCSV(){
             if(!obj.jobno)return;
             let parsedCl=null;
             if(obj.checklist){try{parsedCl=JSON.parse(obj.checklist);}catch(e){parsedCl=null;}}
+            let parsedCls=null;
+            if(obj.checklists){try{parsedCls=JSON.parse(obj.checklists);if(!Array.isArray(parsedCls))parsedCls=null;}catch(e){parsedCls=null;}}
+            if(!parsedCls&&parsedCl)parsedCls=[parsedCl];
             const existing=DB.reports.find(r=>r.jobNo===obj.jobno||(obj.id&&r.id===parseInt(obj.id)));
-            if(existing){Object.assign(existing,{company:obj.company||existing.company,date:obj.date||existing.date,customer:obj.customer||existing.customer,contact:obj.contact||existing.contact,contactNum:obj.contactnum||existing.contactNum,model:obj.model||existing.model,serial:obj.serial||existing.serial,engineer:obj.engineer||existing.engineer,type:obj.type||existing.type,timeStart:obj.timestart||existing.timeStart,timeEnd:obj.timeend||existing.timeEnd,remarks:obj.remarks||existing.remarks,recommendations:obj.recommendations||existing.recommendations,status:obj.status||existing.status,nextVisit:obj.nextvisit||existing.nextVisit,checklist:parsedCl||existing.checklist||null});updated++;}
-            else{DB.reports.push({id:DB.nR++,company:obj.company||'octopack',jobNo:obj.jobno,date:obj.date||'',customer:obj.customer||'',contact:obj.contact||'',contactNum:obj.contactnum||'',model:obj.model||'',serial:obj.serial||'',engineer:obj.engineer||'',type:obj.type||'Preventive Maintenance',timeStart:obj.timestart||'',timeEnd:obj.timeend||'',remarks:obj.remarks||'',recommendations:obj.recommendations||'',status:obj.status||'Completed',nextVisit:obj.nextvisit||'',signed:false,photos:[],checklist:parsedCl});added++;}
+            if(existing){Object.assign(existing,{company:obj.company||existing.company,date:obj.date||existing.date,customer:obj.customer||existing.customer,contact:obj.contact||existing.contact,contactNum:obj.contactnum||existing.contactNum,model:obj.model||existing.model,serial:obj.serial||existing.serial,engineer:obj.engineer||existing.engineer,type:obj.type||existing.type,timeStart:obj.timestart||existing.timeStart,timeEnd:obj.timeend||existing.timeEnd,remarks:obj.remarks||existing.remarks,recommendations:obj.recommendations||existing.recommendations,status:obj.status||existing.status,nextVisit:obj.nextvisit||existing.nextVisit,checklist:parsedCl||existing.checklist||null,checklists:parsedCls||existing.checklists||[]});updated++;}
+            else{DB.reports.push({id:DB.nR++,company:obj.company||'octopack',jobNo:obj.jobno,date:obj.date||'',customer:obj.customer||'',contact:obj.contact||'',contactNum:obj.contactnum||'',model:obj.model||'',serial:obj.serial||'',engineer:obj.engineer||'',type:obj.type||'Preventive Maintenance',timeStart:obj.timestart||'',timeEnd:obj.timeend||'',remarks:obj.remarks||'',recommendations:obj.recommendations||'',status:obj.status||'Completed',nextVisit:obj.nextvisit||'',signed:false,photos:[],checklist:parsedCl,checklists:parsedCls||[]});added++;}
             break;
           }
           case 'jobs':{
@@ -3695,6 +4002,15 @@ function importCSV(){
             const existing=DB.agents.find(a=>a.name===obj.name);
             if(existing){Object.assign(existing,{type:obj.type||existing.type,address:obj.address||existing.address,contact:obj.contact||existing.contact,phone:obj.phone||existing.phone,email:obj.email||existing.email});updated++;}
             else{DB.agents.push({id:DB.nA++,name:obj.name,type:obj.type||'Agent',address:obj.address||'',contact:obj.contact||'',phone:obj.phone||'',email:obj.email||''});added++;}
+            break;
+          }
+          case 'companies':{
+            if(!obj.key||!CO[obj.key])return;
+            const upd={name:obj.name||CO[obj.key].name,addr:obj.addr||CO[obj.key].addr,tel:obj.tel||CO[obj.key].tel,email:obj.email||CO[obj.key].email,uen:obj.uen||CO[obj.key].uen,color:obj.color||CO[obj.key].color,tag:obj.tag||CO[obj.key].tag};
+            Object.assign(CO[obj.key],upd);
+            if(!DB.companies)DB.companies={};
+            DB.companies[obj.key]={...DB.companies[obj.key],...upd};
+            updated++;
             break;
           }
         }
@@ -3954,10 +4270,19 @@ setTimeout(()=>{if(checkPDFLibs())console.log('PDF libs ready');else console.war
 
 // ===== PDF GENERATION =====
 function buildChecklistHTMLForPDF(r,co){
-  if(!r.checklist||!r.checklist.tplId)return'';
-  const tpl=PM_CHECKLISTS[r.checklist.tplId];if(!tpl)return'';
-  const items=r.checklist.items||[];
-  const readings=r.checklist.readings||[];
+  // Support both new array `checklists` and legacy single `checklist`
+  let arr=[];
+  if(Array.isArray(r.checklists)&&r.checklists.length)arr=r.checklists;
+  else if(r.checklist&&r.checklist.tplId)arr=[r.checklist];
+  if(!arr.length)return'';
+  return arr.map((cl,clIdx)=>_buildSingleChecklistHTML(cl,r,co,clIdx,arr.length)).join('');
+}
+
+function _buildSingleChecklistHTML(cl,r,co,clIdx,total){
+  const tpl=PM_CHECKLISTS[cl.tplId];if(!tpl)return'';
+  const items=cl.items||[];
+  const readings=cl.readings||[];
+  const clSerial=cl.serial||r.serial||'';
   // Group items by section
   const bySec={};items.forEach(it=>{(bySec[it.section]=bySec[it.section]||[]).push(it);});
   let body='';
@@ -3990,7 +4315,7 @@ function buildChecklistHTMLForPDF(r,co){
       </div>
       <div style="border:2px solid ${co.color};padding:10px 22px;text-align:center;flex-shrink:0"><div style="font-size:13px;font-weight:800;color:#000;letter-spacing:1.2px">PM CHECKLIST</div></div>
     </div>
-    <div style="background:#eef4ff;color:#000;font-size:11px;font-weight:700;padding:7px 10px;border:1px solid #c9d6ee;border-top:2px solid ${co.color};letter-spacing:0.4px">PREVENTIVE MAINTENANCE CHECKLIST — ${E(tpl.name.toUpperCase())}</div>
+    <div style="background:#eef4ff;color:#000;font-size:11px;font-weight:700;padding:7px 10px;border:1px solid #c9d6ee;border-top:2px solid ${co.color};letter-spacing:0.4px">PREVENTIVE MAINTENANCE CHECKLIST — ${E(tpl.name.toUpperCase())}${total>1?` &nbsp; (${clIdx+1} OF ${total})`:''}</div>
     <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px;border:1px solid #c9d6ee;border-top:none">
       <tr style="background:#f6f9ff">
         <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Job No.:</strong> ${E(r.jobNo||'')}</td>
@@ -3999,7 +4324,7 @@ function buildChecklistHTMLForPDF(r,co){
       </tr>
       <tr style="background:#f6f9ff">
         <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Machine:</strong> ${E(r.model||'')}</td>
-        <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Serial:</strong> ${E(r.serial||'')}</td>
+        <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Serial:</strong> ${E(clSerial)}</td>
         <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Engineer:</strong> ${E(r.engineer||'')}</td>
       </tr>
     </table>
