@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,interactive-widget=resizes-content,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=5.0,user-scalable=yes,interactive-widget=resizes-content,viewport-fit=cover">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#f8fafc">
@@ -1306,6 +1306,12 @@ function editReport(id){
     <div class="fg"><label>Issues / Remarks</label><textarea class="fc" id="erRm">${E(r.remarks||'')}</textarea></div>
     <div class="fg"><label>Recommendations</label><textarea class="fc" id="erRc">${E(r.recommendations||'')}</textarea></div>
     <div class="fg"><label>Next Visit</label><input class="fc" type="date" id="erNV" value="${E(r.nextVisit||'')}"></div>
+    ${(r.checklist&&r.checklist.tplId)?`
+    <div style="background:linear-gradient(135deg,var(--acs),var(--pus));border:1px solid var(--bdr);border-radius:var(--rl);padding:14px;margin-top:10px">
+      <div style="font-weight:700;font-size:var(--fs-sm)">✅ Attached Checklist: ${E(PM_CHECKLISTS[r.checklist.tplId]?.name||r.checklist.tplId)}</div>
+      <div style="font-size:var(--fs-xs);color:var(--t2);margin-top:4px">${(r.checklist.items||[]).length} inspection items · ${(r.checklist.readings||[]).length} readings</div>
+      <button class="btn btn-sm btn-d" onclick="if(confirm('Remove attached checklist?')){const rep=DB.reports.find(x=>x.id===${r.id});if(rep){rep.checklist=null;saveDB();closeModal();editReport(${r.id});toast('Checklist removed.','info');}}" style="margin-top:8px;font-size:var(--fs-xs)">🗑 Remove Checklist</button>
+    </div>`:''}
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveEditReport()">Save Changes</button>`);
 }
 
@@ -1353,6 +1359,7 @@ function viewRptPreview(id){
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Issues/Remarks</th><td colspan="3" style="border:1px solid #ccc;padding:8px;white-space:pre-line">${E(r.remarks)}</td></tr>
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Recommendations</th><td colspan="3" style="border:1px solid #ccc;padding:8px;white-space:pre-line">${E(r.recommendations)}</td></tr>
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Status</th><td style="border:1px solid #ccc;padding:8px;font-weight:700">${E(r.status)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Next Visit</th><td style="border:1px solid #ccc;padding:8px">${E(r.nextVisit||'—')}</td></tr></table>
+    ${(r.checklist&&r.checklist.tplId)?`<div style="margin-top:16px;padding:10px 12px;background:#eef4ff;border:1px solid #c9d6ee;border-radius:6px;font-size:12px"><strong>✅ PM Checklist Attached:</strong> ${E(PM_CHECKLISTS[r.checklist.tplId]?.name||'')} — ${(r.checklist.items||[]).filter(i=>i.status==='OK').length} OK / ${(r.checklist.items||[]).filter(i=>i.status==='NG').length} NG / ${(r.checklist.items||[]).filter(i=>i.status==='NA').length} NA out of ${(r.checklist.items||[]).length} items. <em>Full checklist included in PDF export.</em></div>`:''}
     ${photos.length?`<div style="margin-top:16px;padding-top:12px;border-top:1px solid #ddd"><strong>📸 Photos (${photos.length})</strong><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${photos.map((p,i)=>`<img src="${p.dataUrl}" style="width:100px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #ccc;cursor:pointer" onclick="openLBx(DB.reports.find(x=>x.id===${id}).photos,${i})">`).join('')}</div></div>`:''}
     ${r.engSig||r.custSig?`<div style="display:flex;justify-content:space-between;margin-top:20px;padding-top:16px;border-top:2px solid #333"><div style="text-align:center;width:45%">${r.engSig?`<img src="${r.engSig}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">ENGINEER</div></div><div style="text-align:center;width:45%">${r.custSig?`<img src="${r.custSig}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">${E(r.sigName||'CUSTOMER')}</div></div></div>`:''}
   </div>`;
@@ -1394,6 +1401,426 @@ const PM_TEMPLATES={
     recommendations:'Quotation for repair/parts will be issued separately.'
   }
 };
+
+// ===== PM CHECKLIST FORMS (per machine type) =====
+// Each checklist: id, name, brand company (octopack/jw/redbox), sections [{title, items:[name]}], readings:[{label, unit}]
+const PM_CHECKLISTS={
+  shrink_oven:{
+    name:'Shrink Film Machine & Shrink Oven',
+    company:'octopack',
+    sections:[
+      {title:'A. Shrink Film Machine',items:[
+        'Check film roll alignment and loading condition',
+        'Inspect sealing bar for wear, carbon buildup, or damage',
+        'Verify sealing temperature settings and operation',
+        'Check cutter/blade sharpness and alignment',
+        'Inspect conveyor belt condition and tracking',
+        'Check motor, gearbox, and chain lubrication',
+        'Verify sensor functionality (product detect, film detect)',
+        'Inspect electrical wiring and control panel for looseness',
+        'Ensure emergency stop and safety guards are functional'
+      ]},
+      {title:'B. Shrink Oven',items:[
+        'Inspect heaters and heating elements for damage',
+        'Verify temperature controller accuracy',
+        'Check air circulation fans and airflow',
+        'Inspect conveyor mesh/belt for damage or residue',
+        'Check insulation panels and oven door seals',
+        'Inspect electrical connections and terminal tightness',
+        'Ensure over-temperature protection is operational'
+      ]},
+      {title:'C. Housekeeping & Safety',items:[
+        'Clean machine exterior and remove film residue',
+        'Remove debris from conveyor and oven chamber',
+        'Ensure warning labels are visible and intact',
+        'Check fire extinguisher availability nearby'
+      ]}
+    ]
+  },
+  conveyor:{
+    name:'Motorized Roller & Chain Conveyor',
+    company:'octopack',
+    sections:[
+      {title:'1. Motorized Rollers',items:[
+        'Check motor current draw','Listen for unusual noises','Test start/stop function',
+        'Check roller speed','Clean motor surfaces','Test emergency stops'
+      ]},
+      {title:'2. Chain System',items:[
+        'Check chain tension','Look for loose/worn links','Clean entire chain',
+        'Apply fresh lubricant','Check sprocket condition','Tighten all sprocket bolts','Look for chain wear'
+      ]},
+      {title:'3. Slave Rollers',items:[
+        'Spin test each roller','Check for flat spots','Clean roller surfaces',
+        'Listen for bad bearings','Check for loose rollers','Tighten mounting brackets','Remove any wrapped material'
+      ]},
+      {title:'4. Controls',items:[
+        'Test all photo eyes','Clean sensors','Check all wiring','Test zone control',
+        'Verify speed controls','Check emergency stops','Test warning lights'
+      ]},
+      {title:'5. Structure',items:[
+        'Tighten all bolts','Check frame level','Clean entire system','Check side guides',
+        'Verify guard rails','Look for damage','Clean under conveyor'
+      ]}
+    ]
+  },
+  strapping:{
+    name:'Strapping Tools',
+    company:'jw',
+    sections:[
+      {title:'1. Inspection (Visual & Physical)',items:[
+        '1.1 Equipment body — switch buttons, mimic panel, compression spring, rocker lever',
+        '1.2 Electrical Connections — micro switch cable / termination',
+        '1.3 Motors — Tension Motor, cutter knife, sealing tooth plate',
+        '1.4 Lubricate and tension — grease gears connected to tension wheel',
+        '1.5 Tension wheel teeth — clean heavy dirt, replace if broken',
+        '1.6 Tooth plate teeth — clean, check for worn teeth, replace if needed',
+        '1.7 Cutting knife — check, install with compressing spring on top',
+        '1.8 Check for unusual noises during operation',
+        '1.9 Clean: remove dust, debris, oily/sticky residues'
+      ]},
+      {title:'2. Machine Checks via Mimic Panel',items:[
+        '2.1 Strap tension','2.2 Welding time','2.3 Setting buttons','2.4 Battery LED indication'
+      ]},
+      {title:'4. Final Test',items:[
+        '4.1 Review safety features — test all alarms','4.2 Test run — verify all controls'
+      ]}
+    ],
+    readings:[
+      {label:'Battery DC (Vac/Vdc)',unit:'V'},
+      {label:'Battery Charger (Vdc, if any)',unit:'V'}
+    ]
+  },
+  air_cushion:{
+    name:'Air Cushion Machine (Air 3 / PAK300)',
+    company:'redbox',
+    sections:[
+      {title:'1. Inspection (Visual & Physical)',items:[
+        '1.1 Equipment body — switch buttons, mimic panel, roller, belt, blade',
+        '1.2 Electrical Connections — heater wire cable / termination',
+        '1.3 Motors — Feeder roller motor, M/C Exhaust Fan',
+        '1.4 Tension — slide silicon roller right to left, adjust if needed',
+        '1.5 Teflon belt — press heating block separation handle, remove if needed',
+        '1.6 Inflatable tube — unscrew M4, check for blockage, clean',
+        '1.7 Blade — replace if needed (unscrew M3)',
+        '1.8 Check for unusual noises during operation',
+        '1.9 Clean: dust, debris, oily/sticky residues'
+      ]},
+      {title:'2. Machine Checks via Mimic Panel',items:[
+        '2.1 Air Blow','2.2 Speed','2.3 Temperature','3.3 Pull Film','2.4 Start and Stop'
+      ]},
+      {title:'4. Final Test',items:[
+        '4.1 Review safety features — test mechanisms and alarms',
+        '4.2 Test run — verify all controls function'
+      ]}
+    ],
+    readings:[
+      {label:'Machine / Equipment INPUT (1 phase 230Vac)',unit:'Vac/Vdc'},
+      {label:'DC Power Supply (if any)',unit:'Vdc'}
+    ]
+  },
+  stretch_wrap_pps:{
+    name:'Stretch Wrapping Machine (ET 200/300 PPS)',
+    company:'octopack',
+    sections:[
+      {title:'1. Inspection (Visual & Physical)',items:[
+        '1.1 Control panel — indication lamp, push buttons, ventilating fan',
+        '1.2 Electrical connections — power cable / termination',
+        '1.3 Motors — turntable, film, up/dn carriage — sprockets, chains, bearings, gears',
+        '1.4 Lubricate and tension — grease all chains, bearings, gears',
+        '1.5 Check for unusual noises during operation',
+        '1.6 Clean: dust, debris, spills, oily/sticky residues'
+      ]},
+      {title:'2.1 PLC Input Section',items:[
+        'X0 Turntable Home','X1 Carriage UP Limit','X2 Dancing Bar','X3 Carriage Down Limit','X4 Production Detect',
+        'X5 Start PB','X6 Reset PB','X7 E/ST','X10 Film Door','X11 Carriage Down Safety'
+      ]},
+      {title:'2.2 PLC Output Section',items:[
+        'Y0 Turntable Motor Run','Y1 Spare','Y2 Film Motor Run','Y3 Film Cutter',
+        'X4 Carriage UP Run','X5 Carriage Down Run','X6 Relay to VDS','X7 Spare'
+      ]},
+      {title:'4. Final Test',items:[
+        '4.1 Review safety features — test mechanisms and alarms',
+        '4.2 Test run — verify all controls (manual and auto)'
+      ]}
+    ],
+    readings:[
+      {label:'Machine INPUT (1 phase 230Vac)',unit:'Vac/Vdc'},
+      {label:'DC Power Supply (if any)',unit:'Vdc'}
+    ]
+  },
+  air_compressor:{
+    name:'CECCATO Air Compressor + Dryer DAT 100',
+    company:'redbox',
+    sections:[
+      {title:'A. Annual PM — Air Compressor',items:[
+        'Inspect/Replace Air Filter (Every Maintenance)',
+        'Inspect/Replace Oil Filter (1/yr)',
+        'Replace Air/Oil Separator (1/yr)',
+        'Inspect/Replace V belt (1/yr)',
+        'Inspect/Replace Mesh Filter (1/yr)',
+        'Inspect/Replace Air Compressor Oil (1/yr)',
+        'Inspection of Air End Bearing',
+        'Motor Greasing','Safety Solvent',
+        'Inspect/Replace Unloader Valve','Inspect Oil Stop Valve',
+        'Inspect Blow Down Valve','Inspect Load Solenoid Valve','Inspect Air Intake Valve',
+        'Inspect/Replace Min. Pressure Valve','Inspect/Replace Temperature Switch',
+        'Replace Thermostatic Valve Kit','Inspect Piping/Tubing For Leakage',
+        'Inspect Hoses for Leakages','General Cleaning Air Compressor','Clean Cooler with Air Blow'
+      ]},
+      {title:'B. Annual PM — Dryer DAT 100',items:[
+        'Inspect fan motor, blower, fan belts',
+        'Inspect / clean evaporator coil insulation',
+        'Inspect / clean condenser coil',
+        'Inspect / clean air intake mesh filter, cabinet',
+        'Inspect, clean water tray and purge drain pipe, clean auto strainer',
+        'Inspect gas compressor, mounting springs, refrigerant pipe system',
+        'Check routine operation of electrical apparatus',
+        'Inspect and adjust thermostat and automatic controls',
+        'Check In/Out compressed air pipe & bypass valves (normally closed)',
+        'Inspect/Replace Pre Filter Element','Inspect/Replace After Filter Element',
+        'Inspect/Replace Carbon Filter Element','Inspect/Replace Timer Auto Drain',
+        'Inspect/Top-up Freon Gas','General Cleaning Air Dryer'
+      ]}
+    ],
+    readings:[
+      {label:'Running Hour',unit:'hr'},
+      {label:'Load Amp',unit:'A'},
+      {label:'Before Servicing Temp',unit:'°C'},
+      {label:'After Servicing Temp',unit:'°C'},
+      {label:'Load Pressure',unit:'bar'},
+      {label:'Unloading Pressure',unit:'bar'},
+      {label:'AR Number',unit:''},
+      {label:'MOM Due Date',unit:''},
+      {label:'Room Ambient Temp',unit:'°C'},
+      {label:'Dryer Dew Point',unit:'°C / B-G-R'},
+      {label:'Dryer Operating Pressure',unit:'bar'},
+      {label:'Gas Standing Pressure (no load)',unit:'PSI'},
+      {label:'Gas Running Pressure (max load)',unit:'PSI'},
+      {label:'Gas Compressor Max Running Amp',unit:'A'}
+    ]
+  },
+  auto_stretch:{
+    name:'Auto Stretch Wrapping Machine',
+    company:'redbox',
+    sections:[
+      {title:'Annual PM Tasks',items:[
+        'Test run Stretch Wrapper manual & auto mode',
+        'Check and lubricate 3 conveyors chains, gear motor',
+        'Adjust conveyor chains and drive chain, lubricate with light oils',
+        'Check conveyor photo-sensor for mis-alignments',
+        'Check rotating arm bolts/nuts, pinion gear, rotating gear motor',
+        'Check slip-ring, home proximity sensor, rotation safety photo-sensor',
+        'Check roll carriage lift gear motor, lifting chain tension, sprocket cotter pins',
+        'Check sprocket gear, chain tension, door and film feed proximity sensor',
+        'Check film swept arm cylinder, film roller, air-tubing',
+        'Replace Nichrome Wire Filament (Every Maintenance)',
+        'Check film clamp rubber, air-cylinder, air valve',
+        'Check E-Stop and buttons functionality',
+        'Check electrical control panel and wiring for loose connection',
+        'Check Incoming Air Pressure',
+        'Check PLC program and functionality using Laptop',
+        'Clean up machine and test run manual & auto wrap mode'
+      ]}
+    ],
+    readings:[
+      {label:'24VDC Power Supply',unit:'V'},
+      {label:'Rotation Arm Motor Current',unit:'A'},
+      {label:'Infeed 1 Conveyor Motor Current',unit:'A'},
+      {label:'Infeed 2 Conveyor Motor Current',unit:'A'},
+      {label:'Wrapping Conveyor Motor Current',unit:'A'},
+      {label:'Outfeed Conveyor Motor Current',unit:'A'},
+      {label:'Outfeed 2 Conveyor Motor Current',unit:'A'},
+      {label:'Incoming Air Pressure',unit:'bar'}
+    ]
+  },
+  map_stocker:{
+    name:'MAP Cover Stocker Machine',
+    company:'redbox',
+    sections:[
+      {title:'Annual PM Tasks',items:[
+        'Test run Stocker Machine manual & auto mode',
+        'Check and lubricate 7 conveyors chains, gear motor',
+        'Adjust conveyor chains and drive chain, lubricate with light oils',
+        'Check conveyor photo-sensor for mis-alignments',
+        'Check/clean pallet stopper air cylinder, solenoid valve fitting for air leak',
+        'Check/clean stocker box dispensing lifting cylinder, regulator, solenoid valve',
+        'Check lifting function stop position reed switch (top, mid, bottom)',
+        'Check pick & place lifting cylinder, suction pad assembly, tube and fitting',
+        'Check/clean pick & place travelling drive wheel, stopping position',
+        'Check vacuum pump, exhaust filter, oil level',
+        'Check electrical control panel and wiring for loose connection',
+        'Check PLC program and functionality using Laptop',
+        'Clean up machine and test run manual & auto wrap mode'
+      ]}
+    ],
+    readings:[
+      {label:'24VDC Power Supply',unit:'V'},
+      {label:'Lifting Arm Motor Current',unit:'A'},
+      {label:'Stocker Conveyor 1 Motor Current',unit:'A'},
+      {label:'Stocker Conveyor 2 Motor Current',unit:'A'},
+      {label:'Stocker Conveyor 3 Motor Current',unit:'A'},
+      {label:'Stocker Conveyor 4 Motor Current',unit:'A'},
+      {label:'Rice Conveyor 1 Motor Current',unit:'A'},
+      {label:'Rice Conveyor 2 Motor Current',unit:'A'},
+      {label:'Rice Conveyor 3 Motor Current',unit:'A'},
+      {label:'Incoming Air Pressure (Stocker)',unit:'bar'},
+      {label:'Incoming Air Pressure (Covering)',unit:'bar'}
+    ]
+  },
+  map_filling:{
+    name:'MAP Filling Stations 1–20',
+    company:'redbox',
+    sections:[
+      {title:'Annual PM Tasks',items:[
+        'Check Electrical Control Panel',
+        'Check Main Nitrogen Pressure Switch (Min 7 Bars)',
+        'Check existing filling cycle on each station',
+        'Check & Measure Nitrogen pressure and flow rate, fine tune',
+        'Check O2 Suction flow rate, fine tune',
+        'Check Nitrogen main solenoid valve and pipe line for leak',
+        'Check/clean individual pressure regulator for leak and function',
+        'Check/clean O2 suction solenoid valve',
+        'Check Nitrogen & O2 filling air tubing damage',
+        'Check Filling nozzle condition',
+        'Check & Measure O2 suction blower 3-phase 415V 0.4KW',
+        'Check/clean exhaust blower relief valve 1¼"',
+        'Check 3-colour tower light R/A/G',
+        'Check LED Display cycle and time',
+        'Key switch and start/stop push button',
+        'Check PLC program and functionality using Laptop',
+        'Test run filling all stations'
+      ]},
+      {title:'Station Results (1–20) — fill in Remarks per station as: "Stn N: O2-lo, O2-hi, Solenoid, Analyzer, Hose, Vac Motor, Nozzle, Usable Y/N"',items:[
+        'Station 1','Station 2','Station 3','Station 4','Station 5','Station 6','Station 7','Station 8','Station 9','Station 10',
+        'Station 11','Station 12','Station 13','Station 14','Station 15','Station 16','Station 17','Station 18','Station 19','Station 20'
+      ]}
+    ]
+  },
+  nitrogen_gen:{
+    name:'Nitrogen Generator',
+    company:'redbox',
+    sections:[
+      {title:'Annual PM Tasks',items:[
+        'Check Inlet Temperature','Check Outlet Temperature','Measure Incoming Voltage',
+        'Check Inlet Pressure','Check Outlet Pressure','Check Drain Function',
+        'Check Dew Point','Check N2 Purity','Check Valve Functions',
+        'Check/Replace Pre Filter 1 (1/yr)','Check/Replace Pre Filter 2 (1/yr)',
+        'Check/Replace Oxygen Sensor (1/yr)',
+        'Check electrical control panel and wiring for loose connection',
+        'Check & Measure 24VDC power supply Voltage',
+        'Check PLC program and functionality using Laptop',
+        'MOM Due Date'
+      ]}
+    ],
+    readings:[
+      {label:'Inlet Temperature',unit:'°C'},
+      {label:'Outlet Temperature',unit:'°C'},
+      {label:'Incoming Voltage',unit:'V'},
+      {label:'Inlet Pressure',unit:'bar'},
+      {label:'Outlet Pressure',unit:'bar'},
+      {label:'Dew Point',unit:'°C'},
+      {label:'N2 Purity',unit:'%'},
+      {label:'24VDC Power Supply',unit:'V'}
+    ]
+  },
+  pallet_turner:{
+    name:'Pallet Turner',
+    company:'redbox',
+    sections:[
+      {title:'Annual PM Tasks',items:[
+        'Test-run Pallet Turner manual & auto mode',
+        'Remove clamping safety cover. Adjust clamping chain tension, check sprocket, cotter pins, lubricate slide arm',
+        'Check clamping cylinder, hydraulic hose and fitting for oil leak',
+        'Check and grease clamping arm bearing',
+        'Remove rotation cylinder safety cover, check rack and pinion for wear',
+        'Check rotation cylinder, hydraulic hose and fitting for oil leak',
+        'Check opening and clamping limit sensor',
+        'Check rotation CW and CCW limit switches',
+        'Check hydraulic solenoid valve, relief valve, pressure switch, hoses for oil leak',
+        'Check photo-sensor alignment',
+        'Check electrical control panel and wiring for loose connection',
+        'Check PLC program and functionality using Laptop',
+        'Install back safety cover and test run manual & auto mode',
+        'Top up hydraulic oil when needed'
+      ]}
+    ],
+    readings:[
+      {label:'Hydraulic Pump Motor Current',unit:'A'},
+      {label:'Clamping Pressure',unit:'bar'}
+    ]
+  },
+  tawi_vacuum:{
+    name:'Tawi Vacuum Lifter',
+    company:'redbox',
+    sections:[
+      {title:'Annual PM Tasks',items:[
+        'Check/clean filters and valves',
+        'Check hoses for air leaks',
+        'Check arm stopper condition',
+        'Check & tighten vacuum hose joints',
+        'Check suction pad condition',
+        'Check hanging hose hooks condition',
+        'Check vacuum pump, exhaust filter',
+        'Check electrical control panel and wiring for loose connection',
+        'Check mast mounting bolts condition',
+        'Clean up machine and test run'
+      ]}
+    ],
+    readings:[
+      {label:'Vacuum Motor Current',unit:'A'}
+    ]
+  }
+};
+
+// Current checklist state during CR form
+let crChecklist=null;// {tplId, items:[{section,name,status,remarks}], readings:[{label,unit,value}]}
+
+function onCRTypeChange(){
+  const ty=document.getElementById('crTy')?.value;
+  const wrap=document.getElementById('crClWrap');
+  if(!wrap)return;
+  wrap.style.display=(ty==='Preventive Maintenance')?'':'none';
+}
+
+function loadChecklistForm(tplId){
+  const host=document.getElementById('crClBody');
+  if(!host)return;
+  if(!tplId){host.innerHTML='<p style="color:var(--t3);font-size:var(--fs-sm);margin:0">Select a checklist above to begin.</p>';crChecklist=null;return;}
+  const tpl=PM_CHECKLISTS[tplId];
+  if(!tpl){host.innerHTML='<p style="color:var(--err)">Checklist not found.</p>';return;}
+  // Init state
+  crChecklist={tplId:tplId,items:[],readings:[]};
+  tpl.sections.forEach(sec=>{sec.items.forEach(it=>{crChecklist.items.push({section:sec.title,name:it,status:'',remarks:''});});});
+  if(tpl.readings)tpl.readings.forEach(r=>{crChecklist.readings.push({label:r.label,unit:r.unit||'',value:''});});
+  // Render
+  let html='';
+  let idx=0;
+  tpl.sections.forEach(sec=>{
+    html+=`<div style="margin-top:14px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px"><div style="font-weight:700;font-size:var(--fs-sm);color:var(--ac);margin-bottom:8px">${E(sec.title)}</div>`;
+    sec.items.forEach(it=>{
+      html+=`<div style="display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--bdr)" class="cl-row">
+        <div style="font-size:var(--fs-xs)">${E(it)}</div>
+        <div style="display:flex;gap:4px">
+          ${['OK','NG','NA'].map(s=>`<label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:4px 8px;border:1px solid var(--bdr);border-radius:4px;cursor:pointer;background:var(--input)"><input type="radio" name="cl_${idx}" value="${s}" onchange="crChecklist.items[${idx}].status='${s}'" style="width:14px;height:14px">${s}</label>`).join('')}
+        </div>
+        <input class="fc" placeholder="Remarks" style="font-size:11px;padding:4px 6px;min-height:30px" onchange="crChecklist.items[${idx}].remarks=this.value">
+      </div>`;
+      idx++;
+    });
+    html+='</div>';
+  });
+  if(tpl.readings&&tpl.readings.length){
+    html+='<div style="margin-top:14px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px"><div style="font-weight:700;font-size:var(--fs-sm);color:var(--ac);margin-bottom:8px">Measurements / Readings</div>';
+    tpl.readings.forEach((r,i)=>{
+      html+=`<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:6px 0;border-bottom:1px dashed var(--bdr)">
+        <div style="font-size:var(--fs-xs);align-self:center">${E(r.label)}${r.unit?' <span style="color:var(--t3)">('+E(r.unit)+')</span>':''}</div>
+        <input class="fc" placeholder="Value" style="font-size:11px;padding:4px 6px;min-height:30px" onchange="crChecklist.readings[${i}].value=this.value">
+      </div>`;
+    });
+    html+='</div>';
+  }
+  host.innerHTML=html;
+}
 
 function loadPMTemplate(key){
   if(!key)return;
@@ -1445,6 +1872,7 @@ function deleteUserTemplate(){
 
 function renderCreateReport(){
   crPhotos=[];
+  crChecklist=null;
   const cs=getAllCusts();
   const techs=DB.techs||[];
   document.getElementById('createReportContent').innerHTML=`
@@ -1523,7 +1951,23 @@ function renderCreateReport(){
           <div id="crEnChecks" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="crEnChk" value="${E(t.name)}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
           <input class="fc" id="crEnCustom" placeholder="Additional engineer name (if not in list)" style="margin-top:6px">
         </div>
-        <div class="fg"><label>Type of Call</label><select class="fc" id="crTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Installation</option><option>Inspection</option><option>Emergency</option></select></div>
+        <div class="fg"><label>Type of Call</label><select class="fc" id="crTy" onchange="onCRTypeChange()"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Installation</option><option>Inspection</option><option>Emergency</option></select></div>
+
+      <div id="crClWrap" style="background:linear-gradient(135deg,var(--acs),var(--pus));border:1px solid var(--bdr);border-radius:var(--rl);padding:14px;margin-top:14px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          <span style="font-size:18px">✅</span>
+          <div style="flex:1;min-width:160px">
+            <div style="font-weight:700;font-size:var(--fs-sm);color:var(--t1)">PM Checklist Form</div>
+            <div style="font-size:var(--fs-xs);color:var(--t2)">Uses the selected Company's letterhead</div>
+          </div>
+          <select class="fc" id="crClSel" onchange="loadChecklistForm(this.value)" style="width:auto;min-width:240px;background:#fff">
+            <option value="">— Select machine checklist —</option>
+            ${Object.keys(PM_CHECKLISTS).map(k=>`<option value="${k}">${E(PM_CHECKLISTS[k].name)}</option>`).join('')}
+          </select>
+        </div>
+        <div id="crClBody"><p style="color:var(--t3);font-size:var(--fs-sm);margin:0">Select a checklist above to begin.</p></div>
+      </div>
+
       <div class="fg"><label>PO No.</label><input class="fc" id="crPO" placeholder="Optional"></div>
       <div class="fr"><div class="fg"><label>Time Start</label><input class="fc" type="time" id="crTS"></div><div class="fg"><label>Time End</label><input class="fc" type="time" id="crTE"></div></div>
       <div class="fg"><label>Issues / Remarks</label><textarea class="fc" id="crRm" placeholder="Describe work performed..."></textarea></div>
@@ -1573,6 +2017,7 @@ function renderCreateReport(){
   setTimeout(()=>{
     initSig('sigC');initSig('sigE');
     updateEmailPickers();
+    onCRTypeChange();
   },100);
 }
 
@@ -1777,7 +2222,8 @@ function getCRData(){
     engSig:se?._drawn?se.toDataURL():'',
     signed:!!(sc?._drawn),
     photos:crPhotos.slice(),
-    partsText:document.getElementById('crParts')?.value.trim()||''
+    partsText:document.getElementById('crParts')?.value.trim()||'',
+    checklist:(document.getElementById('crTy')?.value==='Preventive Maintenance'&&crChecklist&&crChecklist.tplId)?JSON.parse(JSON.stringify(crChecklist)):null
   };
 }
 
@@ -3120,8 +3566,8 @@ function exportCSV(table){
       headers=['id','serial','model','category','customer','location','installDate','warranty','purchaseRental','serviceContract','maintFrequency'];
       rows=DB.machines||[];break;
     case 'reports':
-      headers=['id','company','jobNo','date','customer','contact','contactNum','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit'];
-      rows=DB.reports;break;
+      headers=['id','company','jobNo','date','customer','contact','contactNum','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit','checklist'];
+      rows=DB.reports.map(r=>({...r,checklist:r.checklist?JSON.stringify(r.checklist):''}));break;
     case 'jobs':
       headers=['id','title','customer','machine','model','type','priority','date','time','status','desc','techNames'];
       rows=DB.jobs.map(j=>({...j,techNames:getJobTechNames(j)}));break;
@@ -3150,7 +3596,7 @@ function downloadTemplate(){
   const templates={
     customers:'id,name,address,contact,phone,email,agent\n,Example Corp,123 Main St,John Doe,+6512345678,john@example.com,Redbox Global Solutions Pte Ltd',
     machines:'id,serial,model,category,customer,location,installDate,warranty,purchaseRental,serviceContract,maintFrequency\n,SN12345,ET300PPS,Stretch Wrapping Machines,Example Corp,123 Main St,2024-01-15,12 months,Purchase,Nil,',
-    reports:'id,company,jobNo,date,customer,contact,contactNum,model,serial,engineer,type,timeStart,timeEnd,remarks,recommendations,status,nextVisit\n,octopack,SR-99999,2026-04-15,Example Corp,John,+65123,ET300PPS,SN12345,Colin Tan,Preventive Maintenance,09:00,11:00,Performed PM,All OK,Completed,',
+    reports:'id,company,jobNo,date,customer,contact,contactNum,model,serial,engineer,type,timeStart,timeEnd,remarks,recommendations,status,nextVisit,checklist\n,octopack,SR-99999,2026-04-15,Example Corp,John,+65123,ET300PPS,SN12345,Colin Tan,Preventive Maintenance,09:00,11:00,Performed PM,All OK,Completed,,',
     jobs:'id,title,customer,machine,model,type,priority,date,time,status,desc\n,PM Service Example,Example Corp,SN12345,ET300PPS,Preventive Maintenance,Medium,2026-05-01,09:00,Open,Routine PM check',
     technicians:'id,name,phone,email,spec\n,New Tech,+6599999999,tech@company.com,General',
     agents:'id,name,type,address,contact,phone,email\n,New Agent Co,Agent,123 Street,Mr Smith,+6512345678,agent@company.com'
@@ -3224,9 +3670,11 @@ function importCSV(){
           }
           case 'reports':{
             if(!obj.jobno)return;
+            let parsedCl=null;
+            if(obj.checklist){try{parsedCl=JSON.parse(obj.checklist);}catch(e){parsedCl=null;}}
             const existing=DB.reports.find(r=>r.jobNo===obj.jobno||(obj.id&&r.id===parseInt(obj.id)));
-            if(existing){Object.assign(existing,{company:obj.company||existing.company,date:obj.date||existing.date,customer:obj.customer||existing.customer,contact:obj.contact||existing.contact,contactNum:obj.contactnum||existing.contactNum,model:obj.model||existing.model,serial:obj.serial||existing.serial,engineer:obj.engineer||existing.engineer,type:obj.type||existing.type,timeStart:obj.timestart||existing.timeStart,timeEnd:obj.timeend||existing.timeEnd,remarks:obj.remarks||existing.remarks,recommendations:obj.recommendations||existing.recommendations,status:obj.status||existing.status,nextVisit:obj.nextvisit||existing.nextVisit});updated++;}
-            else{DB.reports.push({id:DB.nR++,company:obj.company||'octopack',jobNo:obj.jobno,date:obj.date||'',customer:obj.customer||'',contact:obj.contact||'',contactNum:obj.contactnum||'',model:obj.model||'',serial:obj.serial||'',engineer:obj.engineer||'',type:obj.type||'Preventive Maintenance',timeStart:obj.timestart||'',timeEnd:obj.timeend||'',remarks:obj.remarks||'',recommendations:obj.recommendations||'',status:obj.status||'Completed',nextVisit:obj.nextvisit||'',signed:false,photos:[]});added++;}
+            if(existing){Object.assign(existing,{company:obj.company||existing.company,date:obj.date||existing.date,customer:obj.customer||existing.customer,contact:obj.contact||existing.contact,contactNum:obj.contactnum||existing.contactNum,model:obj.model||existing.model,serial:obj.serial||existing.serial,engineer:obj.engineer||existing.engineer,type:obj.type||existing.type,timeStart:obj.timestart||existing.timeStart,timeEnd:obj.timeend||existing.timeEnd,remarks:obj.remarks||existing.remarks,recommendations:obj.recommendations||existing.recommendations,status:obj.status||existing.status,nextVisit:obj.nextvisit||existing.nextVisit,checklist:parsedCl||existing.checklist||null});updated++;}
+            else{DB.reports.push({id:DB.nR++,company:obj.company||'octopack',jobNo:obj.jobno,date:obj.date||'',customer:obj.customer||'',contact:obj.contact||'',contactNum:obj.contactnum||'',model:obj.model||'',serial:obj.serial||'',engineer:obj.engineer||'',type:obj.type||'Preventive Maintenance',timeStart:obj.timestart||'',timeEnd:obj.timeend||'',remarks:obj.remarks||'',recommendations:obj.recommendations||'',status:obj.status||'Completed',nextVisit:obj.nextvisit||'',signed:false,photos:[],checklist:parsedCl});added++;}
             break;
           }
           case 'jobs':{
@@ -3505,6 +3953,78 @@ function checkPDFLibs(){pdfLibsReady=(typeof html2canvas!=='undefined'&&typeof w
 setTimeout(()=>{if(checkPDFLibs())console.log('PDF libs ready');else console.warn('PDF libs not loaded');},3000);
 
 // ===== PDF GENERATION =====
+function buildChecklistHTMLForPDF(r,co){
+  if(!r.checklist||!r.checklist.tplId)return'';
+  const tpl=PM_CHECKLISTS[r.checklist.tplId];if(!tpl)return'';
+  const items=r.checklist.items||[];
+  const readings=r.checklist.readings||[];
+  // Group items by section
+  const bySec={};items.forEach(it=>{(bySec[it.section]=bySec[it.section]||[]).push(it);});
+  let body='';
+  Object.keys(bySec).forEach(sec=>{
+    body+=`<tr><td colspan="3" style="background:#eef4ff;color:#000;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;font-size:10px;letter-spacing:0.3px">${E(sec)}</td></tr>`;
+    bySec[sec].forEach(it=>{
+      const stColor=it.status==='OK'?'#0a7a2f':it.status==='NG'?'#b91c1c':it.status==='NA'?'#666':'#999';
+      body+=`<tr>
+        <td style="border:1px solid #c9d6ee;padding:6px 8px;font-size:9.5px;width:58%">${E(it.name)}</td>
+        <td style="border:1px solid #c9d6ee;padding:6px 8px;font-size:9.5px;width:12%;text-align:center;font-weight:700;color:${stColor}">${E(it.status||'—')}</td>
+        <td style="border:1px solid #c9d6ee;padding:6px 8px;font-size:9.5px;width:30%">${E(it.remarks||'')}</td>
+      </tr>`;
+    });
+  });
+  let readingsHtml='';
+  if(readings.length){
+    readingsHtml=`<div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px;margin-top:14px">MEASUREMENTS &amp; READINGS</div>
+    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:14px">
+      ${readings.map(r2=>`<tr><td style="border:1px solid #c9d6ee;padding:6px 10px;width:60%">${E(r2.label)}${r2.unit?' <span style="color:#666">('+E(r2.unit)+')</span>':''}</td><td style="border:1px solid #c9d6ee;padding:6px 10px;font-weight:700">${E(r2.value||'')}</td></tr>`).join('')}
+    </table>`;
+  }
+  return`
+    <!-- PAGE BREAK before checklist -->
+    <div style="page-break-before:always;height:0"></div>
+    <!-- LETTERHEAD (repeated for checklist page) -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:14px;padding-top:8px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:22px;font-weight:900;color:${co.color};letter-spacing:0.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${co.name}</div>
+        <div style="font-size:10px;color:#444;margin-top:6px;line-height:1.55">${co.addr}<br>Tel: ${co.tel}&nbsp; |&nbsp; Email: ${co.email}<br>UEN: ${co.uen}&nbsp; |&nbsp; GST Reg No.: ${co.uen}</div>
+      </div>
+      <div style="border:2px solid ${co.color};padding:10px 22px;text-align:center;flex-shrink:0"><div style="font-size:13px;font-weight:800;color:#000;letter-spacing:1.2px">PM CHECKLIST</div></div>
+    </div>
+    <div style="background:#eef4ff;color:#000;font-size:11px;font-weight:700;padding:7px 10px;border:1px solid #c9d6ee;border-top:2px solid ${co.color};letter-spacing:0.4px">PREVENTIVE MAINTENANCE CHECKLIST — ${E(tpl.name.toUpperCase())}</div>
+    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px;border:1px solid #c9d6ee;border-top:none">
+      <tr style="background:#f6f9ff">
+        <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Job No.:</strong> ${E(r.jobNo||'')}</td>
+        <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Customer:</strong> ${E(r.customer||'')}</td>
+        <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Date:</strong> ${E(r.date||'')}</td>
+      </tr>
+      <tr style="background:#f6f9ff">
+        <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Machine:</strong> ${E(r.model||'')}</td>
+        <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Serial:</strong> ${E(r.serial||'')}</td>
+        <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Engineer:</strong> ${E(r.engineer||'')}</td>
+      </tr>
+    </table>
+    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:10px">
+      <thead><tr style="background:#f0f5ff"><th style="border:1px solid #c9d6ee;padding:6px 8px;text-align:left;font-size:9.5px">Inspection Item</th><th style="border:1px solid #c9d6ee;padding:6px 8px;font-size:9.5px;width:12%">Status</th><th style="border:1px solid #c9d6ee;padding:6px 8px;text-align:left;font-size:9.5px;width:30%">Remarks</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+    ${readingsHtml}
+    <div style="margin-top:10px;font-size:9.5px;color:#444;padding:6px 10px;background:#fafafa;border:1px solid #ddd;border-radius:3px">
+      <strong>Status Legend:</strong> <span style="color:#0a7a2f;font-weight:700">OK</span> = Pass &nbsp;|&nbsp; <span style="color:#b91c1c;font-weight:700">NG</span> = Needs Repair &nbsp;|&nbsp; <span style="color:#666;font-weight:700">NA</span> = Not Applicable
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:18px;padding-top:10px;border-top:1px solid #ccc;font-size:10px">
+      <div style="width:45%">
+        <div style="border-top:1px solid #333;padding-top:4px;margin-top:30px"><strong>Maintenance Completed By</strong></div>
+        <div style="color:#666;font-size:9px;margin-top:2px">Signature / Date: ${E(r.date||'')}</div>
+      </div>
+      <div style="width:45%">
+        <div style="border-top:1px solid #333;padding-top:4px;margin-top:30px"><strong>Acknowledged By (Customer)</strong></div>
+        <div style="color:#666;font-size:9px;margin-top:2px">${E(r.sigName||'')} / Date: ${E(r.date||'')}</div>
+      </div>
+    </div>
+    <div style="margin-top:14px;text-align:center;font-size:8.5px;color:#888">${co.tag}&nbsp; |&nbsp; PM Checklist appended to Service Report ${E(r.jobNo||'')}</div>
+  `;
+}
+
 function buildReportHTMLForPDF(r){
   const co=CO[r.company]||CO.octopack;
   const photos=r.photos||[];
@@ -3587,6 +4107,7 @@ function buildReportHTMLForPDF(r){
     </div>
     <div style="margin-top:8px;padding:6px 10px;background:#fff8e1;border:1px solid #f0d97a;font-size:9px;color:#5a4a00;text-align:center">⚠ This document must be retained for a minimum of 5 years in accordance with IRAS record-keeping requirements (Section 46 GST Act).</div>
     <div style="text-align:center;margin-top:8px;font-size:8.5px;color:#888">${co.tag}&nbsp; |&nbsp; OctoCRM Field Service Management</div>
+    ${buildChecklistHTMLForPDF(r,co)}
   </div>`;
 }
 
