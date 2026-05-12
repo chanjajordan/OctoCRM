@@ -186,11 +186,26 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
 /* ===== CALENDAR ===== */
 .cg{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
 .ch-h{text-align:center;font-size:var(--fs-xs);font-weight:700;color:var(--t3);padding:8px}
-.cd{min-height:72px;background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;padding:6px;font-size:var(--fs-xs);cursor:pointer}
+.cd{min-height:72px;max-height:120px;overflow-y:auto;background:var(--bg2);border:1px solid var(--bdr);border-radius:8px;padding:6px;font-size:var(--fs-xs);cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.cd::-webkit-scrollbar{width:3px}
+.cd::-webkit-scrollbar-thumb{background:var(--bdr);border-radius:2px}
 .cd.today{border-color:var(--ac);background:var(--acs)}
+.cd.has-ev{border-color:var(--ac);border-width:1.5px}
 .cd.om{opacity:.3}
-.cd .dn{font-weight:700;font-size:var(--fs-sm);margin-bottom:2px}
-.ce{font-size:10px;padding:2px 4px;border-radius:4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cd .dn{font-weight:700;font-size:var(--fs-sm);margin-bottom:2px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;position:sticky;top:-6px;background:inherit;padding-bottom:2px;z-index:1}
+.cd .dn .ev-count{font-size:9px;background:var(--ac);color:#fff;border-radius:10px;padding:1px 6px;font-weight:700;min-width:18px;text-align:center}
+.cd.today .dn{color:var(--ac)}
+.ce{font-size:10px;padding:2px 4px;border-radius:4px;margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;line-height:1.3}
+.cal-view-tabs{display:flex;gap:6px;margin-bottom:12px;background:var(--bg2);padding:4px;border-radius:var(--rl);border:1px solid var(--bdr)}
+.cal-view-tab{flex:1;padding:8px 12px;border:none;background:transparent;border-radius:var(--r);font-size:var(--fs-sm);font-weight:600;color:var(--t2);cursor:pointer;min-height:36px}
+.cal-view-tab.active{background:var(--ac);color:#fff}
+.cal-agenda-day{background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--rl);padding:10px 12px;margin-bottom:8px}
+.cal-agenda-day.today{border-color:var(--ac);border-width:2px;background:var(--acs)}
+.cal-agenda-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-weight:700;font-size:var(--fs-sm)}
+.cal-agenda-head .ad-date{color:var(--t1)}
+.cal-agenda-head .ad-day{color:var(--t3);font-size:var(--fs-xs);font-weight:500}
+.cal-agenda-ev{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:var(--fs-xs);margin-bottom:4px}
+.cal-agenda-ev .ae-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 
 /* ===== TOAST ===== */
 .tc-c{position:fixed;top:max(80px,calc(env(safe-area-inset-top,0px) + 70px));right:max(24px,env(safe-area-inset-right,24px));z-index:2000;display:flex;flex-direction:column;gap:8px}
@@ -254,7 +269,14 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
   .dp{width:100%}
   .sx input{width:100%;min-width:0}
   .th{flex-direction:column;align-items:stretch;gap:8px}
-  .cd{min-height:48px;padding:4px}.cd .dn{font-size:var(--fs-xs)}
+  .cg{gap:2px}
+  .cd{min-height:60px;max-height:92px;padding:3px;border-radius:6px}
+  .cd .dn{font-size:11px;margin-bottom:1px;padding-bottom:1px;top:-3px}
+  .cd .dn .ev-count{font-size:9px;padding:1px 4px;min-width:16px}
+  .ce{font-size:9px;padding:1px 3px;line-height:1.25}
+  .ch-h{padding:6px 2px;font-size:10px}
+  .cal-view-tab{font-size:var(--fs-xs);padding:7px 8px}
+  .cal-agenda-ev{font-size:11px;padding:5px 6px}
   .tc-c{top:auto;bottom:80px;right:12px;left:12px}
   .ts{min-width:auto}
   .comp-card{min-width:0!important;flex:1 1 100%!important}
@@ -2805,12 +2827,128 @@ function saveUser(){const eidEl=document.getElementById('eUId');const eid=eidEl?
 function delUser(id){if(!confirm('Remove user?'))return;DB.users=DB.users.filter(u=>u.id!==id);saveDB();renderUsers();toast('Removed.','info');}
 
 // ===== CALENDAR =====
-let calY,calM;
+let calY,calM,calView='month';
 function calPrev(){calM--;if(calM<0){calM=11;calY--;}renderCal();}
 function calNext(){calM++;if(calM>11){calM=0;calY++;}renderCal();}
-function renderCal(){if(calY===undefined){const n=new Date();calY=n.getFullYear();calM=n.getMonth();}const mo=['January','February','March','April','May','June','July','August','September','October','November','December'];const fd=new Date(calY,calM,1).getDay(),dm=new Date(calY,calM+1,0).getDate(),td=new Date();const ev={};function ae(dt,d){if(!dt)return;if(!ev[dt])ev[dt]=[];ev[dt].push(d);}DB.reports.forEach(r=>{ae(r.date,{l:r.customer?.substring(0,16),bg:'var(--oks)',c:'var(--ok)'});ae(r.nextVisit,{l:'🔔 '+r.customer?.substring(0,12),bg:'var(--wns)',c:'var(--wn)'});});DB.jobs.forEach(j=>{if(j.status!=='Completed')ae(j.date,{l:'🔧 '+j.title?.substring(0,14),bg:'var(--acs)',c:'var(--ac)'});});
-let h=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px"><button class="btn btn-s btn-sm" onclick="calPrev()">← Prev</button><h3 style="font-size:var(--fs-lg);font-weight:700">${mo[calM]} ${calY}</h3><button class="btn btn-s btn-sm" onclick="calNext()">Next →</button></div><div class="cg">`;
-['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>{h+=`<div class="ch-h">${d}</div>`;});const pd=new Date(calY,calM,0).getDate();for(let i=fd-1;i>=0;i--)h+=`<div class="cd om"><div class="dn">${pd-i}</div></div>`;for(let d=1;d<=dm;d++){const ds=`${calY}-${String(calM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;const it=td.getFullYear()===calY&&td.getMonth()===calM&&td.getDate()===d;const de=ev[ds]||[];h+=`<div class="cd ${it?'today':''}"><div class="dn">${d}</div>${de.slice(0,2).map(e=>`<div class="ce" style="background:${e.bg};color:${e.c}">${E(e.l)}</div>`).join('')}${de.length>2?`<div style="font-size:9px;color:var(--t3)">+${de.length-2}</div>`:''}</div>`;}const tt=fd+dm;for(let i=1;i<=(7-(tt%7))%7;i++)h+=`<div class="cd om"><div class="dn">${i}</div></div>`;h+='</div>';document.getElementById('calendarContent').innerHTML=h;}
+function calToday(){const n=new Date();calY=n.getFullYear();calM=n.getMonth();renderCal();}
+function calSetView(v){calView=v;renderCal();}
+
+function _collectCalEvents(){
+  const ev={};
+  function ae(dt,d){if(!dt)return;if(!ev[dt])ev[dt]=[];ev[dt].push(d);}
+  DB.reports.forEach(r=>{
+    ae(r.date,{type:'report',id:r.id,l:(r.customer||'').substring(0,20),full:r.customer||'',sub:'📋 '+(r.jobNo||'')+' · '+(r.type||''),bg:'var(--oks)',c:'var(--ok)',dot:'var(--ok)'});
+    ae(r.nextVisit,{type:'followup',id:r.id,l:'🔔 '+(r.customer||'').substring(0,16),full:'Follow-up: '+(r.customer||''),sub:'Next visit · '+(r.jobNo||''),bg:'var(--wns)',c:'var(--wn)',dot:'var(--wn)'});
+  });
+  DB.jobs.forEach(j=>{
+    if(j.status!=='Completed')ae(j.date,{type:'job',id:j.id,l:'🔧 '+(j.title||'').substring(0,18),full:j.title||'',sub:(j.customer||'')+' · '+(j.type||'')+(j.time?' @ '+j.time:''),bg:'var(--acs)',c:'var(--ac)',dot:'var(--ac)'});
+  });
+  return ev;
+}
+
+function showDayEvents(ds){
+  const ev=_collectCalEvents();
+  const de=ev[ds]||[];
+  const d=new Date(ds+'T00:00:00');
+  const wk=['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][d.getDay()];
+  const mo=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  const ttl=`${wk}, ${d.getDate()} ${mo} ${d.getFullYear()}`;
+  if(!de.length){openModal(ttl,'<p style="color:var(--t3);padding:20px;text-align:center">No events on this day.</p>',`<button class="btn btn-s" onclick="closeModal()">Close</button>`);return;}
+  const body=de.map(e=>{
+    const action=e.type==='job'?`onclick="closeModal();showPage('jobs');setTimeout(()=>{if(typeof showJobById==='function')showJobById(${e.id});},150)"`:`onclick="closeModal();showPage('reports');setTimeout(()=>{const r=DB.reports.find(x=>x.id===${e.id});if(r&&typeof viewRptPreview==='function')viewRptPreview(${e.id});},150)"`;
+    return `<div class="cal-agenda-ev" style="background:${e.bg};cursor:pointer" ${action}>
+      <div class="ae-dot" style="background:${e.dot}"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:700;color:${e.c};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${E(e.full)}</div>
+        <div style="font-size:10px;color:var(--t2);margin-top:2px">${E(e.sub)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  openModal(`${ttl} — ${de.length} event${de.length>1?'s':''}`,body,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
+}
+
+function renderCal(){
+  if(calY===undefined){const n=new Date();calY=n.getFullYear();calM=n.getMonth();}
+  const mo=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const td=new Date();
+  const ev=_collectCalEvents();
+  let h=`<div class="cal-view-tabs">
+    <button class="cal-view-tab${calView==='month'?' active':''}" onclick="calSetView('month')">📅 Month</button>
+    <button class="cal-view-tab${calView==='agenda'?' active':''}" onclick="calSetView('agenda')">📋 Agenda</button>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+    <button class="btn btn-s btn-sm" onclick="calPrev()" style="min-width:64px">← Prev</button>
+    <div style="display:flex;flex-direction:column;align-items:center;flex:1;min-width:0">
+      <h3 style="font-size:var(--fs-lg);font-weight:700;text-align:center;margin:0">${mo[calM]} ${calY}</h3>
+      <button class="btn btn-s" style="font-size:var(--fs-xs);padding:3px 10px;min-height:24px;margin-top:4px" onclick="calToday()">Today</button>
+    </div>
+    <button class="btn btn-s btn-sm" onclick="calNext()" style="min-width:64px">Next →</button>
+  </div>`;
+
+  if(calView==='agenda'){
+    // Agenda view — list ALL dated events in current month grouped by day
+    const monthEvs={};
+    Object.keys(ev).forEach(ds=>{const d=new Date(ds+'T00:00:00');if(d.getFullYear()===calY&&d.getMonth()===calM)monthEvs[ds]=ev[ds];});
+    const sortedDays=Object.keys(monthEvs).sort();
+    if(!sortedDays.length){h+='<div class="es" style="padding:32px"><p>No events this month.</p></div>';}
+    else{
+      const wkS=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+      sortedDays.forEach(ds=>{
+        const d=new Date(ds+'T00:00:00');
+        const isT=td.getFullYear()===d.getFullYear()&&td.getMonth()===d.getMonth()&&td.getDate()===d.getDate();
+        const evs=monthEvs[ds];
+        h+=`<div class="cal-agenda-day${isT?' today':''}">
+          <div class="cal-agenda-head">
+            <span class="ad-date">${d.getDate()} ${mo[d.getMonth()].substring(0,3)}${isT?' · TODAY':''}</span>
+            <span class="ad-day">${wkS[d.getDay()]} · ${evs.length} event${evs.length>1?'s':''}</span>
+          </div>`;
+        evs.forEach(e=>{
+          const action=e.type==='job'?`onclick="showPage('jobs');setTimeout(()=>{if(typeof showJobById==='function')showJobById(${e.id});},150)"`:`onclick="showPage('reports');setTimeout(()=>{if(typeof viewRptPreview==='function')viewRptPreview(${e.id});},150)"`;
+          h+=`<div class="cal-agenda-ev" style="background:${e.bg};cursor:pointer" ${action}>
+            <div class="ae-dot" style="background:${e.dot}"></div>
+            <div style="flex:1;min-width:0">
+              <div style="font-weight:700;color:${e.c};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${E(e.full)}</div>
+              <div style="font-size:10px;color:var(--t2);margin-top:2px">${E(e.sub)}</div>
+            </div>
+          </div>`;
+        });
+        h+='</div>';
+      });
+    }
+    document.getElementById('calendarContent').innerHTML=h;
+    return;
+  }
+
+  // Month grid view
+  const fd=new Date(calY,calM,1).getDay();
+  const dm=new Date(calY,calM+1,0).getDate();
+  h+='<div class="cg">';
+  ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d=>{h+=`<div class="ch-h">${d}</div>`;});
+  const pd=new Date(calY,calM,0).getDate();
+  for(let i=fd-1;i>=0;i--)h+=`<div class="cd om"><div class="dn">${pd-i}</div></div>`;
+  for(let d=1;d<=dm;d++){
+    const ds=`${calY}-${String(calM+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const it=td.getFullYear()===calY&&td.getMonth()===calM&&td.getDate()===d;
+    const de=ev[ds]||[];
+    const hasEv=de.length>0;
+    h+=`<div class="cd ${it?'today':''} ${hasEv?'has-ev':''}" onclick="showDayEvents('${ds}')">
+      <div class="dn"><span>${d}</span>${hasEv?`<span class="ev-count">${de.length}</span>`:''}</div>
+      ${de.slice(0,3).map(e=>`<div class="ce" style="background:${e.bg};color:${e.c}" title="${E(e.full)}">${E(e.l)}</div>`).join('')}
+      ${de.length>3?`<div style="font-size:9px;color:var(--ac);font-weight:700;text-align:center;margin-top:auto">+${de.length-3} more</div>`:''}
+    </div>`;
+  }
+  const tt=fd+dm;
+  for(let i=1;i<=(7-(tt%7))%7;i++)h+=`<div class="cd om"><div class="dn">${i}</div></div>`;
+  h+='</div>';
+  // Legend
+  h+=`<div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;padding:10px;background:var(--bg2);border:1px solid var(--bdr);border-radius:var(--r);font-size:var(--fs-xs)">
+    <div style="display:flex;align-items:center;gap:6px"><div class="ae-dot" style="width:10px;height:10px;border-radius:50%;background:var(--ac)"></div>🔧 Jobs</div>
+    <div style="display:flex;align-items:center;gap:6px"><div class="ae-dot" style="width:10px;height:10px;border-radius:50%;background:var(--ok)"></div>📋 Reports</div>
+    <div style="display:flex;align-items:center;gap:6px"><div class="ae-dot" style="width:10px;height:10px;border-radius:50%;background:var(--wn)"></div>🔔 Follow-ups</div>
+    <div style="color:var(--t3);margin-left:auto">Tap any day to see all events</div>
+  </div>`;
+  document.getElementById('calendarContent').innerHTML=h;
+}
 
 // ===== SCAN (AI-powered using Claude API) =====
 function renderScan(){
