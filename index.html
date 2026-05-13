@@ -415,7 +415,8 @@ function initFB(){
         if(!DB.users||!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
         if(!Array.isArray(DB.parts))DB.parts=[];
         if(!Array.isArray(DB.partsStock))DB.partsStock=[];
-        if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;
+        if(!Array.isArray(DB.pos))DB.pos=[];
+        if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;if(!DB.nPO)DB.nPO=1;
         if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=DB.users.length+1;
         // Merge persisted company letterhead overrides from cloud
         if(DB.companies&&typeof DB.companies==='object'){
@@ -555,7 +556,8 @@ function loadDB(){
   if(!Array.isArray(DB.deletedMachines))DB.deletedMachines=[];
   if(!Array.isArray(DB.parts))DB.parts=[];
   if(!Array.isArray(DB.partsStock))DB.partsStock=[];
-  if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;
+  if(!Array.isArray(DB.pos))DB.pos=[];
+  if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;if(!DB.nPO)DB.nPO=1;
 
   // Merge persisted company letterhead overrides
   if(DB.companies&&typeof DB.companies==='object'){
@@ -2574,7 +2576,7 @@ function renderMachines(){
   ms.forEach(m=>{const c=m.category||'Uncategorized';catCounts[c]=(catCounts[c]||0)+1;});
   const defCount=ms.filter(m=>(m.issues||[]).length>0).length;
   const filtered=curMachCat==='all'?ms:curMachCat==='Defective'?ms.filter(m=>(m.issues||[]).length>0):ms.filter(m=>(m.category||'Uncategorized')===curMachCat);
-  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
+  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-sm btn-s" onclick="openManualMerge(\'machines\')">⇄ Merge</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--bdr)">
     <button class="fc-chip${curMachCat==='all'?' active':''}" onclick="curMachCat='all';renderMachines()">All (${ms.length})</button>
     ${defCount?`<button class="fc-chip${curMachCat==='Defective'?' active':''}" onclick="curMachCat='Defective';renderMachines()" style="${curMachCat==='Defective'?'background:var(--er);border-color:var(--er)':''}">⚠ Defective (${defCount})</button>`:''}
@@ -2704,7 +2706,7 @@ function viewMachineCust(custName){
 // ===== CUSTOMERS (with Agent field) =====
 function renderCusts(){
   const cs=getAllCusts();
-  document.getElementById('customersContent').innerHTML=`<div class="tw"><div class="th"><h3>Customers (${cs.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="cSrch" oninput="filterCusts()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍 Duplicates</button><button class="btn btn-p btn-sm" onclick="openCustModal()">+ Add</button>':''}</div></div>
+  document.getElementById('customersContent').innerHTML=`<div class="tw"><div class="th"><h3>Customers (${cs.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="cSrch" oninput="filterCusts()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍 Duplicates</button><button class="btn btn-sm btn-s" onclick="openManualMerge(\'customers\')">⇄ Merge</button><button class="btn btn-p btn-sm" onclick="openCustModal()">+ Add</button>':''}</div></div>
   <div id="cList">${renderCustCards(cs)}</div></div>`;
 }
 function filterCusts(){const s=(document.getElementById('cSrch')?.value||'').toLowerCase();const cs=getAllCusts().filter(c=>(c.name+c.address+c.contact+c.phone+c.agent).toLowerCase().includes(s));document.getElementById('cList').innerHTML=renderCustCards(cs);}
@@ -3364,7 +3366,7 @@ function renderAgents(){
       <div class="rpt-card-row"><span class="rc-label">UEN</span><span class="rc-val">${E(c.uen)}</span></div>
       <div class="rpt-card-actions">${canEdit()?`<button class="btn btn-sm btn-p" onclick="editCompanyLetterhead('${k}')">✏ Edit Letterhead</button>`:''}</div>
     </div>`;}).join('')}</div>`;
-  document.getElementById('agentsContent').innerHTML=coBlock+`<div class="tw"><div class="th"><h3>Agents & Companies (${agents.length})</h3>${canEdit()?'<button class="btn btn-p btn-sm" onclick="openAgentModal()">+ Add</button>':''}</div>
+  document.getElementById('agentsContent').innerHTML=coBlock+`<div class="tw"><div class="th"><h3>Agents & Companies (${agents.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap">${canEdit()?'<button class="btn btn-sm btn-s" onclick="openManualMerge(\'agents\')">⇄ Merge</button><button class="btn btn-p btn-sm" onclick="openAgentModal()">+ Add</button>':''}</div></div>
   ${agents.length?agents.map(a=>{
     const custCount=DB.custs.filter(c=>c.agent===a.name).length;
     return`<div class="rpt-card">
@@ -3579,7 +3581,7 @@ function addCommonToStock(){
 
 function renderPartsStock(){
   const stock=[...DB.partsStock].sort((a,b)=>a.name.localeCompare(b.name));
-  return`<div class="tw"><div class="th"><h3>Stock Inventory (${stock.length})</h3>${canEdit()?'<button class="btn btn-p btn-sm" onclick="openStockModal()">+ Add Part</button>':''}</div>
+  return`<div class="tw"><div class="th"><h3>Stock Inventory (${stock.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap">${canEdit()?'<button class="btn btn-sm btn-s" onclick="openManualMerge(\'inventory\')">⇄ Merge</button><button class="btn btn-p btn-sm" onclick="openStockModal()">+ Add Part</button>':''}</div></div>
     ${stock.length?stock.map(s=>{
       const low=s.qty<=s.reorderAt;
       return`<div class="rpt-card">
@@ -3627,10 +3629,51 @@ function delStock(id){
 
 // ===== PO IMPORT =====
 function renderPOImport(){
+  const savedKey=localStorage.getItem('ocrm4_gemini_key')||'';
+  const tab=window._poTab||'import';
+  const poCt=(DB.pos||[]).length;
   document.getElementById('poImportContent').innerHTML=`
-    <div style="max-width:800px">
-      <h2 style="margin-bottom:8px">Import Purchase Order → Auto-create Job</h2>
-      <p style="color:var(--t2);margin-bottom:20px">Paste PO details below, or fill in the fields directly. The system creates a Job in Open status which you can then assign to a technician.</p>
+    <div style="max-width:900px">
+      <h2 style="margin-bottom:8px">Purchase Orders</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+        <button class="fc-chip${tab==='import'?' active':''}" onclick="window._poTab='import';renderPOImport()">📥 Import / Scan New PO</button>
+        <button class="fc-chip${tab==='track'?' active':''}" onclick="window._poTab='track';renderPOImport()">📊 PO Tracking (${poCt})</button>
+      </div>
+      ${tab==='track'?renderPOTracking():renderPOImportTab(savedKey)}
+    </div>`;
+}
+
+function renderPOImportTab(savedKey){
+  return `
+      <p style="color:var(--t2);margin-bottom:16px">Scan a PO image/PDF with AI, paste text, or fill fields directly. The system creates a Job in Open status and tracks the PO.</p>
+
+      <div class="oc" style="border-left:4px solid var(--ac)">
+        <h3>🤖 AI-Powered PO Scan</h3>
+        <p style="color:var(--t2);font-size:var(--fs-sm);margin-bottom:10px">Upload or photograph a Purchase Order — Google Gemini AI reads and extracts fields (free, fast, handles handwriting).</p>
+
+        <div style="background:var(--card);border:1px solid var(--bdr);border-radius:var(--r);padding:12px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+            <label style="font-size:var(--fs-sm);font-weight:600;color:var(--t2)">🔑 Gemini API Key</label>
+            <span id="poApiKeyStatus" style="font-size:var(--fs-xs)">${savedKey?'<span style="color:var(--ok)">✓ Key saved</span>':'<span style="color:var(--er)">Not set</span>'}</span>
+          </div>
+          <div style="display:flex;gap:8px">
+            <input class="fc" type="password" id="poApiKeyInput" value="${E(savedKey)}" placeholder="AIzaSy..." style="flex:1;font-size:var(--fs-sm)">
+            <button class="btn btn-sm btn-p" onclick="savePoApiKey()">Save</button>
+          </div>
+          <p style="font-size:11px;color:var(--t3);margin-top:6px">Same key as Scan Report. Free at <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--ac)">aistudio.google.com/apikey</a></p>
+        </div>
+
+        <div class="sz" id="poScZ" style="margin-bottom:12px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:36px;height:36px;color:var(--t3);margin-bottom:6px"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg><div style="font-size:var(--fs);font-weight:600">Tap to scan PO</div><div style="font-size:var(--fs-sm);color:var(--t3)">Camera, gallery, or PDF</div><input type="file" accept="image/*,.pdf,application/pdf" capture="environment" onchange="procPOScan(this.files[0])" id="poScIn"></div>
+        <div style="display:flex;gap:8px;margin-bottom:12px"><button class="btn btn-s btn-sm" onclick="document.getElementById('poScInG').click()">🖼 From Gallery / PDF</button></div>
+        <input type="file" accept="image/*,.pdf,application/pdf" onchange="procPOScan(this.files[0])" id="poScInG" style="display:none">
+
+        <div id="poScPrev" style="display:none;margin-bottom:12px">
+          <img id="poScPreviewImg" style="max-width:100%;border-radius:var(--r);border:1px solid var(--bdr);margin-bottom:8px">
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-sm btn-p" onclick="sendPOToAI()">🤖 Extract with AI</button><button class="btn btn-sm btn-s" onclick="resetPOScan()">↺ Reset</button></div>
+        </div>
+        <div id="poScProc" style="display:none;padding:14px;background:var(--acs);border-radius:var(--r);margin-bottom:12px"><div style="display:flex;align-items:center;gap:10px"><div style="width:18px;height:18px;border:2px solid var(--bdr);border-top-color:var(--ac);border-radius:50%;animation:spin .8s linear infinite"></div><span id="poScProcMsg">🤖 Gemini AI is reading your PO...</span></div></div>
+      </div>
+
       <div class="oc">
         <h3>📋 Paste PO Text (optional)</h3>
         <p style="color:var(--t3);font-size:var(--fs-sm)">Paste the PO email or document text. The system will try to auto-extract fields.</p>
@@ -3648,8 +3691,79 @@ function renderPOImport(){
         <div class="fr"><div class="fg"><label>Type</label><select class="fc" id="poType"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Installation</option></select></div><div class="fg"><label>Priority</label><select class="fc" id="poPri"><option>Low</option><option selected>Medium</option><option>High</option></select></div></div>
         <div class="fr"><div class="fg"><label>Machine Model (optional)</label><input class="fc" id="poModel"></div><div class="fg"><label>Serial (optional)</label><input class="fc" id="poSer"></div></div>
         <button class="btn btn-ok" style="margin-top:10px" onclick="importPO()">✓ Create Job from PO</button>
+      </div>`;
+}
+
+function renderPOTracking(){
+  const pos=[...(DB.pos||[])].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''));
+  if(!pos.length)return `<div class="es"><p>No POs tracked yet. Import a PO to start tracking.</p></div>`;
+  return `<div class="oc"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px"><h3>📊 PO Records (${pos.length})</h3><div class="sx" style="max-width:240px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search PO..." id="poTrkSrch" oninput="filterPOTrk()"></div></div>
+    <div id="poTrkList">${renderPOTrkCards(pos)}</div></div>`;
+}
+
+function renderPOTrkCards(pos){
+  return pos.map(p=>{
+    const job=DB.jobs.find(j=>j.id===p.jobId);
+    const jobStatus=job?job.status:'(job removed)';
+    const statusColor=job?(job.status==='Completed'?'var(--ok)':job.status==='In Progress'?'var(--wn)':job.status==='Assigned'?'var(--ac)':'var(--t3)'):'var(--er)';
+    return `<div class="rpt-card">
+      <div class="rpt-card-top"><span style="font-weight:700">📄 ${E(p.poNo)}</span><span class="bd" style="background:${statusColor};color:#fff">${E(jobStatus)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(p.date||'—')}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(p.customer)}</span></div>
+      ${p.title?`<div class="rpt-card-row"><span class="rc-label">Title</span><span class="rc-val">${E(p.title)}</span></div>`:''}
+      ${p.type?`<div class="rpt-card-row"><span class="rc-label">Type</span><span class="rc-val">${E(p.type)}</span></div>`:''}
+      ${p.model||p.serial?`<div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(p.model||'')} ${p.serial?' / '+E(p.serial):''}</span></div>`:''}
+      <div class="rpt-card-row"><span class="rc-label">Linked Job</span><span class="rc-val">${job?`<a href="#" onclick="event.preventDefault();showJobById(${job.id})" style="color:var(--ac);text-decoration:none">JOB-${String(job.id).padStart(4,'0')} →</a>`:'<em style="color:var(--er)">deleted</em>'}</span></div>
+      <div class="rpt-card-actions">
+        ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editPO(${p.id})">Edit</button>`:''}
+        ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delPO(${p.id})">Delete</button>`:''}
       </div>
     </div>`;
+  }).join('');
+}
+
+function filterPOTrk(){
+  const s=(document.getElementById('poTrkSrch')?.value||'').toLowerCase();
+  const pos=[...(DB.pos||[])].sort((a,b)=>(b.createdAt||'').localeCompare(a.createdAt||''))
+    .filter(p=>(p.poNo+' '+p.customer+' '+(p.title||'')+' '+(p.desc||'')+' '+(p.serial||'')+' '+(p.model||'')).toLowerCase().includes(s));
+  document.getElementById('poTrkList').innerHTML=renderPOTrkCards(pos);
+}
+
+function editPO(id){
+  const p=(DB.pos||[]).find(x=>x.id===id);if(!p)return;
+  openModal('Edit PO — '+p.poNo,`
+    <input type="hidden" id="ePoId" value="${p.id}">
+    <div class="fr"><div class="fg"><label>PO No.</label><input class="fc" id="ePoNum" value="${E(p.poNo)}"></div><div class="fg"><label>Date</label><input class="fc" type="date" id="ePoDate" value="${E(p.date||'')}"></div></div>
+    <div class="fg"><label>Customer</label><input class="fc" id="ePoCust" value="${E(p.customer)}"></div>
+    <div class="fg"><label>Title</label><input class="fc" id="ePoTitle" value="${E(p.title||'')}"></div>
+    <div class="fg"><label>Description</label><textarea class="fc" id="ePoDesc">${E(p.desc||'')}</textarea></div>
+    <div class="fr"><div class="fg"><label>Model</label><input class="fc" id="ePoModel" value="${E(p.model||'')}"></div><div class="fg"><label>Serial</label><input class="fc" id="ePoSer" value="${E(p.serial||'')}"></div></div>
+    <div class="fr"><div class="fg"><label>Type</label><input class="fc" id="ePoType" value="${E(p.type||'')}"></div><div class="fg"><label>Priority</label><input class="fc" id="ePoPri" value="${E(p.priority||'')}"></div></div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="savePO()">Save</button>`);
+}
+
+function savePO(){
+  const id=parseInt(document.getElementById('ePoId').value);
+  const p=(DB.pos||[]).find(x=>x.id===id);if(!p)return;
+  p.poNo=document.getElementById('ePoNum').value.trim();
+  p.date=document.getElementById('ePoDate').value;
+  p.customer=document.getElementById('ePoCust').value.trim();
+  p.title=document.getElementById('ePoTitle').value.trim();
+  p.desc=document.getElementById('ePoDesc').value.trim();
+  p.model=document.getElementById('ePoModel').value.trim();
+  p.serial=document.getElementById('ePoSer').value.trim();
+  p.type=document.getElementById('ePoType').value.trim();
+  p.priority=document.getElementById('ePoPri').value.trim();
+  // Also reflect changes in linked job
+  const job=DB.jobs.find(j=>j.id===p.jobId);
+  if(job){job.poNo=p.poNo;job.customer=p.customer;job.title=p.title;job.desc=p.desc;job.model=p.model;job.machine=p.serial;job.type=p.type;job.priority=p.priority;job.date=p.date;}
+  saveDB();closeModal();renderPOImport();toast('PO updated.','success');
+}
+
+function delPO(id){
+  if(!confirm('Delete this PO record? (The linked job will NOT be deleted.)'))return;
+  DB.pos=DB.pos.filter(p=>p.id!==id);
+  saveDB();renderPOImport();toast('PO record removed.','info');
 }
 
 function parsePOText(){
@@ -3676,6 +3790,177 @@ function parsePOText(){
   const desc=document.getElementById('poDesc');
   if(!desc.value){desc.value=t.split('\n').slice(0,8).join('\n').substring(0,500);}
   toast('Parsed. Review fields before creating job.','success');
+}
+
+// ===== PO AI SCAN (Gemini) =====
+let poScanBase64=null,poScanIsPDF=false;
+
+function savePoApiKey(){
+  const key=document.getElementById('poApiKeyInput').value.trim();
+  if(key){
+    localStorage.setItem('ocrm4_gemini_key',key);
+    document.getElementById('poApiKeyStatus').innerHTML='<span style="color:var(--ok)">✓ Key saved</span>';
+    toast('Gemini API key saved.','success');
+  }else{
+    localStorage.removeItem('ocrm4_gemini_key');
+    document.getElementById('poApiKeyStatus').innerHTML='<span style="color:var(--er)">Not set</span>';
+    toast('API key removed.','info');
+  }
+}
+
+function procPOScan(f){
+  if(!f)return;
+  poScanIsPDF=f.type==='application/pdf';
+  const reader=new FileReader();
+  reader.onload=function(e){
+    poScanBase64=e.target.result;
+    const prev=document.getElementById('poScPrev');
+    const img=document.getElementById('poScPreviewImg');
+    if(poScanIsPDF){
+      img.style.display='none';
+      img.src='';
+      // remove any existing banner
+      document.getElementById('poPdfBanner')?.remove();
+      prev.insertAdjacentHTML('afterbegin',`<div id="poPdfBanner" style="padding:18px;background:var(--ers);border-radius:var(--r);text-align:center;margin-bottom:10px"><div style="font-size:28px;margin-bottom:6px">📄</div><div style="font-size:var(--fs);font-weight:700">${E(f.name)}</div><div style="font-size:var(--fs-sm);color:var(--t2);margin-top:4px">${(f.size/1024).toFixed(0)} KB — PDF will be sent to AI</div></div>`);
+      prev.style.display='block';
+      setTimeout(()=>sendPOToAI(),400);
+    }else{
+      document.getElementById('poPdfBanner')?.remove();
+      img.style.display='block';
+      img.src=poScanBase64;
+      prev.style.display='block';
+    }
+  };
+  reader.readAsDataURL(f);
+}
+
+function resetPOScan(){
+  poScanBase64=null;poScanIsPDF=false;
+  document.getElementById('poScPrev').style.display='none';
+  document.getElementById('poScProc').style.display='none';
+  document.getElementById('poScIn').value='';
+  document.getElementById('poScInG').value='';
+  document.getElementById('poPdfBanner')?.remove();
+}
+
+async function sendPOToAI(){
+  const apiKey=localStorage.getItem('ocrm4_gemini_key');
+  if(!apiKey){toast('Enter your Gemini API key first.','error');document.getElementById('poApiKeyInput')?.focus();return;}
+  if(!poScanBase64){toast('Upload a PO image or PDF first.','error');return;}
+
+  const procEl=document.getElementById('poScProc');
+  procEl.style.display='block';
+  document.getElementById('poScProcMsg').textContent='🤖 Gemini AI is reading your PO...';
+
+  const base64Data=poScanBase64.split(',')[1];
+  const mimeType=poScanIsPDF?'application/pdf':(poScanBase64.startsWith('data:image/png')?'image/png':'image/jpeg');
+
+  const custList=getAllCusts().map(c=>c.name).slice(0,80);
+  const prompt=`You are reading a Purchase Order (PO) document. Read every printed and handwritten field carefully.
+
+Extract ALL information and return ONLY a valid JSON object with these exact keys (use empty string "" if a field is not found):
+
+{
+  "poNum": "The PO number (look for PO No, P.O., Purchase Order No, Order #)",
+  "date": "PO date in YYYY-MM-DD format",
+  "customer": "Buyer / Bill-To / Customer company name only (no address)",
+  "address": "Buyer / Bill-To address if visible",
+  "contact": "Contact person name if visible",
+  "contactPhone": "Contact phone number if visible",
+  "title": "Short job title / subject (e.g. 'PM Service for ET2200PPS')",
+  "desc": "Full scope of work / description / line items (combined)",
+  "model": "Equipment model if mentioned",
+  "serial": "Serial number if mentioned",
+  "type": "One of: Preventive Maintenance, Corrective Maintenance, Breakdown Call, Installation",
+  "priority": "One of: Low, Medium, High (default Medium)"
+}
+
+Known customer names in our system (try to match exactly if buyer is close to one): ${custList.join(' | ')}
+
+CRITICAL: Return ONLY the raw JSON object. No markdown fences, no backticks, no explanation.`;
+
+  try{
+    const response=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        contents:[{parts:[{inline_data:{mime_type:mimeType,data:base64Data}},{text:prompt}]}],
+        generationConfig:{temperature:0.1,maxOutputTokens:2000}
+      })
+    });
+    if(!response.ok){
+      const errData=await response.json().catch(()=>({}));
+      throw new Error(errData.error?.message||`HTTP ${response.status}`);
+    }
+    const data=await response.json();
+    const text=data.candidates?.[0]?.content?.parts?.[0]?.text||'';
+    if(!text)throw new Error('Empty response from Gemini');
+    const clean=text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
+    const parsed=JSON.parse(clean);
+    document.getElementById('poScProcMsg').textContent='✅ Extraction complete!';
+    setTimeout(()=>{procEl.style.display='none';applyPOExtract(parsed);},500);
+  }catch(err){
+    console.error('PO AI scan error:',err);
+    const errMsg=err.message||'Unknown error';
+    if(errMsg.includes('API_KEY_INVALID')||errMsg.includes('401')||errMsg.includes('403')){
+      document.getElementById('poScProcMsg').textContent='❌ Invalid API key.';
+    }else if(errMsg.includes('429')||errMsg.includes('RATE_LIMIT')){
+      document.getElementById('poScProcMsg').textContent='⏳ Rate limited (15/min free). Retry shortly.';
+    }else if(errMsg.includes('JSON')){
+      document.getElementById('poScProcMsg').textContent='⚠️ AI could not parse the PO. Try a clearer image.';
+    }else{
+      document.getElementById('poScProcMsg').textContent='⚠️ '+errMsg;
+    }
+    setTimeout(()=>{procEl.style.display='none';},2500);
+  }
+}
+
+function applyPOExtract(d){
+  if(d.poNum)document.getElementById('poNum').value=d.poNum;
+  if(d.date){
+    // normalize to YYYY-MM-DD
+    let dt=d.date.replace(/\//g,'-');
+    if(/^\d{4}-\d{1,2}-\d{1,2}$/.test(dt)){
+      const p=dt.split('-');dt=`${p[0]}-${p[1].padStart(2,'0')}-${p[2].padStart(2,'0')}`;
+      document.getElementById('poDate').value=dt;
+    }
+  }
+  if(d.customer){
+    const sel=document.getElementById('poCust');
+    const cand=d.customer.trim().toLowerCase();
+    const opt=[...sel.options].find(o=>o.value&&(o.value.toLowerCase()===cand||o.value.toLowerCase().includes(cand)||cand.includes(o.value.toLowerCase())));
+    if(opt){sel.value=opt.value;}
+    else{
+      // No match — offer to create
+      const create=confirm(`Customer "${d.customer}" not found in your list. Add as new customer?`);
+      if(create){
+        if(!Array.isArray(DB.custs))DB.custs=[];
+        DB.custs.push({id:DB.nC++,name:d.customer.trim(),address:d.address||'',contact:d.contact||'',phone:d.contactPhone||'',email:'',agent:''});
+        saveDB();
+        // re-render dropdown options
+        sel.innerHTML='<option value="">— Select —</option>'+getAllCusts().map(c=>`<option>${E(c.name)}</option>`).join('');
+        sel.value=d.customer.trim();
+        toast('New customer added.','success');
+      }
+    }
+  }
+  if(d.title)document.getElementById('poTitle').value=d.title;
+  if(d.desc)document.getElementById('poDesc').value=d.desc;
+  if(d.model)document.getElementById('poModel').value=d.model;
+  if(d.serial)document.getElementById('poSer').value=d.serial;
+  if(d.type){
+    const tSel=document.getElementById('poType');
+    const tOpt=[...tSel.options].find(o=>o.value.toLowerCase()===d.type.toLowerCase());
+    if(tOpt)tSel.value=tOpt.value;
+  }
+  if(d.priority){
+    const pSel=document.getElementById('poPri');
+    const pOpt=[...pSel.options].find(o=>o.value.toLowerCase()===d.priority.toLowerCase());
+    if(pOpt)pSel.value=pOpt.value;
+  }
+  toast('PO fields populated. Review then click Create Job.','success');
+  // scroll to PO Details
+  document.getElementById('poNum').scrollIntoView({behavior:'smooth',block:'center'});
 }
 
 function importPO(){
@@ -3707,8 +3992,31 @@ function importPO(){
     waSent:false,startTime:null,endTime:null,followUp:'',
     fromPO:true
   };
-  DB.jobs.push(j);saveDB();
-  toast(`Job JOB-${String(j.id).padStart(4,'0')} created from PO ${poNum}`,'success');
+  DB.jobs.push(j);
+  // Also store the PO record itself for tracking
+  if(!Array.isArray(DB.pos))DB.pos=[];
+  if(!DB.nPO)DB.nPO=1;
+  const po={
+    id:DB.nPO++,
+    poNo:poNum,
+    date:document.getElementById('poDate').value,
+    customer:cust,
+    address:c?.address||'',
+    contact:c?.contact||'',
+    contactPhone:c?.phone||'',
+    title:title,
+    desc:document.getElementById('poDesc').value.trim(),
+    model:document.getElementById('poModel').value.trim(),
+    serial:document.getElementById('poSer').value.trim(),
+    type:document.getElementById('poType').value,
+    priority:document.getElementById('poPri').value,
+    status:'Open',
+    jobId:j.id,
+    createdAt:new Date().toISOString()
+  };
+  DB.pos.push(po);
+  saveDB();
+  toast(`PO ${poNum} tracked. Job JOB-${String(j.id).padStart(4,'0')} created.`,'success');
   showPage('jobs');
 }
 
@@ -3926,6 +4234,8 @@ function renderDataMgmt(){
         <button class="btn btn-p btn-sm" onclick="exportCSV('technicians')">Technicians (${DB.techs.length})</button>
         <button class="btn btn-p btn-sm" onclick="exportCSV('agents')">Agents (${(DB.agents||[]).length})</button>
         <button class="btn btn-p btn-sm" onclick="exportCSV('companies')">Companies (3)</button>
+        <button class="btn btn-p btn-sm" onclick="exportCSV('inventory')">Inventory (${(DB.partsStock||[]).length})</button>
+        <button class="btn btn-p btn-sm" onclick="exportCSV('pos')">Purchase Orders (${(DB.pos||[]).length})</button>
         <button class="btn btn-s btn-sm" onclick="exportAllCSV()">📦 Export All</button>
       </div>
     </div>
@@ -3941,6 +4251,8 @@ function renderDataMgmt(){
           <option value="technicians">Technicians</option>
           <option value="agents">Agents / Companies</option>
           <option value="companies">Companies Letterhead</option>
+          <option value="inventory">Inventory / Parts Stock</option>
+          <option value="pos">Purchase Orders</option>
         </select>
       </div>
       <div class="fg">
@@ -4024,6 +4336,12 @@ function exportCSV(table){
     case 'companies':
       headers=['key','name','addr','tel','email','uen','color','tag'];
       rows=['octopack','jw','redbox'].map(k=>({key:k,...CO[k]}));break;
+    case 'inventory':
+      headers=['id','name','qty','reorderAt','notes'];
+      rows=DB.partsStock||[];break;
+    case 'pos':
+      headers=['id','poNo','date','customer','address','contact','contactPhone','title','desc','model','serial','type','priority','status','jobId','createdAt'];
+      rows=DB.pos||[];break;
     default:return;
   }
   
@@ -4034,7 +4352,7 @@ function exportCSV(table){
 
 function exportAllCSV(){
   const ts=new Date().toISOString().split('T')[0];
-  ['customers','machines','reports','jobs','technicians','agents','companies'].forEach(t=>exportCSV(t));
+  ['customers','machines','reports','jobs','technicians','agents','companies','inventory','pos'].forEach(t=>exportCSV(t));
   toast('All tables exported.','success');
 }
 
@@ -4047,7 +4365,9 @@ function downloadTemplate(){
     jobs:'id,title,customer,machine,model,type,priority,date,time,status,desc\n,PM Service Example,Example Corp,SN12345,ET300PPS,Preventive Maintenance,Medium,2026-05-01,09:00,Open,Routine PM check',
     technicians:'id,name,phone,email,spec\n,New Tech,+6599999999,tech@company.com,General',
     agents:'id,name,type,address,contact,phone,email\n,New Agent Co,Agent,123 Street,Mr Smith,+6512345678,agent@company.com',
-    companies:'key,name,addr,tel,email,uen,color,tag\noctopack,OCTOPACK SEA PTE LTD,7 Yishun Industrial Street 1 #03-49,+65 6909 8136,CS@octopack.com.sg,201709641E,#1d4ed8,OCTOPACK - The Better Way To Pack\njw,JW Supplies & Works Pte Ltd,9 Yishun Industrial Street 1 #02-37,+65 9061 8811,joyce@jwsupplies.sg,201822151K,#2563eb,JW Supplies & Works Pte Ltd\nredbox,Redbox Global Solutions Pte Ltd,7 Yishun Industrial Street 1 #03-49,+65 6909 8136,engineering@redboxgs.com,201710953N,#dc2626,Redbox Global Solutions'
+    companies:'key,name,addr,tel,email,uen,color,tag\noctopack,OCTOPACK SEA PTE LTD,7 Yishun Industrial Street 1 #03-49,+65 6909 8136,CS@octopack.com.sg,201709641E,#1d4ed8,OCTOPACK - The Better Way To Pack\njw,JW Supplies & Works Pte Ltd,9 Yishun Industrial Street 1 #02-37,+65 9061 8811,joyce@jwsupplies.sg,201822151K,#2563eb,JW Supplies & Works Pte Ltd\nredbox,Redbox Global Solutions Pte Ltd,7 Yishun Industrial Street 1 #03-49,+65 6909 8136,engineering@redboxgs.com,201710953N,#dc2626,Redbox Global Solutions',
+    inventory:'id,name,qty,reorderAt,notes\n,Drive Belt,5,2,Supplier ABC — P/N 12345\n,Hydraulic Oil 5L,3,1,',
+    pos:'id,poNo,date,customer,address,contact,contactPhone,title,desc,model,serial,type,priority,status,jobId,createdAt\n,PO-2025-001,2025-05-01,Example Corp,123 Main St,John Doe,+6512345678,PM Service,Routine maintenance,ET300PPS,SN12345,Preventive Maintenance,Medium,Open,,'
   };
   downloadFile(templates[type]||'',`octocrm_${type}_template.csv`);
   toast('Template downloaded.','success');
@@ -4155,6 +4475,24 @@ function importCSV(){
             if(!DB.companies)DB.companies={};
             DB.companies[obj.key]={...DB.companies[obj.key],...upd};
             updated++;
+            break;
+          }
+          case 'inventory':{
+            if(!obj.name)return;
+            if(!Array.isArray(DB.partsStock))DB.partsStock=[];
+            const existing=DB.partsStock.find(s=>s.name.toLowerCase()===obj.name.toLowerCase()||(obj.id&&s.id===parseInt(obj.id)));
+            if(existing){Object.assign(existing,{name:obj.name||existing.name,qty:obj.qty!==''&&obj.qty!==undefined?parseInt(obj.qty)||0:existing.qty,reorderAt:obj.reorderat!==''&&obj.reorderat!==undefined?parseInt(obj.reorderat)||1:existing.reorderAt,notes:obj.notes||existing.notes});updated++;}
+            else{DB.partsStock.push({id:DB.nPS++,name:obj.name,qty:parseInt(obj.qty)||0,reorderAt:parseInt(obj.reorderat)||1,notes:obj.notes||''});added++;}
+            break;
+          }
+          case 'pos':{
+            if(!obj.pono)return;
+            if(!Array.isArray(DB.pos))DB.pos=[];
+            if(!DB.nPO)DB.nPO=1;
+            const existing=DB.pos.find(p=>p.poNo===obj.pono||(obj.id&&p.id===parseInt(obj.id)));
+            const fields={poNo:obj.pono,date:obj.date||'',customer:obj.customer||'',address:obj.address||'',contact:obj.contact||'',contactPhone:obj.contactphone||'',title:obj.title||'',desc:obj.desc||'',model:obj.model||'',serial:obj.serial||'',type:obj.type||'',priority:obj.priority||'Medium',status:obj.status||'Open',jobId:obj.jobid?parseInt(obj.jobid):null,createdAt:obj.createdat||new Date().toISOString()};
+            if(existing){Object.assign(existing,fields);updated++;}
+            else{DB.pos.push({id:DB.nPO++,...fields});added++;}
             break;
           }
         }
@@ -4339,6 +4677,145 @@ function mergeSerials(serial){
   saveDB();closeModal();renderMachines();
   toast(`Removed ${items.length-1} duplicate(s) for S/N ${serial}`,'success');
   setTimeout(()=>showDuplicateCheck(),500);
+}
+
+// ===== MANUAL MERGE (user picks records) =====
+const MERGE_META={
+  customers:{title:'Customers',list:()=>(DB.custs||[]),label:c=>`${c.name} — ${c.address||'(no addr)'} ${c.contact?'• '+c.contact:''}`,key:'id'},
+  machines:{title:'Machines',list:()=>(DB.machines||[]),label:m=>`${m.serial||'(no S/N)'} — ${m.model||''} • ${m.customer||''}`,key:'id'},
+  inventory:{title:'Stock Inventory',list:()=>(DB.partsStock||[]),label:s=>`${s.name} — Qty ${s.qty} (reorder ≤${s.reorderAt})`,key:'id'},
+  agents:{title:'Agents / Companies',list:()=>(DB.agents||[]),label:a=>`${a.name} — ${a.type||'Agent'} ${a.contact?'• '+a.contact:''}`,key:'id'}
+};
+
+function openManualMerge(kind){
+  const meta=MERGE_META[kind];if(!meta){toast('Unknown merge kind.','error');return;}
+  const items=meta.list();
+  if(items.length<2){toast(`Need at least 2 ${meta.title.toLowerCase()} to merge.`,'info');return;}
+  // state holder
+  window._mmState={kind,items:items.slice(),keepId:null,delId:null,filter:''};
+  openModal(`⇄ Manual Merge — ${meta.title}`,`
+    <p style="color:var(--t2);margin-bottom:10px;font-size:var(--fs-sm)">1️⃣ Search and pick the <strong style="color:var(--ok)">record to KEEP</strong>. &nbsp; 2️⃣ Pick the <strong style="color:var(--er)">record to MERGE & DELETE</strong>. &nbsp; 3️⃣ Click Merge.</p>
+    <div class="sx" style="margin-bottom:10px;max-width:100%"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Filter list..." id="mmFilter" oninput="renderMMList()"></div>
+
+    <div id="mmSummary" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;font-size:var(--fs-sm)">
+      <div style="padding:10px;border:2px solid var(--ok);border-radius:var(--r);background:var(--oks)"><div style="font-weight:700;color:var(--ok);font-size:var(--fs-xs);margin-bottom:4px">✓ KEEP</div><div id="mmKeepLbl" style="word-break:break-word">— pick from list —</div></div>
+      <div style="padding:10px;border:2px solid var(--er);border-radius:var(--r);background:var(--ers)"><div style="font-weight:700;color:var(--er);font-size:var(--fs-xs);margin-bottom:4px">✗ MERGE & DELETE</div><div id="mmDelLbl" style="word-break:break-word">— pick from list —</div></div>
+    </div>
+
+    <div id="mmList" style="max-height:340px;overflow-y:auto;border:1px solid var(--bdr);border-radius:var(--r);padding:6px;background:var(--input)"></div>
+    <p style="font-size:var(--fs-xs);color:var(--t3);margin-top:8px">Empty fields in the KEEP record are filled from the merged one. Existing kept values are preserved. All references (jobs/reports/machines/customers/agent) update automatically.</p>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="doManualMerge()" id="mmGo" disabled style="opacity:.5">Merge</button>`);
+  setTimeout(renderMMList,30);
+}
+
+function renderMMList(){
+  const st=window._mmState;if(!st)return;
+  const meta=MERGE_META[st.kind];if(!meta)return;
+  const f=(document.getElementById('mmFilter')?.value||'').toLowerCase();
+  st.filter=f;
+  const items=meta.list();
+  const filtered=items.filter(it=>meta.label(it).toLowerCase().includes(f));
+  const html=filtered.length?filtered.map(it=>{
+    const id=it[meta.key];
+    const isKeep=st.keepId===id;
+    const isDel=st.delId===id;
+    const bg=isKeep?'var(--oks)':isDel?'var(--ers)':'transparent';
+    const bdr=isKeep?'2px solid var(--ok)':isDel?'2px solid var(--er)':'1px solid var(--bdr)';
+    const tag=isKeep?'<span style="background:var(--ok);color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:700;margin-right:6px">KEEP</span>':isDel?'<span style="background:var(--er);color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:700;margin-right:6px">DELETE</span>':'';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 10px;margin:4px 0;background:${bg};border:${bdr};border-radius:var(--r);flex-wrap:wrap">
+      <div style="flex:1;min-width:0;font-size:var(--fs-sm);word-break:break-word">${tag}${E(meta.label(it))}</div>
+      <div style="display:flex;gap:10px;flex-shrink:0;align-items:center">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--ok);font-weight:600;font-size:var(--fs-sm);user-select:none"><input type="checkbox" ${isKeep?'checked':''} onchange="mmToggle('keep',${id})" style="width:18px;height:18px;accent-color:var(--ok);cursor:pointer"> Keep</label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--er);font-weight:600;font-size:var(--fs-sm);user-select:none"><input type="checkbox" ${isDel?'checked':''} onchange="mmToggle('del',${id})" style="width:18px;height:18px;accent-color:var(--er);cursor:pointer"> Delete</label>
+      </div>
+    </div>`;
+  }).join(''):'<div style="padding:20px;text-align:center;color:var(--t3)">No matches.</div>';
+  document.getElementById('mmList').innerHTML=html;
+  updMMSummary();
+}
+
+function mmToggle(role,id){
+  const st=window._mmState;if(!st)return;
+  if(role==='keep'){
+    // Toggling keep on/off
+    if(st.keepId===id){st.keepId=null;}
+    else{
+      if(st.delId===id)st.delId=null; // can't be both
+      st.keepId=id;
+    }
+  }else{
+    if(st.delId===id){st.delId=null;}
+    else{
+      if(st.keepId===id)st.keepId=null;
+      st.delId=id;
+    }
+  }
+  renderMMList();
+}
+
+function mmPick(role,id){mmToggle(role,id);}
+
+function updMMSummary(){
+  const st=window._mmState;if(!st)return;
+  const meta=MERGE_META[st.kind];const items=meta.list();
+  const keep=st.keepId!=null?items.find(x=>x[meta.key]===st.keepId):null;
+  const del=st.delId!=null?items.find(x=>x[meta.key]===st.delId):null;
+  document.getElementById('mmKeepLbl').textContent=keep?meta.label(keep):'— pick from list —';
+  document.getElementById('mmDelLbl').textContent=del?meta.label(del):'— pick from list —';
+  const btn=document.getElementById('mmGo');
+  if(btn){const ok=keep&&del&&keep!==del;btn.disabled=!ok;btn.style.opacity=ok?'1':'.5';}
+}
+
+function doManualMerge(){
+  const st=window._mmState;if(!st){toast('No selection.','error');return;}
+  const meta=MERGE_META[st.kind];if(!meta)return;
+  if(st.keepId==null||st.delId==null){toast('Pick both KEEP and DELETE.','error');return;}
+  if(st.keepId===st.delId){toast('Pick two different records.','error');return;}
+  const kind=st.kind;
+  const items=meta.list();
+  const keep=items.find(x=>x[meta.key]===st.keepId);
+  const del=items.find(x=>x[meta.key]===st.delId);
+  if(!keep||!del){toast('Records not found.','error');return;}
+  if(!confirm(`Merge "${meta.label(del)}"\n→ into "${meta.label(keep)}"?\n\nThe merged record will be DELETED and all references updated.\n\nThis cannot be undone.`))return;
+
+  // Fill empty fields in keep from del
+  Object.keys(del).forEach(k=>{if(k!==meta.key&&(keep[k]===''||keep[k]===null||keep[k]===undefined)&&del[k]!==''&&del[k]!==null&&del[k]!==undefined){keep[k]=del[k];}});
+
+  if(kind==='customers'){
+    const keepName=keep.name,delName=del.name;
+    (DB.machines||[]).forEach(m=>{if(m.customer===delName)m.customer=keepName;});
+    DB.reports.forEach(r=>{if(r.customer===delName)r.customer=keepName;});
+    DB.jobs.forEach(j=>{if(j.customer===delName)j.customer=keepName;});
+    (DB.parts||[]).forEach(p=>{if(p.customer===delName)p.customer=keepName;});
+    (DB.pos||[]).forEach(p=>{if(p.customer===delName)p.customer=keepName;});
+    DB.custs=DB.custs.filter(c=>c.id!==st.delId);
+  }else if(kind==='machines'){
+    const keepSer=keep.serial,delSer=del.serial;
+    if(keepSer!==delSer){
+      DB.reports.forEach(r=>{if(r.serial===delSer)r.serial=keepSer;});
+      DB.jobs.forEach(j=>{if(j.machine===delSer)j.machine=keepSer;});
+      (DB.parts||[]).forEach(p=>{if(p.serial===delSer)p.serial=keepSer;});
+      (DB.pos||[]).forEach(p=>{if(p.serial===delSer)p.serial=keepSer;});
+    }
+    DB.machines=DB.machines.filter(m=>m.id!==st.delId);
+  }else if(kind==='inventory'){
+    keep.qty=(keep.qty||0)+(del.qty||0);
+    if((del.reorderAt||0)>(keep.reorderAt||0))keep.reorderAt=del.reorderAt;
+    if(del.notes&&!keep.notes)keep.notes=del.notes;
+    DB.partsStock=DB.partsStock.filter(s=>s.id!==st.delId);
+  }else if(kind==='agents'){
+    const keepName=keep.name,delName=del.name;
+    DB.custs.forEach(c=>{if(c.agent===delName)c.agent=keepName;});
+    DB.agents=DB.agents.filter(a=>a.id!==st.delId);
+  }
+
+  saveDB();closeModal();
+  window._mmState=null;
+  if(kind==='customers')renderCusts();
+  else if(kind==='machines')renderMachines();
+  else if(kind==='inventory')renderParts();
+  else if(kind==='agents')renderAgents();
+  toast(`Merged. "${meta.label(del).substring(0,40)}" removed.`,'success');
 }
 
 // ===== RESET =====
