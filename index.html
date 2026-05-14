@@ -847,7 +847,7 @@ function E(s){return s?String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').repl
 function stBd(s){const m={'Completed':'bd-ok','Pending Follow-Up':'bd-wn','In Progress':'bd-ac','Requires Parts':'bd-er'};return`<span class="bd ${m[s]||'bd-ac'}"><span class="dot"></span> ${E(s)}</span>`}
 function jsBd(s){const m={'Open':'bd-pu','Assigned':'bd-ac','In Progress':'bd-wn','Completed':'bd-ok'};return`<span class="bd ${m[s]||'bd-ac'}"><span class="dot"></span> ${E(s)}</span>`}
 function prBd(p){const m={'Low':'bd-tl','Medium':'bd-ac','High':'bd-wn','Urgent':'bd-er'};return`<span class="bd ${m[p]||'bd-ac'}">${E(p)}</span>`}
-function tyBd(t){const m={'Preventive Maintenance':'bd-ok','Corrective Maintenance':'bd-wn','Breakdown Call':'bd-er','Installation':'bd-ac','Inspection':'bd-pu','Emergency':'bd-er'};return`<span class="bd ${m[t]||'bd-ac'}">${E(t)}</span>`}
+function tyBd(t){const m={'Preventive Maintenance':'bd-ok','Corrective Maintenance':'bd-wn','Breakdown Call':'bd-er','Follow-Up Call':'bd-tl','Installation':'bd-ac','Inspection':'bd-pu','Emergency':'bd-er'};return`<span class="bd ${m[t]||'bd-ac'}">${E(t)}</span>`}
 function toast(msg,type='info'){const c=document.getElementById('toastC'),t=document.createElement('div');t.className=`ts ${type}`;const i={success:'✓',error:'✕',info:'ℹ'};t.innerHTML=`<span style="font-weight:700;font-size:18px">${i[type]||'ℹ'}</span><span>${msg}</span>`;c.appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300)},3e3)}
 function openModal(title,bodyHTML,footerHTML){const mc=document.getElementById('globalModalContent');mc.innerHTML=`<div class="mh"><h2>${title}</h2><button class="btn-i" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="mb">${bodyHTML}</div>${footerHTML?`<div class="mf">${footerHTML}</div>`:''}`;document.getElementById('globalModal').classList.add('open')}
 function closeModal(){document.getElementById('globalModal').classList.remove('open')}
@@ -1153,7 +1153,7 @@ function openNewJobModal(){
     <div class="fg"><label>Technician(s) — select one or more</label>
       <div id="jTeChecks" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${DB.techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="jTeChk" value="${t.id}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
     </div>
-    <div class="fg"><label>Type</label><select class="fc" id="jTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Installation</option><option>Emergency</option></select></div>
+    <div class="fg"><label>Type</label><select class="fc" id="jTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Follow-Up Call</option><option>Installation</option><option>Emergency</option></select></div>
     <div class="fr"><div class="fg"><label>Date</label><input class="fc" type="date" id="jDt"></div><div class="fg"><label>Time</label><input class="fc" type="time" id="jTm"></div></div>
     <div class="fg"><label>Symptom / Description</label><textarea class="fc" id="jDs" placeholder="Describe the issue, symptoms reported by customer..."></textarea></div>
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-wa" onclick="saveJobAndWA()">Save & WhatsApp</button><button class="btn btn-p" onclick="saveJob()">Save</button>`);
@@ -1379,7 +1379,7 @@ function editReport(id){
   window._erEngSig=r.engSig||'';
 
   const cs=getAllCusts();const techs=DB.techs||[];
-  const types=['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Installation','Inspection','Emergency'];
+  const types=['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Follow-Up Call','Installation','Inspection','Emergency'];
   const statuses=['Completed','Pending Follow-Up','In Progress','Requires Parts'];
   const existingEngineers=(r.engineers||[r.engineer]).filter(Boolean);
   openModal('Edit Report — '+r.jobNo,`
@@ -1620,6 +1620,12 @@ const PM_TEMPLATES={
     timeStart:'10:00',timeEnd:'11:00',
     remarks:'Site inspection visit:\n- Visual condition of machine\n- Operating performance check\n- Identified issues: \n- Required parts: ',
     recommendations:'Quotation for repair/parts will be issued separately.'
+  },
+  follow_up:{
+    type:'Follow-Up Call',status:'Completed',
+    timeStart:'10:00',timeEnd:'11:00',
+    remarks:'Follow-up visit from previous job:\n- Previous Job/Report Ref: \n- Issue reported earlier: \n- Verification of repair / fix: \n- Customer feedback: \n- Action taken on this visit: ',
+    recommendations:'Monitor machine for stable operation. Close out previous job ticket.'
   }
 };
 
@@ -2165,6 +2171,7 @@ function renderCreateReport(){
               <option value="bd_call">⚡ Breakdown Call</option>
               <option value="install">🏗 New Installation</option>
               <option value="inspect">🔍 Inspection Visit</option>
+              <option value="follow_up">📞 Follow-Up Call</option>
             </optgroup>
             ${(()=>{const ut=getUserTemplates();const keys=Object.keys(ut);return keys.length?'<optgroup label="My Templates">'+keys.map(k=>'<option value="'+k+'">⭐ '+E(ut[k].name)+'</option>').join('')+'</optgroup>':'';})()}
           </select>
@@ -2227,7 +2234,7 @@ function renderCreateReport(){
           <div id="crEnChecks" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="crEnChk" value="${E(t.name)}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
           <input class="fc" id="crEnCustom" placeholder="Additional engineer name (if not in list)" style="margin-top:6px">
         </div>
-        <div class="fg"><label>Type of Call</label><select class="fc" id="crTy" onchange="onCRTypeChange()"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Installation</option><option>Inspection</option><option>Emergency</option></select></div>
+        <div class="fg"><label>Type of Call</label><select class="fc" id="crTy" onchange="onCRTypeChange()"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Follow-Up Call</option><option>Installation</option><option>Inspection</option><option>Emergency</option></select></div>
 
       <div id="crClWrap" style="background:linear-gradient(135deg,var(--acs),var(--pus));border:1px solid var(--bdr);border-radius:var(--rl);padding:14px;margin-top:14px">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
@@ -3128,7 +3135,7 @@ Extract ALL information and return ONLY a valid JSON object with these exact key
   "model": "Equipment make/model",
   "serial": "Serial number",
   "engineer": "Serviced by name",
-  "type": "One of: Preventive Maintenance, Corrective Maintenance, Breakdown Call, Installation, Inspection, Emergency",
+  "type": "One of: Preventive Maintenance, Corrective Maintenance, Breakdown Call, Follow-Up Call, Installation, Inspection, Emergency",
   "timeStart": "In HH:MM 24hr format",
   "timeEnd": "In HH:MM 24hr format",
   "remarks": "All issues and remarks text, include all details",
@@ -3202,7 +3209,7 @@ function showScanForm(data){
     {k:'model',l:'Equipment Model',v:d.model||''},
     {k:'serial',l:'Serial Number',v:d.serial||''},
     {k:'engineer',l:'Serviced By',v:d.engineer||''},
-    {k:'type',l:'Type of Call',t:'select',opts:['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Installation','Inspection','Emergency'],v:d.type||'Preventive Maintenance'},
+    {k:'type',l:'Type of Call',t:'select',opts:['Preventive Maintenance','Corrective Maintenance','Breakdown Call','Follow-Up Call','Installation','Inspection','Emergency'],v:d.type||'Preventive Maintenance'},
     {k:'timeStart',l:'Time Start',t:'time',v:d.timeStart||''},
     {k:'timeEnd',l:'Time End',t:'time',v:d.timeEnd||''},
     {k:'remarks',l:'Issues / Remarks',t:'textarea',v:d.remarks||''},
@@ -3709,7 +3716,7 @@ function renderPOImportTab(savedKey){
         </div>
         <div class="fg"><label>Job Title</label><input class="fc" id="poTitle" placeholder="e.g. PM Service for ET2200PPS"></div>
         <div class="fg"><label>Description / Scope</label><textarea class="fc" id="poDesc" placeholder="Describe the work required..."></textarea></div>
-        <div class="fr"><div class="fg"><label>Type</label><select class="fc" id="poType"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Installation</option></select></div><div class="fg"><label>Priority</label><select class="fc" id="poPri"><option>Low</option><option selected>Medium</option><option>High</option></select></div></div>
+        <div class="fr"><div class="fg"><label>Type</label><select class="fc" id="poType"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Follow-Up Call</option><option>Installation</option></select></div><div class="fg"><label>Priority</label><select class="fc" id="poPri"><option>Low</option><option selected>Medium</option><option>High</option></select></div></div>
         <div class="fr"><div class="fg"><label>Machine Model (optional)</label><input class="fc" id="poModel"></div><div class="fg"><label>Serial (optional)</label><input class="fc" id="poSer"></div></div>
         <button class="btn btn-ok" style="margin-top:10px" onclick="importPO()">✓ Create Job from PO</button>
       </div>`;
@@ -3892,7 +3899,7 @@ Extract ALL information and return ONLY a valid JSON object with these exact key
   "desc": "Full scope of work / description / line items (combined)",
   "model": "Equipment model if mentioned",
   "serial": "Serial number if mentioned",
-  "type": "One of: Preventive Maintenance, Corrective Maintenance, Breakdown Call, Installation",
+  "type": "One of: Preventive Maintenance, Corrective Maintenance, Breakdown Call, Follow-Up Call, Installation",
   "priority": "One of: Low, Medium, High (default Medium)"
 }
 
