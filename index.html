@@ -962,7 +962,7 @@ function renderJobs(){
       return`<div class="jc" id="job-${j.id}"><div class="jc-h"><div><h4>${E(j.title)}</h4><span style="font-size:var(--fs-xs);color:var(--t3)">JOB-${String(j.id).padStart(4,'0')}</span></div><div style="display:flex;gap:6px;flex-wrap:wrap">${prBd(j.priority)}${chgBd}</div></div>
       <div class="jc-m">
         <span>🏢 ${E(j.customer||'—')}</span>
-        ${j.address?`<span>📍 ${E(j.address)}</span>`:''}
+        ${j.address?`<span>📍 <a href="#" onclick="event.preventDefault();openNavPicker(${j.id})" style="color:var(--ac);text-decoration:none;font-weight:500">${E(j.address)}</a></span>`:''}
         ${j.contact?`<span>👤 ${E(j.contact)}${j.contactPhone?` <a href="tel:${E(j.contactPhone)}" style="color:var(--ac);text-decoration:none">${E(j.contactPhone)}</a>`:''}</span>`:''}
         <span>⚙️ ${E(j.model||'')} ${E(j.machine||'')}</span>
         <span>📅 ${E(j.date||'TBD')}${j.time?' '+E(j.time):''}</span>
@@ -975,6 +975,7 @@ function renderJobs(){
       ${j.followUp?`<div class="jc-d" style="background:var(--wns);border-left:3px solid var(--wn);padding:8px 12px;margin-top:6px"><b>Follow-up:</b> ${E(j.followUp)}</div>`:''}
       <div style="margin-bottom:12px"><label style="font-size:var(--fs-xs);font-weight:600;color:var(--t3);display:block;margin-bottom:4px">STATUS</label>${statusSelect(j.id,j.status,'job')}</div>
       <div class="jc-a">
+        ${j.address?`<button class="btn btn-sm btn-s" onclick="openNavPicker(${j.id})" title="Open in maps">🧭 Navigate</button>`:''}
         ${!j.startTime?`<button class="btn btn-sm btn-ok" onclick="startWork(${j.id})">▶ Start Work</button>`:''}
         ${isRunning?`<button class="btn btn-sm btn-d" onclick="stopWork(${j.id})">■ Finish Work</button>`:''}
         ${isRunning?`<button class="btn btn-sm btn-s" onclick="undoStartWork(${j.id})">↩ Undo Start</button>`:''}
@@ -987,6 +988,29 @@ function renderJobs(){
       </div>
       ${j.waSent?'<div style="margin-top:8px;font-size:var(--fs-xs);color:var(--wa)">✓✓ WhatsApp sent</div>':''}
     </div>`}).join(''):'<div class="es"><p>No jobs found.</p></div>'}`;
+}
+
+// ===== NAVIGATION PICKER (Waze / Google Maps / Apple Maps) =====
+function openNavPicker(jobId){
+  const j=DB.jobs.find(x=>x.id===jobId);if(!j){toast('Job not found.','error');return;}
+  const addr=(j.address||'').trim();
+  if(!addr){toast('No address on this job.','error');return;}
+  const enc=encodeURIComponent(addr);
+  const wazeUrl=`https://waze.com/ul?q=${enc}&navigate=yes`;
+  const gmUrl=`https://www.google.com/maps/dir/?api=1&destination=${enc}`;
+  const amUrl=`https://maps.apple.com/?daddr=${enc}&dirflg=d`;
+  const ua=navigator.userAgent||'';
+  const isIOS=/iPad|iPhone|iPod/.test(ua);
+  openModal('🧭 Navigate to '+E(j.customer||'job site'),`
+    <p style="color:var(--t2);font-size:var(--fs-sm);margin-bottom:6px">Destination:</p>
+    <p style="font-weight:600;margin-bottom:18px;padding:10px 12px;background:var(--input);border-radius:var(--r);border-left:3px solid var(--ac);word-break:break-word">${E(addr)}</p>
+    <div style="display:grid;grid-template-columns:1fr;gap:10px">
+      <a href="${wazeUrl}" target="_blank" rel="noopener" onclick="closeModal()" class="btn btn-p" style="background:#33ccff;border-color:#33ccff;color:#fff;justify-content:flex-start;padding:14px 16px;text-decoration:none"><span style="font-size:20px;margin-right:4px">🚗</span><div style="text-align:left"><div style="font-weight:700;font-size:var(--fs)">Waze</div><div style="font-size:var(--fs-xs);opacity:.9;font-weight:500">Best for live traffic alerts</div></div></a>
+      <a href="${gmUrl}" target="_blank" rel="noopener" onclick="closeModal()" class="btn btn-ok" style="justify-content:flex-start;padding:14px 16px;text-decoration:none"><span style="font-size:20px;margin-right:4px">🗺️</span><div style="text-align:left"><div style="font-weight:700;font-size:var(--fs)">Google Maps</div><div style="font-size:var(--fs-xs);opacity:.9;font-weight:500">Best for transit, walking, all-platform</div></div></a>
+      <a href="${amUrl}" target="_blank" rel="noopener" onclick="closeModal()" class="btn btn-s" style="justify-content:flex-start;padding:14px 16px;text-decoration:none;${isIOS?'background:var(--ac);color:#fff;border-color:var(--ac)':''}"><span style="font-size:20px;margin-right:4px">🍎</span><div style="text-align:left"><div style="font-weight:700;font-size:var(--fs)">Apple Maps</div><div style="font-size:var(--fs-xs);opacity:.8;font-weight:500">${isIOS?'Recommended for your device':'iOS / macOS only'}</div></div></a>
+    </div>
+    <p style="font-size:var(--fs-xs);color:var(--t3);margin-top:14px;text-align:center">Tip: on mobile the app opens directly. On desktop it opens in browser.</p>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button>`);
 }
 
 function fmtElapsed(start,end){
@@ -4850,9 +4874,42 @@ function doManualMerge(){
 // ===== SEED DATA =====
 function saveSeedData(){
   if(!confirm('Save current database as seed baseline?\nThis will overwrite any previous seed.'))return;
-  const seed={data:JSON.parse(JSON.stringify(DB)),savedAt:new Date().toISOString()};
-  try{localStorage.setItem('ocrm4_seed',JSON.stringify(seed));toast('Seed data saved. Reset will restore to this point.','success');renderDataMgmt();}
-  catch(e){toast('Failed to save seed — data may be too large.','error');}
+
+  // Estimate size first
+  let payload;
+  try{payload=JSON.stringify({data:DB,savedAt:new Date().toISOString()});}
+  catch(e){toast('Could not serialize data: '+e.message,'error');return;}
+
+  const sizeMB=(payload.length/1024/1024).toFixed(2);
+  // Try direct save first
+  try{
+    localStorage.setItem('ocrm4_seed',payload);
+    toast(`Seed saved (${sizeMB} MB). Reset will restore to this point.`,'success');
+    renderDataMgmt();return;
+  }catch(e){
+    // QuotaExceededError — offer slim version
+    const slim=JSON.parse(JSON.stringify(DB));
+    let stripped=0;
+    (slim.reports||[]).forEach(r=>{
+      if(Array.isArray(r.photos)&&r.photos.length){stripped+=r.photos.length;r.photos=[];}
+      if(r.signatureEng){delete r.signatureEng;stripped++;}
+      if(r.signatureCust){delete r.signatureCust;stripped++;}
+    });
+    (slim.jobs||[]).forEach(j=>{
+      if(Array.isArray(j.photos)&&j.photos.length){stripped+=j.photos.length;j.photos=[];}
+    });
+    const slimPayload=JSON.stringify({data:slim,savedAt:new Date().toISOString(),slim:true});
+    const slimMB=(slimPayload.length/1024/1024).toFixed(2);
+    if(!confirm(`⚠ Data too large for localStorage (${sizeMB} MB exceeds browser limit ~5 MB).\n\nSave SLIM version (${slimMB} MB) without photos & signatures? Records will be preserved, only images stripped.\n\n${stripped} image(s) will be excluded from seed.`)){toast('Seed save cancelled.','info');return;}
+    try{
+      localStorage.setItem('ocrm4_seed',slimPayload);
+      toast(`Slim seed saved (${slimMB} MB, ${stripped} images stripped).`,'success');
+      renderDataMgmt();
+    }catch(e2){
+      // Still too big — give clear guidance
+      toast(`Save failed: localStorage quota exceeded. Use Export All JSON instead (no size limit).`,'error');
+    }
+  }
 }
 function loadSeedData(){
   const raw=localStorage.getItem('ocrm4_seed');
@@ -4861,8 +4918,9 @@ function loadSeedData(){
   try{
     const seed=JSON.parse(raw);
     DB=JSON.parse(JSON.stringify(seed.data));
-    saveDB();refreshPage();toast('Seed data loaded.','success');
-  }catch(e){toast('Failed to parse seed data.','error');}
+    saveDB();refreshPage();
+    toast(seed.slim?'Slim seed loaded (photos/signatures were not included).':'Seed data loaded.','success');
+  }catch(e){toast('Failed to parse seed data: '+e.message,'error');}
 }
 function clearSeedData(){
   if(!confirm('Clear saved seed data?'))return;
@@ -4956,6 +5014,7 @@ function _buildSingleChecklistHTML(cl,r,co,clIdx,total){
   return`
     <!-- PAGE BREAK before checklist -->
     <div style="page-break-before:always;height:0"></div>
+    <div data-keep="true">
     <!-- LETTERHEAD (repeated for checklist page) -->
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;gap:14px;padding-top:8px">
       <div style="flex:1;min-width:0">
@@ -4996,6 +5055,7 @@ function _buildSingleChecklistHTML(cl,r,co,clIdx,total){
       </div>
     </div>
     <div style="margin-top:14px;text-align:center;font-size:8.5px;color:#888">${co.tag}&nbsp; |&nbsp; PM Checklist appended to Service Report ${E(r.jobNo||'')}</div>
+    </div>
   `;
 }
 
@@ -5016,10 +5076,9 @@ function buildReportHTMLForPDF(r){
     <!-- HEADER STRIP -->
     <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:14px;border-top:2px solid ${co.color}">
       <tr style="background:#eef4ff">
-        <td style="border:1px solid #c9d6ee;padding:7px 10px;width:25%"><strong>Document No.:</strong> ${E(r.jobNo||'')}</td>
-        <td style="border:1px solid #c9d6ee;padding:7px 10px;width:30%"><strong>Date of Service:</strong> ${E(r.date||'')}</td>
-        <td style="border:1px solid #c9d6ee;padding:7px 10px;width:25%"><strong>PO No.:</strong> ${E(r.poNo||'N/A')}</td>
-        <td style="border:1px solid #c9d6ee;padding:7px 10px;width:20%"><strong>Page:</strong> 1 of 1</td>
+        <td style="border:1px solid #c9d6ee;padding:7px 10px;width:34%"><strong>Document No.:</strong> ${E(r.jobNo||'')}</td>
+        <td style="border:1px solid #c9d6ee;padding:7px 10px;width:33%"><strong>Date of Service:</strong> ${E(r.date||'')}</td>
+        <td style="border:1px solid #c9d6ee;padding:7px 10px;width:33%"><strong>PO No.:</strong> ${E(r.poNo||'N/A')}</td>
       </tr>
     </table>
     <!-- SECTION 1 -->
@@ -5045,6 +5104,7 @@ function buildReportHTMLForPDF(r){
     </table>
     ${photos.length?`<div style="margin-bottom:14px"><div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;letter-spacing:0.5px">PHOTOS</div><div style="border:1px solid #c9d6ee;border-top:none;padding:10px;display:flex;flex-wrap:wrap;gap:6px">${photos.map(p=>`<img src="${p.dataUrl}" style="width:140px;height:105px;object-fit:cover;border:1px solid #c9d6ee">`).join('')}</div></div>`:''}
     <!-- SECTION 4 -->
+    <div id="sigBlock" data-keep="true">
     <div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px">SECTION 4 — ACKNOWLEDGEMENT &amp; SIGNATURES</div>
     <div style="border:1px solid #c9d6ee;padding:12px 14px;margin-bottom:0">
       <p style="font-size:9.5px;color:#444;margin:0 0 10px 0;line-height:1.55">I/We hereby acknowledge that the service described above has been performed to my/our satisfaction. The information stated in this Service Report is true and accurate to the best of our knowledge. Any parts replaced remain the property of ${co.name} unless otherwise agreed in writing.</p>
@@ -5064,6 +5124,7 @@ function buildReportHTMLForPDF(r){
           </td>
         </tr>
       </table>
+    </div>
     </div>
     <!-- TERMS & CONDITIONS -->
     <div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-top:none;border-bottom:none;margin-top:14px;letter-spacing:0.5px">TERMS &amp; CONDITIONS</div>
@@ -5108,46 +5169,77 @@ async function generateReportPDF(reportData, download){
   
   try{
     const el=container.querySelector('#pdfContent');
-    const canvas=await html2canvas(el,{scale:2,useCORS:true,logging:false,backgroundColor:'#ffffff'});
-    
-    const imgData=canvas.toDataURL('image/jpeg',0.92);
+    // Find all keep-together regions (sig block, checklist header etc.)
+    const keepEls=Array.from(el.querySelectorAll('[data-keep="true"], #sigBlock'));
+    const elTop=el.getBoundingClientRect().top;
+    const scale=2;
+    // Capture each keep region's CSS-pixel range (relative to el top)
+    const keepRanges=keepEls.map(k=>{const rc=k.getBoundingClientRect();return{top:(rc.top-elTop),height:rc.height};});
+
+    const canvas=await html2canvas(el,{scale:scale,useCORS:true,logging:false,backgroundColor:'#ffffff'});
+
     const {jsPDF}=window.jspdf;
     const pdf=new jsPDF('p','mm','a4');
     const pdfW=pdf.internal.pageSize.getWidth();
     const pdfH=pdf.internal.pageSize.getHeight();
     const imgW=pdfW-20;
     const imgH=(canvas.height*imgW)/canvas.width;
-    
-    // Handle multi-page if content is tall
+
+    const pages=[]; // array of {srcY, srcH} in canvas coordinates
+
     if(imgH<=pdfH-20){
-      pdf.addImage(imgData,'JPEG',10,10,imgW,imgH);
+      // Single-page case
+      pages.push({srcY:0,srcH:canvas.height});
     }else{
-      let y=0;
       const pageImgH=pdfH-20;
-      const srcPageH=(pageImgH/imgH)*canvas.height;
-      let page=0;
-      while(y<canvas.height){
-        if(page>0)pdf.addPage();
-        const pageCanvas=document.createElement('canvas');
-        pageCanvas.width=canvas.width;
-        pageCanvas.height=Math.min(srcPageH,canvas.height-y);
-        const pCtx=pageCanvas.getContext('2d');
-        pCtx.drawImage(canvas,0,y,canvas.width,pageCanvas.height,0,0,canvas.width,pageCanvas.height);
-        const pageImg=pageCanvas.toDataURL('image/jpeg',0.92);
-        const h=(pageCanvas.height*imgW)/canvas.width;
-        pdf.addImage(pageImg,'JPEG',10,10,imgW,h);
-        y+=srcPageH;
-        page++;
+      const srcPageH=(pageImgH/imgH)*canvas.height; // canvas pixels per PDF page
+      // Convert keep ranges to canvas pixels — but only if block fits on a single page
+      const keepInCanv=keepRanges.map(k=>({top:k.top*scale,bot:(k.top+k.height)*scale,h:k.height*scale})).filter(k=>k.h<srcPageH*0.95);
+      let y=0;
+      let safety=0;
+      while(y<canvas.height-1 && safety<60){
+        safety++;
+        let nextY=Math.min(y+srcPageH,canvas.height);
+        // If a keep block would be cut by this boundary, push the boundary to its top
+        for(const k of keepInCanv){
+          if(nextY>k.top && nextY<k.bot && y<=k.top){
+            nextY=k.top;
+            break;
+          }
+        }
+        if(nextY<=y)nextY=Math.min(y+srcPageH,canvas.height); // safeguard
+        pages.push({srcY:y,srcH:nextY-y});
+        y=nextY;
       }
     }
-    
+
+    const totalPages=pages.length;
+    pages.forEach((p,i)=>{
+      if(i>0)pdf.addPage();
+      const pageCanvas=document.createElement('canvas');
+      pageCanvas.width=canvas.width;
+      pageCanvas.height=p.srcH;
+      const pCtx=pageCanvas.getContext('2d');
+      pCtx.fillStyle='#ffffff';
+      pCtx.fillRect(0,0,pageCanvas.width,pageCanvas.height);
+      pCtx.drawImage(canvas,0,p.srcY,canvas.width,p.srcH,0,0,canvas.width,p.srcH);
+      const pageImg=pageCanvas.toDataURL('image/jpeg',0.92);
+      const h=(p.srcH*imgW)/canvas.width;
+      pdf.addImage(pageImg,'JPEG',10,10,imgW,h);
+      // Stamp page number bottom-right
+      pdf.setFont('helvetica','normal');
+      pdf.setFontSize(8);
+      pdf.setTextColor(120,120,120);
+      pdf.text(`Page ${i+1} of ${totalPages}`,pdfW-12,pdfH-6,{align:'right'});
+    });
+
     const fileName=`Service_Report_${reportData.jobNo||'report'}.pdf`;
-    
+
     if(download!==false){
       pdf.save(fileName);
       toast('PDF downloaded: '+fileName,'success');
     }
-    
+
     document.body.removeChild(container);
     return {pdf,fileName,blob:pdf.output('blob')};
   }catch(err){
