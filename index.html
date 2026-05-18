@@ -1165,12 +1165,20 @@ function openNewJobModal(){
     <div class="fr">
       <div class="fg"><label>Machine Model</label>
         <select class="fc" id="jMaMd" onchange="onJobModelChange()"><option value="">— Select customer first —</option></select>
-        <input class="fc" id="jMaMdCustom" placeholder="Type model..." style="display:none;margin-top:6px">
+        <input class="fc" id="jMaMdCustom" placeholder="Type model..." style="display:none;margin-top:6px" onblur="onJobSerialChange()">
       </div>
       <div class="fg"><label>Serial Number</label>
         <select class="fc" id="jMa" onchange="onJobSerialChange()"><option value="">— Select model first —</option></select>
-        <input class="fc" id="jMaCustom" placeholder="Type serial..." style="display:none;margin-top:6px">
+        <input class="fc" id="jMaCustom" placeholder="Type serial..." style="display:none;margin-top:6px" onblur="onJobSerialChange()">
       </div>
+    </div>
+    <div class="fg"><label>Machine Category <span style="font-weight:400;color:var(--t3);font-size:11px">(required if creating a new machine on this job)</span></label>
+      <select class="fc" id="jMaCat">
+        <option value="">— Select category —</option>
+        ${(getMachineCategories()||[]).map(c=>`<option>${E(c)}</option>`).join('')}
+        <option value="__other__">Other...</option>
+      </select>
+      <input class="fc" id="jMaCatCustom" placeholder="Type new category..." style="display:none;margin-top:6px">
     </div>
     <div id="jWarrBadge" style="display:none;padding:10px 12px;border-radius:var(--r);margin-bottom:12px;font-size:var(--fs-sm);font-weight:600"></div>
     <div class="fr"><div class="fg"><label>Billing</label><select class="fc" id="jChg"><option value="FOC">FOC (Free — Under Warranty/Rental/Contract)</option><option value="Chargeable" selected>Chargeable</option></select></div><div class="fg"><label>PO No. (if any)</label><input class="fc" id="jPO" placeholder="Optional"></div></div>
@@ -1181,6 +1189,11 @@ function openNewJobModal(){
     <div class="fr"><div class="fg"><label>Date</label><input class="fc" type="date" id="jDt"></div><div class="fg"><label>Time</label><input class="fc" type="time" id="jTm"></div></div>
     <div class="fg"><label>Symptom / Description</label><textarea class="fc" id="jDs" placeholder="Describe the issue, symptoms reported by customer..."></textarea></div>
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-wa" onclick="saveJobAndWA()">Save & WhatsApp</button><button class="btn btn-p" onclick="saveJob()">Save</button>`);
+  setTimeout(()=>{
+    // Wire machine category dropdown custom toggle
+    const catSel=document.getElementById('jMaCat'),catInp=document.getElementById('jMaCatCustom');
+    if(catSel){catSel.onchange=function(){if(this.value==='__other__'){catInp.style.display='';catInp.focus();}else{catInp.style.display='none';}};}
+  },60);
 }
 
 function toggleJobCustomCust(){
@@ -1194,7 +1207,11 @@ function toggleJobCustomCust(){
 
 function setCustomToggle(selId,custId){
   document.getElementById(selId).onchange=function(){
-    if(this.value==='__custom__'){this.style.display='none';document.getElementById(custId).style.display='';document.getElementById(custId).focus();}
+    if(this.value==='__custom__'){this.style.display='none';document.getElementById(custId).style.display='';document.getElementById(custId).focus();return;}
+    // Preserve field-specific behaviors that the original inline onchange used to provide
+    if(selId==='jMa')onJobSerialChange();
+    else if(selId==='jMaMd')onJobModelChange();
+    else if(selId==='crMd'&&typeof onModelChange==='function')onModelChange();
   };
 }
 
@@ -1223,19 +1240,37 @@ function onJobCustChange(){
 
 function onJobSerialChange(){
   const serial=getJobFieldVal('jMa','jMaCustom');
-  if(!serial)return;
-  const wStat=getWarrantyStatus(serial);
   const badge=document.getElementById('jWarrBadge');
-  if(!badge)return;
+  const chg=document.getElementById('jChg');
+  // Auto-fill machine category if this serial exists in DB.machines
+  if(serial){
+    const existing=(DB.machines||[]).find(x=>x.serial===serial);
+    const catSel=document.getElementById('jMaCat');
+    if(existing&&existing.category&&catSel){
+      const opts=[...catSel.options].map(o=>o.value);
+      if(opts.includes(existing.category)){catSel.value=existing.category;document.getElementById('jMaCatCustom').style.display='none';}
+    }
+  }
+  if(!serial){
+    // No serial yet → hide badge, leave billing alone for user choice
+    if(badge)badge.style.display='none';
+    return;
+  }
+  const wStat=getWarrantyStatus(serial);
+  if(!badge||!chg)return;
   if(wStat.foc){
     badge.style.display='';badge.style.background='var(--oks)';badge.style.color='var(--ok)';badge.style.border='1px solid var(--ok)';
     badge.textContent='✓ FOC — '+wStat.reason;
-    // auto-set FOC
-    const chg=document.getElementById('jChg');if(chg)chg.value='FOC';
+    chg.value='FOC';
+  }else if(wStat.reason==='Machine not in registry'){
+    // Brand-new machine being typed in — leave billing on Chargeable default but show neutral info badge
+    badge.style.display='';badge.style.background='var(--acs)';badge.style.color='var(--ac)';badge.style.border='1px solid var(--ac)';
+    badge.textContent='ℹ New machine — billing defaults to Chargeable (update after machine is registered)';
+    chg.value='Chargeable';
   }else{
     badge.style.display='';badge.style.background='var(--wns)';badge.style.color='var(--wn)';badge.style.border='1px solid var(--wn)';
     badge.textContent='⚠ Chargeable — '+wStat.reason;
-    const chg=document.getElementById('jChg');if(chg)chg.value='Chargeable';
+    chg.value='Chargeable';
   }
 }
 
@@ -1245,7 +1280,8 @@ function getWarrantyStatus(serial){
   const m=(DB.machines||[]).find(x=>x.serial===serial);
   if(!m)return{foc:false,reason:'Machine not in registry'};
   // Rental → FOC
-  if((m.purchaseRental||'').toLowerCase()==='rental')return{foc:true,reason:'Under rental contract'};
+  const pr=(m.purchaseRental||'').trim().toLowerCase();
+  if(pr==='rental'||pr==='rented'||pr.includes('rent'))return{foc:true,reason:'Under rental contract'};
   // Active service contract (non-Nil, non-NA, non-empty)
   const sc=(m.serviceContract||'').trim().toLowerCase();
   if(sc&&sc!=='nil'&&sc!=='na'&&sc!=='none')return{foc:true,reason:'Service contract: '+m.serviceContract};
@@ -1271,9 +1307,9 @@ function onJobModelChange(){
   DB.reports.filter(r=>r.customer===custName&&r.model===model&&r.serial).forEach(r=>serials.add(r.serial));
   const srSel=document.getElementById('jMa');
   srSel.innerHTML='<option value="">— Select serial —</option>'+[...serials].map(s=>`<option>${E(s)}</option>`).join('')+'<option value="__custom__">✏ Type serial...</option>';
-  if(serials.size===1)srSel.value=[...serials][0];
   srSel.style.display='';document.getElementById('jMaCustom').style.display='none';
   setCustomToggle('jMa','jMaCustom');
+  if(serials.size===1){srSel.value=[...serials][0];onJobSerialChange();}
 }
 
 function getJobFieldVal(selId,custId){const s=document.getElementById(selId),c=document.getElementById(custId);if(c&&c.style.display!=='none'&&c.value.trim())return c.value.trim();if(s&&s.value&&s.value!=='__custom__')return s.value;return'';}
@@ -1292,6 +1328,16 @@ function editJob(id){const j=DB.jobs.find(x=>x.id===id);if(!j)return;openNewJobM
   setTimeout(()=>{
     if(j.model){const mdSel=document.getElementById('jMaMd');if([...mdSel.options].find(o=>o.value===j.model))mdSel.value=j.model;else{document.getElementById('jMaMdCustom').value=j.model;document.getElementById('jMaMdCustom').style.display='';mdSel.style.display='none';}onJobModelChange();}
     setTimeout(()=>{if(j.machine){const srSel=document.getElementById('jMa');if([...srSel.options].find(o=>o.value===j.machine))srSel.value=j.machine;else{document.getElementById('jMaCustom').value=j.machine;document.getElementById('jMaCustom').style.display='';srSel.style.display='none';}onJobSerialChange();}},50);
+    // Prefill machine category from job (preferred) or from matching DB.machines record
+    const catSel=document.getElementById('jMaCat');
+    if(catSel){
+      let cat=j.machineCategory||'';
+      if(!cat&&j.machine){const m=(DB.machines||[]).find(x=>x.serial===j.machine);if(m)cat=m.category||'';}
+      if(cat){
+        if([...catSel.options].find(o=>o.value===cat)){catSel.value=cat;}
+        else{catSel.value='__other__';const ci=document.getElementById('jMaCatCustom');if(ci){ci.value=cat;ci.style.display='';}}
+      }
+    }
   },50);
   document.getElementById('jTy').value=j.type;document.getElementById('jDt').value=j.date||'';document.getElementById('jTm').value=j.time||'';document.getElementById('jDs').value=j.desc||'';
   const ids=j.techIds||[j.techId].filter(Boolean);
@@ -1305,11 +1351,67 @@ function saveJob(){
   const customer=getJobFieldVal('jCu','jCuCustom');
   const model=getJobFieldVal('jMaMd','jMaMdCustom');
   const serial=getJobFieldVal('jMa','jMaCustom');
-  const d={title:document.getElementById('jTi').value.trim(),customer:customer,address:document.getElementById('jAd')?.value.trim()||'',contact:document.getElementById('jCn')?.value.trim()||'',contactPhone:document.getElementById('jCnP')?.value.trim()||'',machine:serial,model:model,chargeable:document.getElementById('jChg')?.value||'Chargeable',poNo:document.getElementById('jPO')?.value.trim()||'',techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
+  const category=getJobFieldVal('jMaCat','jMaCatCustom');
+  const d={title:document.getElementById('jTi').value.trim(),customer:customer,address:document.getElementById('jAd')?.value.trim()||'',contact:document.getElementById('jCn')?.value.trim()||'',contactPhone:document.getElementById('jCnP')?.value.trim()||'',machine:serial,model:model,machineCategory:category,chargeable:document.getElementById('jChg')?.value||'Chargeable',poNo:document.getElementById('jPO')?.value.trim()||'',techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
   if(!d.title){toast('Enter title.','error');return;}
   if(eid&&eid!==''){const i=DB.jobs.findIndex(j=>j.id===parseInt(eid));if(i>=0)DB.jobs[i]={...DB.jobs[i],...d};}
   else{d.id=DB.nJ++;d.createdAt=new Date().toISOString();d.waSent=false;d.startTime=null;d.endTime=null;d.followUp='';DB.jobs.push(d);}
-  saveDB();closeModal();renderJobs();renderDash();toast('Job saved.','success');
+  // Sync contact person + phone back to customer record
+  syncJobContactToCustomer(d);
+  // Auto-create or update machine record in DB.machines if a serial was entered
+  syncJobMachineToRegistry(d);
+  saveDB();closeModal();renderJobs();renderDash();
+  // Refresh Machines + Customers if user navigates there
+  if(document.getElementById('machinesContent'))renderMachines();
+  if(document.getElementById('customersContent'))renderCusts();
+  toast('Job saved.','success');
+}
+
+// Auto-create or update the DB.machines entry from a job save.
+// If serial is empty, do nothing.
+// If serial exists already, update missing fields (customer/model/category) but don't overwrite.
+// If serial is new, create a new machine record.
+function syncJobMachineToRegistry(d){
+  if(!d.machine)return; // no serial = nothing to register
+  if(!Array.isArray(DB.machines))DB.machines=[];
+  const serial=d.machine;
+  const existing=DB.machines.find(m=>m.serial===serial);
+  if(existing){
+    let changed=false;
+    if(!existing.customer&&d.customer){existing.customer=d.customer;changed=true;}
+    if(!existing.model&&d.model){existing.model=d.model;changed=true;}
+    if(!existing.category&&d.machineCategory){existing.category=d.machineCategory;changed=true;}
+    if(!existing.location&&d.address){existing.location=d.address;changed=true;}
+    return changed;
+  }
+  // Create new machine record
+  if(!DB.nM)DB.nM=200;
+  DB.machines.push({
+    id:DB.nM++,
+    serial:serial,
+    model:d.model||'',
+    category:d.machineCategory||'',
+    customer:d.customer||'',
+    location:d.address||'',
+    installDate:'',
+    warranty:'12 months',
+    purchaseRental:'Purchase',
+    serviceContract:'Nil',
+    maintFrequency:''
+  });
+  toast(`New machine "${serial}" added to registry.`,'info');
+}
+
+// Sync contact person + phone from job form into the linked customer record
+function syncJobContactToCustomer(d){
+  if(!d.customer)return;
+  const c=DB.custs.find(x=>x.name===d.customer);
+  if(!c)return; // brand-new customer (no entry yet) — skip
+  let changed=false;
+  if(d.contact&&d.contact!==c.contact){c.contact=d.contact;changed=true;}
+  if(d.contactPhone&&d.contactPhone!==c.phone){c.phone=d.contactPhone;changed=true;}
+  if(d.address&&!c.address){c.address=d.address;changed=true;}
+  return changed;
 }
 
 function saveJobAndWA(){const tids=getSelectedTechIds();if(!tids.length){toast('Select technician(s).','error');return;}const beforeLen=DB.jobs.length;saveJob();if(DB.jobs.length>beforeLen){sendJWA(DB.jobs[DB.jobs.length-1].id);}}
@@ -1393,6 +1495,10 @@ function editReport(id){
   const r=DB.reports.find(x=>x.id===id);if(!r)return;
   window._erId=id;
   window._erPhotos=Array.isArray(r.photos)?JSON.parse(JSON.stringify(r.photos)):[];
+  // Initialize extra machines = r.machines[1..] (machines[0] is the primary shown above)
+  let extras=[];
+  if(Array.isArray(r.machines)&&r.machines.length>1)extras=JSON.parse(JSON.stringify(r.machines.slice(1)));
+  window._erExtraMachines=extras;
   let clArr=[];
   if(Array.isArray(r.checklists)&&r.checklists.length)clArr=JSON.parse(JSON.stringify(r.checklists));
   else if(r.checklist&&r.checklist.tplId)clArr=[JSON.parse(JSON.stringify(r.checklist))];
@@ -1413,6 +1519,12 @@ function editReport(id){
     <div class="fr"><div class="fg"><label>Customer</label><input class="fc" id="erCu" list="erCuL" value="${E(r.customer)}"><datalist id="erCuL">${cs.map(c=>`<option value="${E(c.name)}">`).join('')}</datalist></div><div class="fg"><label>Contact</label><input class="fc" id="erCn" value="${E(r.contact||'')}"></div></div>
     <div class="fr"><div class="fg"><label>Contact Number</label><input class="fc" id="erCp" value="${E(r.contactNum||'')}"></div><div class="fg"><label>PO No.</label><input class="fc" id="erPO" value="${E(r.poNo||'')}"></div></div>
     <div class="fr"><div class="fg"><label>Model</label><input class="fc" id="erMd" value="${E(r.model||'')}"></div><div class="fg"><label>Serial</label><input class="fc" id="erSr" value="${E(r.serial||'')}"></div></div>
+
+    <!-- Additional machines (repeater) -->
+    <div id="erExtraMachWrap" style="margin-bottom:12px">
+      <div id="erExtraMachList"></div>
+      <button type="button" class="btn btn-s btn-sm" onclick="erAddExtraMachine()" style="margin-top:4px">+ Add another machine on this report</button>
+    </div>
     <div class="fg"><label>Serviced By — select one or more</label>
       <div style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="erEnChk" value="${E(t.name)}" ${existingEngineers.includes(t.name)?'checked':''} style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
       <input class="fc" id="erEnCustom" value="${E(existingEngineers.filter(n=>!techs.find(t=>t.name===n)).join(', '))}" placeholder="Additional engineer name" style="margin-top:6px">
@@ -1468,7 +1580,15 @@ function editReport(id){
     if(window._erCustSig)_paintSigCanvas('erSigC',window._erCustSig);
     if(window._erEngSig)_paintSigCanvas('erSigE',window._erEngSig);
     updErPhGrid();erRenderChecklists();
+    renderExtraMachList('er');
   },80);
+}
+
+// Edit-report extra-machines helper
+function erAddExtraMachine(){
+  if(!Array.isArray(window._erExtraMachines))window._erExtraMachines=[];
+  window._erExtraMachines.push({model:'',serial:''});
+  renderExtraMachList('er');
 }
 
 function _paintSigCanvas(cid,dataUrl){
@@ -1559,6 +1679,11 @@ function saveEditReport(){
   const newCustSig=sc&&sc._drawn?sc.toDataURL():(window._erCustSig||'');
   const newEngSig=se&&se._drawn?se.toDataURL():(window._erEngSig||'');
   const cls=Array.isArray(window._erChecklists)?window._erChecklists:[];
+  const erPrimaryModel=document.getElementById('erMd').value.trim();
+  const erPrimarySerial=document.getElementById('erSr').value.trim();
+  const erMachines=[];
+  if(erPrimaryModel||erPrimarySerial)erMachines.push({model:erPrimaryModel,serial:erPrimarySerial});
+  (window._erExtraMachines||[]).forEach(m=>{if(m.model||m.serial)erMachines.push({model:m.model||'',serial:m.serial||''});});
   DB.reports[i]={...DB.reports[i],
     company:document.getElementById('erCo').value,
     jobNo:document.getElementById('erJN').value.trim(),
@@ -1568,8 +1693,9 @@ function saveEditReport(){
     contact:document.getElementById('erCn').value.trim(),
     contactNum:document.getElementById('erCp').value.trim(),
     poNo:document.getElementById('erPO').value.trim(),
-    model:document.getElementById('erMd').value.trim(),
-    serial:document.getElementById('erSr').value.trim(),
+    model:erPrimaryModel,
+    serial:erPrimarySerial,
+    machines:erMachines,
     engineer:checkedEng.join(', '),
     engineers:checkedEng,
     type:document.getElementById('erTy').value,
@@ -1599,7 +1725,7 @@ function viewRptPreview(id){
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:13px"><tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;width:25%">Customer</th><td style="border:1px solid #ccc;padding:8px">${E(r.customer)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;width:20%">Contact</th><td style="border:1px solid #ccc;padding:8px">${E(r.contact)} ${E(r.contactNum)}</td></tr>
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Date</th><td style="border:1px solid #ccc;padding:8px">${E(r.date)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Engineer</th><td style="border:1px solid #ccc;padding:8px">${E(r.engineer)}</td></tr>
-    <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Model</th><td style="border:1px solid #ccc;padding:8px">${E(r.model)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Serial</th><td style="border:1px solid #ccc;padding:8px;font-weight:700">${E(r.serial)}</td></tr>
+    ${(()=>{const ms=Array.isArray(r.machines)&&r.machines.length?r.machines:(r.model||r.serial?[{model:r.model,serial:r.serial}]:[]);if(!ms.length)return'';if(ms.length===1)return `<tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Model</th><td style="border:1px solid #ccc;padding:8px">${E(ms[0].model||'')}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Serial</th><td style="border:1px solid #ccc;padding:8px;font-weight:700">${E(ms[0].serial||'')}</td></tr>`;return `<tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Machines (${ms.length})</th><td colspan="3" style="border:1px solid #ccc;padding:0"><table style="width:100%;border-collapse:collapse"><tr><th style="padding:6px 8px;background:#f5f5f5;text-align:left;border-bottom:1px solid #ddd;font-size:11px">#</th><th style="padding:6px 8px;background:#f5f5f5;text-align:left;border-bottom:1px solid #ddd;font-size:11px">Model</th><th style="padding:6px 8px;background:#f5f5f5;text-align:left;border-bottom:1px solid #ddd;font-size:11px">Serial</th></tr>${ms.map((mm,k)=>`<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">${k+1}</td><td style="padding:6px 8px;border-bottom:1px solid #eee">${E(mm.model||'')}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-weight:700">${E(mm.serial||'')}</td></tr>`).join('')}</table></td></tr>`;})()}
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Type</th><td colspan="3" style="border:1px solid #ccc;padding:8px;font-weight:600">${E(r.type)}</td></tr>
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Issues/Remarks</th><td colspan="3" style="border:1px solid #ccc;padding:8px;white-space:pre-line">${E(r.remarks)}</td></tr>
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Recommendations</th><td colspan="3" style="border:1px solid #ccc;padding:8px;white-space:pre-line">${E(r.recommendations)}</td></tr>
@@ -2173,6 +2299,7 @@ function deleteUserTemplate(){
 function renderCreateReport(){
   crPhotos=[];
   crChecklists=[];
+  crExtraMachines=[];
   const cs=getAllCusts();
   const techs=DB.techs||[];
   document.getElementById('createReportContent').innerHTML=`
@@ -2252,6 +2379,12 @@ function renderCreateReport(){
           </select>
           <input class="fc" id="crSrCustom" placeholder="Or type serial" style="display:none;margin-top:6px">
         </div>
+      </div>
+
+      <!-- Additional machines (repeater) -->
+      <div id="crExtraMachWrap" style="margin-bottom:12px">
+        <div id="crExtraMachList"></div>
+        <button type="button" class="btn btn-s btn-sm" onclick="addExtraMachine()" style="margin-top:4px">+ Add another machine on this report</button>
       </div>
       
       <div class="fg"><label>Serviced By (Technician) — select one or more</label>
@@ -2385,6 +2518,114 @@ function onCustChange(){
   document.getElementById('crSr').innerHTML='<option value="">— Select model first —</option>';
   document.getElementById('crSrCustom').style.display='none';
   document.getElementById('crSr').style.display='';
+
+  // Refresh additional machines list so dropdown options reflect new customer
+  renderExtraMachList('cr');
+}
+
+// ===== Additional machines (repeater) in Create Report =====
+let crExtraMachines=[]; // [{model, serial}, ...]
+
+function addExtraMachine(model,serial){
+  crExtraMachines.push({model:model||'',serial:serial||''});
+  renderExtraMachList('cr');
+}
+
+function rmExtraMachine(idx,scope){
+  if(scope==='cr'){crExtraMachines.splice(idx,1);renderExtraMachList('cr');}
+  else if(scope==='er'){(window._erExtraMachines||[]).splice(idx,1);renderExtraMachList('er');}
+}
+
+function getCustomerMachineOptions(custName){
+  if(!custName)return{models:[],serials:{}};
+  const list=(DB.machines||[]).filter(m=>m.customer===custName);
+  const rpts=DB.reports.filter(r=>r.customer===custName&&r.model&&r.serial);
+  const models=new Set();
+  const serials={}; // model -> Set of serials
+  list.forEach(m=>{models.add(m.model);if(!serials[m.model])serials[m.model]=new Set();serials[m.model].add(m.serial);});
+  rpts.forEach(r=>{models.add(r.model);if(!serials[r.model])serials[r.model]=new Set();serials[r.model].add(r.serial);});
+  return{models:[...models],serials};
+}
+
+function renderExtraMachList(scope){
+  const listId=scope==='cr'?'crExtraMachList':'erExtraMachList';
+  const list=scope==='cr'?crExtraMachines:(window._erExtraMachines||[]);
+  const custName=scope==='cr'?(document.getElementById('crCu')?.value||document.getElementById('crCuCustom')?.value||''):(document.getElementById('erCu')?.value||'');
+  const {models,serials}=getCustomerMachineOptions(custName);
+  const wrap=document.getElementById(listId);if(!wrap)return;
+  if(!list.length){wrap.innerHTML='';return;}
+  wrap.innerHTML=list.map((m,i)=>{
+    const modelOpts=['<option value="">— Select model —</option>',
+      ...models.map(mo=>`<option value="${E(mo)}"${mo===m.model?' selected':''}>${E(mo)}</option>`),
+      '<option value="__custom__">✏ Type custom...</option>'].join('');
+    const modelSerials=m.model&&serials[m.model]?[...serials[m.model]]:[];
+    const serialOpts=['<option value="">— Select serial —</option>',
+      ...modelSerials.map(s=>`<option value="${E(s)}"${s===m.serial?' selected':''}>${E(s)}</option>`),
+      '<option value="__custom__">✏ Type custom...</option>'].join('');
+    // Show input when explicit custom flag set OR value present but not in options
+    const showModelInput=m.customModel===true||(m.model&&!models.includes(m.model));
+    const showSerialInput=m.customSerial===true||showModelInput||(m.serial&&!modelSerials.includes(m.serial));
+    return `<div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:8px;padding:10px;background:var(--input);border:1px solid var(--bdr);border-radius:var(--r)">
+      <div style="flex:1;min-width:0;display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div>
+          <label style="display:block;font-size:11px;color:var(--t3);margin-bottom:3px">Machine ${i+2} — Model${showModelInput?' <button type="button" onclick="exitCustomExtra('+i+',\'model\',\''+scope+'\')" style="background:none;border:none;color:var(--ac);cursor:pointer;font-size:10px;padding:0;margin-left:6px">← back to list</button>':''}</label>
+          ${showModelInput?
+            `<input class="fc" placeholder="Type model" value="${E(m.model||'')}" oninput="updExtraMach(${i},'model',this.value,'${scope}')" autocomplete="off">`:
+            `<select class="fc" onchange="onExtraModelChange(${i},this.value,'${scope}')">${modelOpts}</select>`}
+        </div>
+        <div>
+          <label style="display:block;font-size:11px;color:var(--t3);margin-bottom:3px">Serial${showSerialInput&&!showModelInput?' <button type="button" onclick="exitCustomExtra('+i+',\'serial\',\''+scope+'\')" style="background:none;border:none;color:var(--ac);cursor:pointer;font-size:10px;padding:0;margin-left:6px">← back to list</button>':''}</label>
+          ${showSerialInput?
+            `<input class="fc" placeholder="Type serial" value="${E(m.serial||'')}" oninput="updExtraMach(${i},'serial',this.value,'${scope}')" autocomplete="off">`:
+            `<select class="fc" onchange="onExtraSerialChange(${i},this.value,'${scope}')">${serialOpts}</select>`}
+        </div>
+      </div>
+      <button type="button" class="btn btn-sm btn-d" onclick="rmExtraMachine(${i},'${scope}')" style="flex-shrink:0;padding:6px 10px" title="Remove">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function exitCustomExtra(idx,key,scope){
+  const list=scope==='cr'?crExtraMachines:(window._erExtraMachines||[]);
+  if(!list[idx])return;
+  if(key==='model'){list[idx].customModel=false;list[idx].customSerial=false;list[idx].model='';list[idx].serial='';}
+  else{list[idx].customSerial=false;list[idx].serial='';}
+  renderExtraMachList(scope);
+}
+
+function updExtraMach(idx,key,val,scope){
+  const list=scope==='cr'?crExtraMachines:(window._erExtraMachines||[]);
+  if(!list[idx])return;
+  list[idx][key]=val;
+  // Note: don't re-render here — would steal focus mid-typing
+}
+
+function onExtraModelChange(idx,val,scope){
+  const list=scope==='cr'?crExtraMachines:(window._erExtraMachines||[]);
+  if(!list[idx])return;
+  if(val==='__custom__'){
+    list[idx].customModel=true;list[idx].customSerial=true;
+    list[idx].model='';list[idx].serial='';
+    renderExtraMachList(scope);
+    setTimeout(()=>{const wrap=document.getElementById(scope==='cr'?'crExtraMachList':'erExtraMachList');const inp=wrap?.querySelectorAll('input.fc')[idx*2];inp?.focus();},30);
+    return;
+  }
+  list[idx].customModel=false;list[idx].customSerial=false;
+  list[idx].model=val;list[idx].serial=''; // reset serial when model changes
+  renderExtraMachList(scope);
+}
+
+function onExtraSerialChange(idx,val,scope){
+  const list=scope==='cr'?crExtraMachines:(window._erExtraMachines||[]);
+  if(!list[idx])return;
+  if(val==='__custom__'){
+    list[idx].customSerial=true;list[idx].serial='';
+    renderExtraMachList(scope);
+    setTimeout(()=>{const wrap=document.getElementById(scope==='cr'?'crExtraMachList':'erExtraMachList');const inp=wrap?.querySelectorAll('input.fc')[idx*2+1];inp?.focus();},30);
+    return;
+  }
+  list[idx].customSerial=false;
+  list[idx].serial=val;
 }
 
 function onModelChange(){
@@ -2516,6 +2757,12 @@ function getSelectedEngineers(){
 function getCRData(){
   const sc=document.getElementById('sigC'),se=document.getElementById('sigE');
   const engineers=getSelectedEngineers();
+  const primaryModel=getFieldVal('crMd','crMdCustom');
+  const primarySerial=getFieldVal('crSr','crSrCustom');
+  // Build machines[] array: primary + extras (skip empties)
+  const machines=[];
+  if(primaryModel||primarySerial)machines.push({model:primaryModel,serial:primarySerial});
+  (crExtraMachines||[]).forEach(m=>{if(m.model||m.serial)machines.push({model:m.model||'',serial:m.serial||''});});
   return{
     company:document.getElementById('crCo').value,
     jobNo:document.getElementById('crJN').value.trim(),
@@ -2524,8 +2771,9 @@ function getCRData(){
     contact:getFieldVal('crCn','crCnCustom'),
     contactNum:getFieldVal('crCp','crCpCustom'),
     poNo:document.getElementById('crPO').value.trim(),
-    model:getFieldVal('crMd','crMdCustom'),
-    serial:getFieldVal('crSr','crSrCustom'),
+    model:primaryModel,
+    serial:primarySerial,
+    machines:machines,
     engineer:engineers.join(', '),
     engineers:engineers,
     type:document.getElementById('crTy').value,
@@ -2652,12 +2900,44 @@ function mCards(ms){
     <div class="rpt-card-row"><span class="rc-label">Type</span><span class="rc-val">${E(m.purchaseRental||'—')}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Contract</span><span class="rc-val">${E(m.serviceContract||'—')}</span></div>
     ${m.lastService?`<div class="rpt-card-row"><span class="rc-label">Last Service</span><span class="rc-val">${E(m.lastService)}</span></div>`:''}
-    <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val">${(m.reports||[]).length}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val" style="text-align:right">${(m.reports||[]).length?`<button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="openMachineReports('${E(m.serial).replace(/'/g,'&#39;')}')">📋 ${(m.reports||[]).length} report${m.reports.length>1?'s':''} →</button>`:'<em style="color:var(--t3)">0</em>'}</span></div>
     <div class="rpt-card-actions">
       ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editMachine('${E(m.serial)}')">Edit</button>`:''}
       ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delMachine('${E(m.serial)}')">Delete</button>`:''}
     </div>
   </div>`;}).join('');
+}
+
+// Open a modal listing all service reports for a given machine serial.
+// Click any report to open the report preview.
+function openMachineReports(serial){
+  if(!serial)return;
+  const decoded=serial.replace(/&#39;/g,"'");
+  const reports=DB.reports.filter(r=>r.serial===decoded || (Array.isArray(r.machines)&&r.machines.some(mm=>mm.serial===decoded)))
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  if(!reports.length){toast('No reports for this serial.','info');return;}
+  const html=reports.map(r=>{
+    const typeBadge=tyBd(r.type||'');
+    const stColor=r.status==='Completed'?'var(--ok)':r.status==='In Progress'?'var(--wn)':'var(--ac)';
+    return `<div onclick="closeModal();setTimeout(()=>viewRptPreview(${r.id}),60)" style="padding:12px 14px;border:1px solid var(--bdr);border-radius:var(--r);background:var(--card);cursor:pointer;transition:all var(--tr);margin-bottom:8px"
+        onmouseover="this.style.background='var(--input)';this.style.borderColor='var(--ac)'"
+        onmouseout="this.style.background='var(--card)';this.style.borderColor='var(--bdr)'">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <span style="font-weight:700;font-size:var(--fs);color:var(--ac)">📋 ${E(r.jobNo||'(no #)')}</span>
+        <span class="bd" style="background:${stColor};color:#fff">${E(r.status||'')}</span>
+      </div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:var(--fs-sm);color:var(--t2)">
+        <span>📅 ${E(r.date||'—')}</span>
+        ${r.type?`<span>${typeBadge}</span>`:''}
+        <span>👷 ${E(r.engineer||'—')}</span>
+      </div>
+      ${r.remarks?`<div style="margin-top:6px;font-size:var(--fs-xs);color:var(--t3);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${E(r.remarks.substring(0,140))}${r.remarks.length>140?'…':''}</div>`:''}
+      <div style="margin-top:6px;font-size:var(--fs-xs);color:var(--ac);font-weight:600">Click to view →</div>
+    </div>`;
+  }).join('');
+  openModal(`📋 Reports for S/N: ${E(decoded)}`,
+    `<p style="color:var(--t2);margin-bottom:12px;font-size:var(--fs-sm)">${reports.length} report${reports.length>1?'s':''} found. Click any to view.</p>${html}`,
+    `<button class="btn btn-s" onclick="closeModal()">Close</button>`);
 }
 
 function openMachineModal(data){
@@ -2697,6 +2977,22 @@ function editMachine(serial){
   else openMachineModal({serial});
 }
 
+// Cascade-update all references to a serial number across the database.
+// Used when a user renames a machine's serial number to keep linked
+// reports/jobs/parts/POs/checklists in sync.
+function cascadeSerialChange(oldSerial,newSerial){
+  if(!oldSerial||!newSerial||oldSerial===newSerial)return;
+  DB.reports.forEach(r=>{
+    if(r.serial===oldSerial)r.serial=newSerial;
+    if(Array.isArray(r.machines)){r.machines.forEach(mm=>{if(mm.serial===oldSerial)mm.serial=newSerial;});}
+    if(Array.isArray(r.checklists)){r.checklists.forEach(cl=>{if(cl.serial===oldSerial)cl.serial=newSerial;});}
+    if(r.checklist&&r.checklist.serial===oldSerial)r.checklist.serial=newSerial;
+  });
+  DB.jobs.forEach(j=>{if(j.machine===oldSerial)j.machine=newSerial;});
+  (DB.parts||[]).forEach(p=>{if(p.serial===oldSerial)p.serial=newSerial;});
+  (DB.pos||[]).forEach(p=>{if(p.serial===oldSerial)p.serial=newSerial;});
+}
+
 function saveMachine(){
   const origSerial=document.getElementById('eMSerial')?.value||'';
   const catSel=document.getElementById('mCat').value;
@@ -2723,8 +3019,17 @@ function saveMachine(){
     // Editing existing
     const i=DB.machines.findIndex(m=>m.serial===origSerial);
     if(i>=0){
-      // If customer changed, update the link
+      // If serial changed, check duplicate + cascade ALL references
+      if(origSerial!==d.serial){
+        if(DB.machines.find(m=>m.serial===d.serial)){toast('That serial already exists on another machine.','error');return;}
+        cascadeSerialChange(origSerial,d.serial);
+      }
+      // If customer changed, update the link to all linked reports too
       const oldCust=DB.machines[i].customer;
+      if(oldCust!==d.customer){
+        DB.reports.forEach(r=>{if(r.serial===d.serial&&r.customer===oldCust)r.customer=d.customer;});
+        DB.jobs.forEach(j=>{if(j.machine===d.serial&&j.customer===oldCust)j.customer=d.customer;});
+      }
       DB.machines[i]={...DB.machines[i],...d};
     }else{
       d.id=DB.nM++;DB.machines.push(d);
@@ -2734,7 +3039,10 @@ function saveMachine(){
     if(DB.machines.find(m=>m.serial===d.serial)){toast('Serial already exists.','error');return;}
     d.id=DB.nM++;DB.machines.push(d);
   }
-  saveDB();closeModal();renderMachines();toast('Machine saved.','success');
+  saveDB();closeModal();renderMachines();
+  // Also refresh customers page so machine counts stay accurate
+  if(document.getElementById('customersContent'))renderCusts();
+  toast('Machine saved.','success');
 }
 
 function delMachine(serial){
@@ -2743,7 +3051,10 @@ function delMachine(serial){
   DB.machines=(DB.machines||[]).filter(m=>m.serial!==serial);
   if(!Array.isArray(DB.deletedMachines))DB.deletedMachines=[];
   if(!DB.deletedMachines.includes(serial))DB.deletedMachines.push(serial);
-  saveDB();renderMachines();renderDash();toast('Machine deleted.','info');
+  saveDB();renderMachines();renderDash();
+  // Also refresh customers page so machine counts stay accurate
+  if(document.getElementById('customersContent'))renderCusts();
+  toast('Machine deleted.','info');
 }
 
 function viewMachineCust(custName){
@@ -3758,6 +4069,8 @@ function renderPOTrkCards(pos){
     const job=DB.jobs.find(j=>j.id===p.jobId);
     const jobStatus=job?job.status:'(job removed)';
     const statusColor=job?(job.status==='Completed'?'var(--ok)':job.status==='In Progress'?'var(--wn)':job.status==='Assigned'?'var(--ac)':'var(--t3)'):'var(--er)';
+    // Find linked service reports: match by poNo OR jobId
+    const linkedReports=DB.reports.filter(r=>(p.poNo&&r.poNo===p.poNo)||(p.jobId&&r.jobId===p.jobId));
     return `<div class="rpt-card">
       <div class="rpt-card-top"><span style="font-weight:700">📄 ${E(p.poNo)}</span><span class="bd" style="background:${statusColor};color:#fff">${E(jobStatus)}</span></div>
       <div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(p.date||'—')}</span></div>
@@ -3766,6 +4079,7 @@ function renderPOTrkCards(pos){
       ${p.type?`<div class="rpt-card-row"><span class="rc-label">Type</span><span class="rc-val">${E(p.type)}</span></div>`:''}
       ${p.model||p.serial?`<div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(p.model||'')} ${p.serial?' / '+E(p.serial):''}</span></div>`:''}
       <div class="rpt-card-row"><span class="rc-label">Linked Job</span><span class="rc-val">${job?`<a href="#" onclick="event.preventDefault();showJobById(${job.id})" style="color:var(--ac);text-decoration:none">JOB-${String(job.id).padStart(4,'0')} →</a>`:'<em style="color:var(--er)">deleted</em>'}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Service Reports</span><span class="rc-val" style="text-align:right">${linkedReports.length?linkedReports.map(r=>`<a href="#" onclick="event.preventDefault();viewRptPreview(${r.id})" style="color:var(--ok);text-decoration:none;font-weight:600;display:inline-block;margin-left:6px">📋 ${E(r.jobNo)} →</a>`).join(''):'<em style="color:var(--t3)">none yet</em>'}</span></div>
       <div class="rpt-card-actions">
         ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editPO(${p.id})">Edit</button>`:''}
         ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delPO(${p.id})">Delete</button>`:''}
@@ -4374,10 +4688,10 @@ function exportCSV(table){
       headers=['id','serial','model','category','customer','location','installDate','warranty','purchaseRental','serviceContract','maintFrequency'];
       rows=DB.machines||[];break;
     case 'reports':
-      headers=['id','company','jobNo','date','customer','contact','contactNum','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit','checklist','checklists'];
-      rows=DB.reports.map(r=>({...r,checklist:r.checklist?JSON.stringify(r.checklist):'',checklists:(Array.isArray(r.checklists)&&r.checklists.length)?JSON.stringify(r.checklists):''}));break;
+      headers=['id','company','jobNo','date','customer','contact','contactNum','model','serial','machines','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit','checklist','checklists'];
+      rows=DB.reports.map(r=>({...r,machines:(Array.isArray(r.machines)&&r.machines.length)?JSON.stringify(r.machines):'',checklist:r.checklist?JSON.stringify(r.checklist):'',checklists:(Array.isArray(r.checklists)&&r.checklists.length)?JSON.stringify(r.checklists):''}));break;
     case 'jobs':
-      headers=['id','title','customer','machine','model','type','priority','date','time','status','desc','techNames'];
+      headers=['id','title','customer','machine','model','machineCategory','type','priority','date','time','status','desc','techNames'];
       rows=DB.jobs.map(j=>({...j,techNames:getJobTechNames(j)}));break;
     case 'technicians':
       headers=['id','name','phone','email','spec'];
@@ -4413,7 +4727,7 @@ function downloadTemplate(){
   const templates={
     customers:'id,name,address,contact,phone,email,agent\n,Example Corp,123 Main St,John Doe,+6512345678,john@example.com,Redbox Global Solutions Pte Ltd',
     machines:'id,serial,model,category,customer,location,installDate,warranty,purchaseRental,serviceContract,maintFrequency\n,SN12345,ET300PPS,Stretch Wrapping Machines,Example Corp,123 Main St,2024-01-15,12 months,Purchase,Nil,',
-    reports:'id,company,jobNo,date,customer,contact,contactNum,model,serial,engineer,type,timeStart,timeEnd,remarks,recommendations,status,nextVisit,checklist\n,octopack,SR-99999,2026-04-15,Example Corp,John,+65123,ET300PPS,SN12345,Colin Tan,Preventive Maintenance,09:00,11:00,Performed PM,All OK,Completed,,',
+    reports:'id,company,jobNo,date,customer,contact,contactNum,model,serial,machines,engineer,type,timeStart,timeEnd,remarks,recommendations,status,nextVisit,checklist\n,octopack,SR-99999,2026-04-15,Example Corp,John,+65123,ET300PPS,SN12345,"[{""model"":""ET300PPS"",""serial"":""SN12345""}]",Colin Tan,Preventive Maintenance,09:00,11:00,Performed PM,All OK,Completed,,',
     jobs:'id,title,customer,machine,model,type,priority,date,time,status,desc\n,PM Service Example,Example Corp,SN12345,ET300PPS,Preventive Maintenance,Medium,2026-05-01,09:00,Open,Routine PM check',
     technicians:'id,name,phone,email,spec\n,New Tech,+6599999999,tech@company.com,General',
     agents:'id,name,type,address,contact,phone,email\n,New Agent Co,Agent,123 Street,Mr Smith,+6512345678,agent@company.com',
@@ -4495,14 +4809,17 @@ function importCSV(){
             let parsedCls=null;
             if(obj.checklists){try{parsedCls=JSON.parse(obj.checklists);if(!Array.isArray(parsedCls))parsedCls=null;}catch(e){parsedCls=null;}}
             if(!parsedCls&&parsedCl)parsedCls=[parsedCl];
+            let parsedMachines=null;
+            if(obj.machines){try{parsedMachines=JSON.parse(obj.machines);if(!Array.isArray(parsedMachines))parsedMachines=null;}catch(e){parsedMachines=null;}}
+            if(!parsedMachines&&(obj.model||obj.serial))parsedMachines=[{model:obj.model||'',serial:obj.serial||''}];
             const existing=DB.reports.find(r=>r.jobNo===obj.jobno||(obj.id&&r.id===parseInt(obj.id)));
-            if(existing){Object.assign(existing,{company:obj.company||existing.company,date:obj.date||existing.date,customer:obj.customer||existing.customer,contact:obj.contact||existing.contact,contactNum:obj.contactnum||existing.contactNum,model:obj.model||existing.model,serial:obj.serial||existing.serial,engineer:obj.engineer||existing.engineer,type:obj.type||existing.type,timeStart:obj.timestart||existing.timeStart,timeEnd:obj.timeend||existing.timeEnd,remarks:obj.remarks||existing.remarks,recommendations:obj.recommendations||existing.recommendations,status:obj.status||existing.status,nextVisit:obj.nextvisit||existing.nextVisit,checklist:parsedCl||existing.checklist||null,checklists:parsedCls||existing.checklists||[]});updated++;}
-            else{DB.reports.push({id:DB.nR++,company:obj.company||'octopack',jobNo:obj.jobno,date:obj.date||'',customer:obj.customer||'',contact:obj.contact||'',contactNum:obj.contactnum||'',model:obj.model||'',serial:obj.serial||'',engineer:obj.engineer||'',type:obj.type||'Preventive Maintenance',timeStart:obj.timestart||'',timeEnd:obj.timeend||'',remarks:obj.remarks||'',recommendations:obj.recommendations||'',status:obj.status||'Completed',nextVisit:obj.nextvisit||'',signed:false,photos:[],checklist:parsedCl,checklists:parsedCls||[]});added++;}
+            if(existing){Object.assign(existing,{company:obj.company||existing.company,date:obj.date||existing.date,customer:obj.customer||existing.customer,contact:obj.contact||existing.contact,contactNum:obj.contactnum||existing.contactNum,model:obj.model||existing.model,serial:obj.serial||existing.serial,machines:parsedMachines||existing.machines||[],engineer:obj.engineer||existing.engineer,type:obj.type||existing.type,timeStart:obj.timestart||existing.timeStart,timeEnd:obj.timeend||existing.timeEnd,remarks:obj.remarks||existing.remarks,recommendations:obj.recommendations||existing.recommendations,status:obj.status||existing.status,nextVisit:obj.nextvisit||existing.nextVisit,checklist:parsedCl||existing.checklist||null,checklists:parsedCls||existing.checklists||[]});updated++;}
+            else{DB.reports.push({id:DB.nR++,company:obj.company||'octopack',jobNo:obj.jobno,date:obj.date||'',customer:obj.customer||'',contact:obj.contact||'',contactNum:obj.contactnum||'',model:obj.model||'',serial:obj.serial||'',machines:parsedMachines||[],engineer:obj.engineer||'',type:obj.type||'Preventive Maintenance',timeStart:obj.timestart||'',timeEnd:obj.timeend||'',remarks:obj.remarks||'',recommendations:obj.recommendations||'',status:obj.status||'Completed',nextVisit:obj.nextvisit||'',signed:false,photos:[],checklist:parsedCl,checklists:parsedCls||[]});added++;}
             break;
           }
           case 'jobs':{
             if(!obj.title)return;
-            DB.jobs.push({id:DB.nJ++,title:obj.title,customer:obj.customer||'',machine:obj.machine||'',type:obj.type||'Preventive Maintenance',priority:obj.priority||'Medium',date:obj.date||'',time:obj.time||'',status:obj.status||'Open',desc:obj.desc||'',createdAt:new Date().toISOString(),waSent:false});added++;
+            DB.jobs.push({id:DB.nJ++,title:obj.title,customer:obj.customer||'',machine:obj.machine||'',model:obj.model||'',machineCategory:obj.machinecategory||'',type:obj.type||'Preventive Maintenance',priority:obj.priority||'Medium',date:obj.date||'',time:obj.time||'',status:obj.status||'Open',desc:obj.desc||'',createdAt:new Date().toISOString(),waSent:false});added++;
             break;
           }
           case 'technicians':{
@@ -5091,7 +5408,7 @@ function buildReportHTMLForPDF(r){
     <!-- SECTION 2 -->
     <div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px">SECTION 2 — EQUIPMENT &amp; SERVICE DETAILS</div>
     <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:14px">
-      <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">EQUIPMENT /<br>MODEL</th><td style="border:1px solid #c9d6ee;padding:8px 10px;width:32%;font-weight:700">${E(r.model||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">SERIAL NO.</th><td style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(r.serial||'')}</td></tr>
+      ${(()=>{const ms=Array.isArray(r.machines)&&r.machines.length?r.machines:(r.model||r.serial?[{model:r.model||'',serial:r.serial||''}]:[{model:'',serial:''}]);if(ms.length===1){return`<tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">EQUIPMENT /<br>MODEL</th><td style="border:1px solid #c9d6ee;padding:8px 10px;width:32%;font-weight:700">${E(ms[0].model||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">SERIAL NO.</th><td style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(ms[0].serial||'')}</td></tr>`;}return`<tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;width:18%;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px;vertical-align:top">EQUIPMENT (${ms.length})</th><td colspan="3" style="border:1px solid #c9d6ee;padding:0"><table style="width:100%;border-collapse:collapse;font-size:10.5px"><tr style="background:#f6f9ff"><th style="padding:5px 8px;text-align:left;border-bottom:1px solid #c9d6ee;font-size:9.5px;font-weight:700;width:10%;color:#000">#</th><th style="padding:5px 8px;text-align:left;border-bottom:1px solid #c9d6ee;font-size:9.5px;font-weight:700;width:45%;color:#000">MODEL</th><th style="padding:5px 8px;text-align:left;border-bottom:1px solid #c9d6ee;font-size:9.5px;font-weight:700;color:#000">SERIAL NO.</th></tr>${ms.map((mm,k)=>`<tr><td style="padding:5px 8px;border-bottom:1px solid #e5ecf5">${k+1}</td><td style="padding:5px 8px;border-bottom:1px solid #e5ecf5;font-weight:700">${E(mm.model||'')}</td><td style="padding:5px 8px;border-bottom:1px solid #e5ecf5;font-weight:700">${E(mm.serial||'')}</td></tr>`).join('')}</table></td></tr>`;})()}
       <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">TYPE OF<br>SERVICE</th><td style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(r.type||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">SERVICE<br>STATUS</th><td style="border:1px solid #c9d6ee;padding:8px 10px;font-weight:700">${E(r.status||'')}</td></tr>
       <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">SERVICE<br>ENGINEER(S)</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(engineers)}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">NEXT VISIT</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.nextVisit||'N/A')}</td></tr>
       <tr><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">TIME START</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.timeStart||'')}</td><th style="border:1px solid #c9d6ee;padding:8px 10px;background:#f6f9ff;text-align:left;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">TIME END</th><td style="border:1px solid #c9d6ee;padding:8px 10px">${E(r.timeEnd||'')}</td></tr>
