@@ -3123,16 +3123,63 @@ function viewCustMachines(custName){
   // Merge
   const allSerials=new Set();
   const combined=[];
-  ms.forEach(m=>{allSerials.add(m.serial);combined.push(m);});
-  rptMs.forEach(m=>{if(!allSerials.has(m.serial)){combined.push({...m,customer:custName,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:''});}});
-  
-  const html=combined.length?combined.map(m=>`<div style="padding:12px 0;border-bottom:1px solid var(--bdr)">
-    <div style="display:flex;justify-content:space-between;align-items:center"><strong>${E(m.serial)}</strong>
-    <div style="display:flex;gap:6px">${canEdit()?`<button class="btn btn-sm btn-s" onclick="closeModal();editMachine('${E(m.serial)}')">Edit</button>`:''}</div></div>
-    <div style="font-size:var(--fs-sm);color:var(--t2);margin-top:4px">${E(m.model)} ${m.location?'• '+E(m.location):''} ${m.installDate?'• Installed '+E(m.installDate):''}</div>
-  </div>`).join(''):'<p style="color:var(--t3)">No machines linked to this customer.</p>';
-  
+  ms.forEach(m=>{allSerials.add(m.serial);combined.push({...m,_source:'registry'});});
+  rptMs.forEach(m=>{if(!allSerials.has(m.serial)){combined.push({...m,customer:custName,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:'',_source:'report'});}});
+
+  const html=combined.length?combined.map(m=>{
+    const serialDisp=m.serial?E(m.serial):'<em style="color:var(--er);font-weight:normal">⚠ (no serial — orphan record)</em>';
+    const escSerial=E(m.serial||'').replace(/'/g,"\\'");
+    const isOrphan=!m.serial||!m.serial.trim();
+    return `<div style="padding:12px 0;border-bottom:1px solid var(--bdr)">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><strong style="word-break:break-word">${serialDisp}</strong>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        ${m._source==='report'?`<span class="bd bd-wn" title="Only seen in reports — not in registry">📋 Report-only</span>`:''}
+        ${canEdit()&&!isOrphan?`<button class="btn btn-sm btn-s" onclick="closeModal();editMachine('${escSerial}')">Edit</button>`:''}
+        ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delMachineFromCust('${escSerial}','${E(custName).replace(/'/g,"\\'")}','${m._source}')">${isOrphan?'🗑 Remove Orphan':'Delete'}</button>`:''}
+      </div></div>
+      <div style="font-size:var(--fs-sm);color:var(--t2);margin-top:4px">${E(m.model||'(no model)')} ${m.location?'• '+E(m.location):''} ${m.installDate?'• Installed '+E(m.installDate):''}</div>
+    </div>`;
+  }).join(''):'<p style="color:var(--t3)">No machines linked to this customer.</p>';
+
   openModal(`Machines — ${custName}`,html+`<div style="margin-top:16px"><button class="btn btn-p btn-sm" onclick="closeModal();openMachineModal({customer:'${E(custName)}'})">+ Add Machine</button></div>`,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
+}
+
+// Delete a machine record from the Customer Machines modal.
+// Handles both registry records (DB.machines) and report-only orphans (empty/missing serial).
+function delMachineFromCust(serial,custName,source){
+  const isOrphan=!serial||!serial.trim();
+  if(isOrphan){
+    if(!confirm(`Remove this orphan machine record for "${custName}"?\n\nThis will clear empty model/serial fields from any reports of this customer that have no serial. The reports themselves are NOT deleted.`))return;
+    // Clean up — for any DB.machines entry with empty serial AND this customer, remove
+    const before=(DB.machines||[]).length;
+    DB.machines=(DB.machines||[]).filter(m=>!(m.customer===custName&&(!m.serial||!m.serial.trim())));
+    const removed=before-DB.machines.length;
+    saveDB();closeModal();renderCusts();
+    if(document.getElementById('machinesContent'))renderMachines();
+    toast(`Removed ${removed} orphan record${removed!==1?'s':''}.`,'success');
+    return;
+  }
+  if(source==='report'){
+    if(!confirm(`This serial "${serial}" is not in the Machine Registry — it only appears inside reports. Reports won't be deleted.\n\nNothing to remove from the Machine Registry. Edit the reports directly if you want to change their machine info.`)){return;}
+    toast('No registry record to delete.','info');return;
+  }
+  // Standard registry delete with linked records info
+  const linkedReports=DB.reports.filter(r=>r.serial===serial).length;
+  const linkedJobs=DB.jobs.filter(j=>j.machine===serial).length;
+  const linkedParts=(DB.parts||[]).filter(p=>p.serial===serial).length;
+  let msg=`Delete machine "${serial}" from the registry?`;
+  if(linkedReports||linkedJobs||linkedParts){
+    msg+=`\n\n⚠ This serial is referenced by:\n`;
+    if(linkedReports)msg+=`  • ${linkedReports} service report${linkedReports>1?'s':''}\n`;
+    if(linkedJobs)msg+=`  • ${linkedJobs} job${linkedJobs>1?'s':''}\n`;
+    if(linkedParts)msg+=`  • ${linkedParts} parts record${linkedParts>1?'s':''}\n`;
+    msg+=`\nLinked records are NOT deleted, but they'll lose their machine reference. Proceed?`;
+  }
+  if(!confirm(msg))return;
+  DB.machines=(DB.machines||[]).filter(m=>m.serial!==serial);
+  saveDB();closeModal();renderCusts();
+  if(document.getElementById('machinesContent'))renderMachines();
+  toast(`Machine "${serial}" deleted.`,'success');
 }
 function openCustModal(data){
   const d=data||{};
