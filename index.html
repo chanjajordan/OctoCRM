@@ -5452,16 +5452,6 @@ function _buildSingleChecklistHTML(cl,r,co,clIdx,total){
     <div style="margin-top:10px;font-size:9.5px;color:#444;padding:6px 10px;background:#fafafa;border:1px solid #ddd;border-radius:3px">
       <strong>Status Legend:</strong> <span style="color:#0a7a2f;font-weight:700">OK</span> = Pass &nbsp;|&nbsp; <span style="color:#b91c1c;font-weight:700">NG</span> = Needs Repair &nbsp;|&nbsp; <span style="color:#666;font-weight:700">NA</span> = Not Applicable
     </div>
-    <div style="display:flex;justify-content:space-between;margin-top:18px;padding-top:10px;border-top:1px solid #ccc;font-size:10px">
-      <div style="width:45%">
-        <div style="border-top:1px solid #333;padding-top:4px;margin-top:30px"><strong>Maintenance Completed By</strong></div>
-        <div style="color:#666;font-size:9px;margin-top:2px">Signature / Date: ${E(r.date||'')}</div>
-      </div>
-      <div style="width:45%">
-        <div style="border-top:1px solid #333;padding-top:4px;margin-top:30px"><strong>Acknowledged By (Customer)</strong></div>
-        <div style="color:#666;font-size:9px;margin-top:2px">${E(r.sigName||'')} / Date: ${E(r.date||'')}</div>
-      </div>
-    </div>
     <div style="margin-top:14px;text-align:center;font-size:8.5px;color:#888">${co.tag}&nbsp; |&nbsp; PM Checklist appended to Service Report ${E(r.jobNo||'')}</div>
     </div>
   `;
