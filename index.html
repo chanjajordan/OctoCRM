@@ -278,7 +278,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
   .ct{padding:14px 12px;overflow-x:hidden}
   .mob-nav{display:block}
   #menuBtn{display:flex!important}
-  .sg{grid-template-columns:1fr 1fr;gap:10px}
+  .sg{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .sc{padding:14px;border-radius:var(--rl)}.sc .sv{font-size:var(--fs-xl)}.sc .si{width:36px;height:36px;margin-bottom:10px;border-radius:9px}.sc .si svg{width:18px;height:18px}
   .tw-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
   table{min-width:600px}
@@ -304,7 +304,8 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
   .login-box{padding:32px 24px;border-radius:18px}
 }
 @media(max-width:380px){
-  .sg{grid-template-columns:1fr}
+  .sg{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .sc{padding:11px}.sc .sv{font-size:var(--fs-lg)}.sc .sl{font-size:10px}
   .mob-tab{min-width:46px;font-size:10px}
 }
 </style>
@@ -896,7 +897,8 @@ function renderDash(){
   const lowStock=(DB.partsStock||[]).filter(s=>s.qty<=s.reorderAt);
   document.getElementById('dashContent').innerHTML=`
     <div class="sg">
-      <div class="sc"><div class="si" style="background:var(--acs);color:var(--ac)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div><div class="sv">${DB.reports.length}</div><div class="sl">Total Reports</div></div>
+      <div class="sc" onclick="curRptF='all';_rptFilterSticky=true;showPage('reports')" style="cursor:pointer"><div class="si" style="background:var(--acs);color:var(--ac)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/></svg></div><div class="sv">${DB.reports.length}</div><div class="sl">Total Reports</div></div>
+      <div class="sc" onclick="showPage('calendar')" style="cursor:pointer"><div class="si" style="background:var(--oks);color:var(--ok)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></div><div class="sv" style="color:var(--ok)">${upcomingPM.length}</div><div class="sl">Calendar</div></div>
       <div class="sc" onclick="curRptF='Outstanding';_rptFilterSticky=true;showPage('reports')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div><div class="sv" style="color:var(--er)">${outstandingRpts.length}</div><div class="sl">Outstanding Reports</div></div>
       <div class="sc" onclick="curJF='Active';showPage('jobs')" style="cursor:pointer"><div class="si" style="background:var(--wns);color:var(--wn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg></div><div class="sv">${aj.length}</div><div class="sl">Active Jobs</div></div>
       <div class="sc" onclick="curJF='Follow-Up';showPage('jobs')" style="cursor:pointer"><div class="si" style="background:var(--wns);color:var(--wn)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="sv" style="color:var(--wn)">${followUpJobs.length}</div><div class="sl">To Follow-Up</div></div>
