@@ -4777,13 +4777,13 @@ function renderDataMgmt(){
     </div>
 
     <div class="oc" style="border-left:4px solid var(--ok)"><h3>🌱 Seed Data (Stable Baseline)</h3>
-      <p>Save current data as a stable baseline. When you reset the app, it will reload from this seed instead of starting empty.</p>
+      <p>Save current data as a stable baseline. When you reset the app, it will reload from this seed instead of starting empty. Seeds are stored in your browser's IndexedDB, which holds the <b>full database including all photos &amp; signatures</b> (no 5 MB limit).</p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
         <button class="btn btn-ok btn-sm" onclick="saveSeedData()">💾 Save Current as Seed</button>
         <button class="btn btn-s btn-sm" onclick="loadSeedData()">📥 Load from Seed</button>
         <button class="btn btn-d btn-sm" onclick="clearSeedData()">🗑 Clear Seed</button>
       </div>
-      <div style="margin-top:8px;font-size:var(--fs-xs);color:var(--t3)" id="seedInfo">${localStorage.getItem('ocrm4_seed')?'✅ Seed saved: '+(() => {try{const s=JSON.parse(localStorage.getItem('ocrm4_seed'));return s.savedAt?new Date(s.savedAt).toLocaleString('en-SG'):'unknown date';}catch(e){return'unknown';}})():'⚠ No seed data saved yet.'}</div>
+      <div style="margin-top:8px;font-size:var(--fs-xs);color:var(--t3)" id="seedInfo">${(()=>{const m=_seedMeta();if(!m)return'⚠ No seed data saved yet.';let d='unknown date';try{d=m.savedAt?new Date(m.savedAt).toLocaleString('en-SG'):'unknown date';}catch(e){}const store=m.store==='idb'?'IndexedDB (full + images)':(m.slim?'localStorage (slim, no images)':'localStorage (full)');return`✅ Seed saved: ${d} &nbsp;·&nbsp; ${store}${m.images?' &nbsp;·&nbsp; '+m.images+' image(s)':''}`;})()}</div>
     </div>
     <div class="oc" style="border-left:4px solid var(--ac)"><h3>📊 XLSX Machine Records Import</h3>
       <p>Import Octopack machine records from the parsed XLSX data. Adds customers, machines, and agents. Skips duplicates (same customer + model + serial).</p>
@@ -5325,80 +5325,110 @@ function doManualMerge(){
 
 // ===== RESET =====
 // ===== SEED DATA =====
+// ===== INDEXEDDB SEED STORE (large-capacity, keeps images) =====
+// localStorage caps ~5MB; IndexedDB allows hundreds of MB–GB, so full DB w/ photos/signatures fits.
+const _IDB_NAME='octocrm_seed_db',_IDB_STORE='kv';
+function _idbOpen(){
+  return new Promise((res,rej)=>{
+    if(!window.indexedDB){rej(new Error('IndexedDB not supported'));return;}
+    const rq=indexedDB.open(_IDB_NAME,1);
+    rq.onupgradeneeded=()=>{const db=rq.result;if(!db.objectStoreNames.contains(_IDB_STORE))db.createObjectStore(_IDB_STORE);};
+    rq.onsuccess=()=>res(rq.result);
+    rq.onerror=()=>rej(rq.error||new Error('IDB open failed'));
+  });
+}
+function _idbPut(key,val){return _idbOpen().then(db=>new Promise((res,rej)=>{const tx=db.transaction(_IDB_STORE,'readwrite');tx.objectStore(_IDB_STORE).put(val,key);tx.oncomplete=()=>{db.close();res(true);};tx.onerror=()=>{db.close();rej(tx.error);};tx.onabort=()=>{db.close();rej(tx.error||new Error('IDB write aborted (quota?)'));};}));}
+function _idbGet(key){return _idbOpen().then(db=>new Promise((res,rej)=>{const tx=db.transaction(_IDB_STORE,'readonly');const r=tx.objectStore(_IDB_STORE).get(key);r.onsuccess=()=>{db.close();res(r.result);};r.onerror=()=>{db.close();rej(r.error);};}));}
+function _idbDel(key){return _idbOpen().then(db=>new Promise((res)=>{const tx=db.transaction(_IDB_STORE,'readwrite');tx.objectStore(_IDB_STORE).delete(key);tx.oncomplete=()=>{db.close();res(true);};tx.onerror=()=>{db.close();res(false);};}));}
+// Tiny sync marker in localStorage so UI/reset can detect seed without async. {savedAt,slim,store,images}
+function _seedMeta(){
+  try{const m=localStorage.getItem('ocrm4_seed_meta');if(m)return JSON.parse(m);}catch(e){}
+  // legacy: bulk seed stored directly in localStorage
+  const raw=localStorage.getItem('ocrm4_seed');
+  if(raw){try{const s=JSON.parse(raw);return{savedAt:s.savedAt,slim:!!s.slim,store:'ls',images:0,legacy:true};}catch(e){}}
+  return null;
+}
+// Async: return full seed payload {data,savedAt,...} from whichever store
+function _loadSeedPayload(){
+  const meta=_seedMeta();
+  if(!meta)return Promise.resolve(null);
+  if(meta.store==='idb')return _idbGet('seed');
+  const raw=localStorage.getItem('ocrm4_seed');
+  return Promise.resolve(raw?JSON.parse(raw):null);
+}
+
 function saveSeedData(){
   if(!confirm('Save current database as seed baseline?\nThis will overwrite any previous seed.'))return;
-
-  // Estimate size first
   let payload;
   try{payload=JSON.stringify({data:DB,savedAt:new Date().toISOString()});}
   catch(e){toast('Could not serialize data: '+e.message,'error');return;}
-
   const sizeMB=(payload.length/1024/1024).toFixed(2);
-  // Try direct save first
-  try{
-    localStorage.setItem('ocrm4_seed',payload);
-    toast(`Seed saved (${sizeMB} MB). Reset will restore to this point.`,'success');
-    renderDataMgmt();return;
-  }catch(e){
-    // QuotaExceededError — offer slim version
-    const slim=JSON.parse(JSON.stringify(DB));
-    let stripped=0;
-    (slim.reports||[]).forEach(r=>{
-      if(Array.isArray(r.photos)&&r.photos.length){stripped+=r.photos.length;r.photos=[];}
-      if(r.signatureEng){delete r.signatureEng;stripped++;}
-      if(r.signatureCust){delete r.signatureCust;stripped++;}
-    });
-    (slim.jobs||[]).forEach(j=>{
-      if(Array.isArray(j.photos)&&j.photos.length){stripped+=j.photos.length;j.photos=[];}
-    });
-    const slimPayload=JSON.stringify({data:slim,savedAt:new Date().toISOString(),slim:true});
-    const slimMB=(slimPayload.length/1024/1024).toFixed(2);
-    if(!confirm(`⚠ Data too large for localStorage (${sizeMB} MB exceeds browser limit ~5 MB).\n\nSave SLIM version (${slimMB} MB) without photos & signatures? Records will be preserved, only images stripped.\n\n${stripped} image(s) will be excluded from seed.`)){toast('Seed save cancelled.','info');return;}
+  // count images for info
+  let imgN=0;(DB.reports||[]).forEach(r=>{if(Array.isArray(r.photos))imgN+=r.photos.length;if(r.signatureEng)imgN++;if(r.signatureCust)imgN++;});(DB.jobs||[]).forEach(j=>{if(Array.isArray(j.photos))imgN+=j.photos.length;});
+
+  // PRIMARY: IndexedDB — keeps everything incl images, no 5MB cap
+  _idbPut('seed',{data:DB,savedAt:new Date().toISOString()}).then(()=>{
+    localStorage.setItem('ocrm4_seed_meta',JSON.stringify({savedAt:new Date().toISOString(),slim:false,store:'idb',images:imgN}));
+    localStorage.removeItem('ocrm4_seed'); // free old bulk LS seed if any
+    toast(`Full seed saved with images (${sizeMB} MB, ${imgN} image(s)). Reset restores to this point.`,'success');
+    renderDataMgmt();
+  }).catch(()=>{
+    // FALLBACK 1: localStorage full payload (small DBs)
     try{
-      localStorage.setItem('ocrm4_seed',slimPayload);
-      toast(`Slim seed saved (${slimMB} MB, ${stripped} images stripped).`,'success');
-      renderDataMgmt();
-    }catch(e2){
-      // Still too big — give clear guidance
-      toast(`Save failed: localStorage quota exceeded. Use Export All JSON instead (no size limit).`,'error');
+      localStorage.setItem('ocrm4_seed',payload);
+      localStorage.setItem('ocrm4_seed_meta',JSON.stringify({savedAt:new Date().toISOString(),slim:false,store:'ls',images:imgN}));
+      toast(`Seed saved (${sizeMB} MB) to localStorage.`,'success');renderDataMgmt();return;
+    }catch(e){
+      // FALLBACK 2: slim (strip images) into localStorage
+      const slim=JSON.parse(JSON.stringify(DB));let stripped=0;
+      (slim.reports||[]).forEach(r=>{if(Array.isArray(r.photos)&&r.photos.length){stripped+=r.photos.length;r.photos=[];}if(r.signatureEng){delete r.signatureEng;stripped++;}if(r.signatureCust){delete r.signatureCust;stripped++;}});
+      (slim.jobs||[]).forEach(j=>{if(Array.isArray(j.photos)&&j.photos.length){stripped+=j.photos.length;j.photos=[];}});
+      const slimPayload=JSON.stringify({data:slim,savedAt:new Date().toISOString(),slim:true});
+      const slimMB=(slimPayload.length/1024/1024).toFixed(2);
+      if(!confirm(`⚠ IndexedDB unavailable & data too large for localStorage (${sizeMB} MB).\n\nSave SLIM version (${slimMB} MB) without photos & signatures? ${stripped} image(s) excluded.`)){toast('Seed save cancelled.','info');return;}
+      try{
+        localStorage.setItem('ocrm4_seed',slimPayload);
+        localStorage.setItem('ocrm4_seed_meta',JSON.stringify({savedAt:new Date().toISOString(),slim:true,store:'ls',images:0}));
+        toast(`Slim seed saved (${slimMB} MB, ${stripped} images stripped).`,'success');renderDataMgmt();
+      }catch(e2){toast('Save failed: quota exceeded. Use Export JSON Backup instead (no size limit).','error');}
     }
-  }
+  });
 }
 function loadSeedData(){
-  const raw=localStorage.getItem('ocrm4_seed');
-  if(!raw){toast('No seed data found. Save one first.','error');return;}
+  const meta=_seedMeta();
+  if(!meta){toast('No seed data found. Save one first.','error');return;}
   if(!confirm('Load seed data? This will REPLACE your current data.'))return;
-  try{
-    const seed=JSON.parse(raw);
+  _loadSeedPayload().then(seed=>{
+    if(!seed||!seed.data){toast('Seed data missing or corrupt.','error');return;}
     DB=JSON.parse(JSON.stringify(seed.data));
     saveDB();refreshPage();
-    toast(seed.slim?'Slim seed loaded (photos/signatures were not included).':'Seed data loaded.','success');
-  }catch(e){toast('Failed to parse seed data: '+e.message,'error');}
+    toast(seed.slim?'Slim seed loaded (photos/signatures were not included).':'Full seed loaded with images.','success');
+  }).catch(e=>toast('Failed to load seed: '+e.message,'error'));
 }
 function clearSeedData(){
   if(!confirm('Clear saved seed data?'))return;
   localStorage.removeItem('ocrm4_seed');
-  toast('Seed data cleared.','info');renderDataMgmt();
+  localStorage.removeItem('ocrm4_seed_meta');
+  _idbDel('seed').finally(()=>{toast('Seed data cleared.','info');renderDataMgmt();});
 }
 
 function resetAllData(){
-  const hasSeed=!!localStorage.getItem('ocrm4_seed');
+  const meta=_seedMeta();
+  const hasSeed=!!meta;
   const msg=hasSeed
     ?'This will reset data to your saved seed baseline.\n\nProceed?'
     :'This will DELETE all reports, jobs, customers, and settings.\n\nAre you sure?';
   if(!confirm(msg))return;
   if(!hasSeed&&!confirm('FINAL WARNING: All data will be permanently erased from this device AND the cloud database.\n\nProceed?'))return;
   if(hasSeed){
-    // Restore from seed
-    try{
-      const seed=JSON.parse(localStorage.getItem('ocrm4_seed'));
+    _loadSeedPayload().then(seed=>{
+      if(!seed||!seed.data)throw new Error('seed missing');
       DB=JSON.parse(JSON.stringify(seed.data));
       localStorage.setItem('ocrm4',JSON.stringify(DB));
       if(USE_FB&&fbDB)fbDB.ref('octoCRM_v4').set(DB).then(()=>location.reload()).catch(()=>location.reload());
       else location.reload();
-    }catch(e){toast('Seed restore failed.','error');}
+    }).catch(()=>toast('Seed restore failed.','error'));
   } else {
-    // Full wipe
     localStorage.removeItem('ocrm4');
     localStorage.removeItem('ocrm4_session');
     try{
