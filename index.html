@@ -438,6 +438,7 @@ function initFB(){
         if(!Array.isArray(DB.parts))DB.parts=[];
         if(!Array.isArray(DB.partsStock))DB.partsStock=[];
         if(!Array.isArray(DB.pos))DB.pos=[];
+        _ensurePOIds();
         if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;if(!DB.nPO)DB.nPO=1;
         if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=DB.users.length+1;
         // Merge persisted company letterhead overrides from cloud
@@ -579,6 +580,7 @@ function loadDB(){
   if(!Array.isArray(DB.parts))DB.parts=[];
   if(!Array.isArray(DB.partsStock))DB.partsStock=[];
   if(!Array.isArray(DB.pos))DB.pos=[];
+  _ensurePOIds();
   if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;if(!DB.nPO)DB.nPO=1;
 
   // Merge persisted company letterhead overrides
@@ -4200,22 +4202,44 @@ function renderPOTracking(){
     <div id="poTrkList">${renderPOTrkCards(pos)}</div></div>`;
 }
 
+function _ensurePOIds(){
+  // Fix legacy/CSV POs with missing or duplicate ids — root cause of "edit shows wrong PO".
+  if(!Array.isArray(DB.pos))return;
+  let mx=0;DB.pos.forEach(p=>{if(typeof p.id==='number'&&p.id>mx)mx=p.id;});
+  const seen={};
+  DB.pos.forEach(p=>{
+    if(typeof p.id!=='number'||!p.id||seen[p.id]){p.id=++mx;}
+    seen[p.id]=1;
+  });
+  if(!DB.nPO||DB.nPO<=mx)DB.nPO=mx+1;
+}
 function renderPOTrkCards(pos){
   return pos.map(p=>{
-    const job=DB.jobs.find(j=>j.id===p.jobId);
-    const jobStatus=job?job.status:'(job removed)';
-    const statusColor=job?(job.status==='Completed'?'var(--ok)':job.status==='In Progress'?'var(--wn)':job.status==='Assigned'?'var(--ac)':'var(--t3)'):'var(--er)';
-    // Find linked service reports: match by poNo OR jobId
-    const linkedReports=DB.reports.filter(r=>(p.poNo&&r.poNo===p.poNo)||(p.jobId&&r.jobId===p.jobId));
+    // Multiple jobs can link to one PO: match by poNo OR legacy single jobId
+    const linkedJobs=DB.jobs.filter(j=>(p.poNo&&j.poNo===p.poNo)||(p.jobId&&j.id===p.jobId));
+    // Overall PO status = worst/most-active among linked jobs (or first)
+    const stOrder={'Open':0,'Assigned':1,'In Progress':2,'Completed':3};
+    let headJob=linkedJobs[0]||null;
+    linkedJobs.forEach(j=>{if(headJob&&(stOrder[j.status]??9)<(stOrder[headJob.status]??9))headJob=j;});
+    const jobStatus=linkedJobs.length?(headJob?headJob.status:'—'):'(no job)';
+    const statusColor=!linkedJobs.length?'var(--er)':(headJob.status==='Completed'?'var(--ok)':headJob.status==='In Progress'?'var(--wn)':headJob.status==='Assigned'?'var(--ac)':'var(--t3)');
+    // Multiple service reports: match by poNo OR any linked jobId
+    const jobIds=linkedJobs.map(j=>j.id);
+    const linkedReports=DB.reports.filter(r=>(p.poNo&&r.poNo===p.poNo)||(r.jobId&&jobIds.includes(r.jobId))||(p.jobId&&r.jobId===p.jobId));
+    const jobsHtml=linkedJobs.length?linkedJobs.map(j=>{
+      const jc=j.status==='Completed'?'var(--ok)':j.status==='In Progress'?'var(--wn)':j.status==='Assigned'?'var(--ac)':'var(--t3)';
+      return `<a href="#" onclick="event.preventDefault();showJobById(${j.id})" style="color:${jc};text-decoration:none;font-weight:600;display:inline-block;margin-left:6px">🔧 JOB-${String(j.id).padStart(4,'0')} →</a>`;
+    }).join(''):'<em style="color:var(--er)">none</em>';
+    const rptsHtml=linkedReports.length?linkedReports.map(r=>`<a href="#" onclick="event.preventDefault();viewRptPreview(${r.id})" style="color:var(--ok);text-decoration:none;font-weight:600;display:inline-block;margin-left:6px">📋 ${E(r.jobNo)} →</a>`).join(''):'<em style="color:var(--t3)">none yet</em>';
     return `<div class="rpt-card">
-      <div class="rpt-card-top"><span style="font-weight:700">📄 ${E(p.poNo)}</span><span class="bd" style="background:${statusColor};color:#fff">${E(jobStatus)}</span></div>
+      <div class="rpt-card-top"><span style="font-weight:700">📄 ${E(p.poNo)}</span><span class="bd" style="background:${statusColor};color:#fff">${E(jobStatus)}${linkedJobs.length>1?' +'+(linkedJobs.length-1):''}</span></div>
       <div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(p.date||'—')}</span></div>
       <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(p.customer)}</span></div>
       ${p.title?`<div class="rpt-card-row"><span class="rc-label">Title</span><span class="rc-val">${E(p.title)}</span></div>`:''}
       ${p.type?`<div class="rpt-card-row"><span class="rc-label">Type</span><span class="rc-val">${E(p.type)}</span></div>`:''}
       ${p.model||p.serial?`<div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(p.model||'')} ${p.serial?' / '+E(p.serial):''}</span></div>`:''}
-      <div class="rpt-card-row"><span class="rc-label">Linked Job</span><span class="rc-val">${job?`<a href="#" onclick="event.preventDefault();showJobById(${job.id})" style="color:var(--ac);text-decoration:none">JOB-${String(job.id).padStart(4,'0')} →</a>`:'<em style="color:var(--er)">deleted</em>'}</span></div>
-      <div class="rpt-card-row"><span class="rc-label">Service Reports</span><span class="rc-val" style="text-align:right">${linkedReports.length?linkedReports.map(r=>`<a href="#" onclick="event.preventDefault();viewRptPreview(${r.id})" style="color:var(--ok);text-decoration:none;font-weight:600;display:inline-block;margin-left:6px">📋 ${E(r.jobNo)} →</a>`).join(''):'<em style="color:var(--t3)">none yet</em>'}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Linked Jobs</span><span class="rc-val" style="text-align:right">${jobsHtml}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Service Reports</span><span class="rc-val" style="text-align:right">${rptsHtml}</span></div>
       <div class="rpt-card-actions">
         ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editPO(${p.id})">Edit</button>`:''}
         ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delPO(${p.id})">Delete</button>`:''}
@@ -4247,6 +4271,7 @@ function editPO(id){
 function savePO(){
   const id=parseInt(document.getElementById('ePoId').value);
   const p=(DB.pos||[]).find(x=>x.id===id);if(!p)return;
+  const oldPoNo=p.poNo;
   p.poNo=document.getElementById('ePoNum').value.trim();
   p.date=document.getElementById('ePoDate').value;
   p.customer=document.getElementById('ePoCust').value.trim();
@@ -4256,9 +4281,13 @@ function savePO(){
   p.serial=document.getElementById('ePoSer').value.trim();
   p.type=document.getElementById('ePoType').value.trim();
   p.priority=document.getElementById('ePoPri').value.trim();
-  // Also reflect changes in linked job
-  const job=DB.jobs.find(j=>j.id===p.jobId);
-  if(job){job.poNo=p.poNo;job.customer=p.customer;job.title=p.title;job.desc=p.desc;job.model=p.model;job.machine=p.serial;job.type=p.type;job.priority=p.priority;job.date=p.date;}
+  // Cascade PO-No rename to ALL linked jobs + reports so links survive
+  if(oldPoNo&&oldPoNo!==p.poNo){
+    DB.jobs.forEach(j=>{if(j.poNo===oldPoNo)j.poNo=p.poNo;});
+    DB.reports.forEach(r=>{if(r.poNo===oldPoNo)r.poNo=p.poNo;});
+  }
+  // Update customer field on all linked jobs (match new poNo or legacy jobId)
+  DB.jobs.forEach(j=>{if(j.poNo===p.poNo||(p.jobId&&j.id===p.jobId)){j.customer=p.customer;}});
   saveDB();closeModal();renderPOImport();toast('PO updated.','success');
 }
 
