@@ -729,6 +729,43 @@ function saveDB(){
   if(USE_FB&&fbDB)fbDB.ref('octoCRM_v4').set(DB).catch(()=>{});
 }
 
+// ===== MULTI-USER SAFE WRITES =====
+// Atomically claim the next report number via Firebase transaction.
+// Without this, two users on stale local DB.nR both stamp the same SR-NNNNN.
+async function _claimNextReportNum(){
+  if(USE_FB&&fbDB){
+    try{
+      const res=await fbDB.ref('octoCRM_v4/nR').transaction(cur=>(typeof cur==='number'&&cur>0?cur:(DB.nR||1))+1);
+      if(res&&res.committed){const n=res.snapshot.val();DB.nR=n;return n-1;}
+    }catch(e){}
+  }
+  return DB.nR++;
+}
+// Atomically append a new report to the cloud reports array so concurrent
+// saves from different users don't clobber each other (whole-DB set() would).
+async function _appendReportAtomic(rpt){
+  DB.reports.push(rpt);
+  try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+  if(USE_FB&&fbDB){
+    try{
+      await fbDB.ref('octoCRM_v4/reports').transaction(arr=>{
+        if(!Array.isArray(arr))arr=[];
+        if(!arr.some(x=>x&&x.id===rpt.id))arr.push(rpt);
+        return arr;
+      });
+    }catch(e){}
+  }
+}
+// Push side-effect collection changes (custs, parts, jobs) WITHOUT clobbering reports.
+// Uses shallow update() so 'reports' (already appended atomically) is untouched.
+function _saveSideEffects(){
+  try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+  if(USE_FB&&fbDB){
+    const u={custs:DB.custs||[],parts:DB.parts||[],jobs:DB.jobs||[],nC:DB.nC,nP:DB.nP,nJ:DB.nJ};
+    fbDB.ref('octoCRM_v4').update(u).catch(()=>{});
+  }
+}
+
 // ===== AUTH =====
 function doLogin(){
   const u=document.getElementById('loginUser').value.trim().toLowerCase();
@@ -2854,7 +2891,37 @@ function savePartsFromCR(){
   });
 }
 
-function saveCR(){const d=getCRData();if(!d.jobNo){toast('Job No. required.','error');return;}d.id=DB.nR++;d.scannedAt=new Date().toISOString();if(window._linkedJobId)d.jobId=window._linkedJobId;DB.reports.push(d);let c=DB.custs.find(x=>x.name===d.customer);if(!c&&d.customer){const newAddr=document.getElementById('crCuAddr')?.value.trim()||'';const newEmail=document.getElementById('crCuEmailNew')?.value.trim()||'';DB.custs.push({id:DB.nC++,name:d.customer,address:newAddr,contact:d.contact,phone:d.contactNum,email:newEmail,agent:''});}linkReportToJob(d);savePartsFromCR();saveDB();toast('Report saved!','success');window._linkedJobId=null;showPage('reports');}
+async function saveCR(){
+  const d=getCRData();
+  if(!d.jobNo){toast('Job No. required.','error');return;}
+  // 1. Atomically claim a unique report id from cloud (prevents duplicate SR numbers)
+  const claimed=await _claimNextReportNum();
+  // 2. If user kept the auto-prefilled SR-NNNNN format, sync it to the actually-claimed number
+  if(/^SR-\d{5}$/i.test(d.jobNo)){
+    d.jobNo='SR-'+String(claimed).padStart(5,'0');
+  } else if(DB.reports.some(r=>r.jobNo===d.jobNo)){
+    if(!confirm(`Report number "${d.jobNo}" already exists. Save anyway?`))return;
+  }
+  d.id=claimed;
+  d.scannedAt=new Date().toISOString();
+  if(window._linkedJobId)d.jobId=window._linkedJobId;
+  // 3. Atomically append to cloud reports array — concurrent saves both survive
+  await _appendReportAtomic(d);
+  // 4. Side effects (new cust / parts / job link)
+  let c=DB.custs.find(x=>x.name===d.customer);
+  if(!c&&d.customer){
+    const newAddr=document.getElementById('crCuAddr')?.value.trim()||'';
+    const newEmail=document.getElementById('crCuEmailNew')?.value.trim()||'';
+    DB.custs.push({id:DB.nC++,name:d.customer,address:newAddr,contact:d.contact,phone:d.contactNum,email:newEmail,agent:''});
+  }
+  linkReportToJob(d);
+  savePartsFromCR();
+  // 5. Push side effects via shallow update (does NOT clobber 'reports')
+  _saveSideEffects();
+  toast('Report saved!','success');
+  window._linkedJobId=null;
+  showPage('reports');
+}
 
 // Auto-complete linked job when report signed by both
 function linkReportToJob(rpt){
@@ -3695,14 +3762,18 @@ function showScanForm(data){
   }).join('');
 }
 
-function saveScanRpt(){
+async function saveScanRpt(){
   const fs=['company','jobNo','date','customer','contact','contactNum','model','serial','engineer','type','timeStart','timeEnd','remarks','recommendations'];
-  const d={id:DB.nR++,status:'Completed',nextVisit:'',signed:false,photos:[],scannedAt:new Date().toISOString()};
+  const d={status:'Completed',nextVisit:'',signed:false,photos:[],scannedAt:new Date().toISOString()};
   fs.forEach(f=>{const el=document.getElementById('sc_'+f);if(el)d[f]=el.value.trim();});
   if(!d.jobNo){toast('Job No. required.','error');return;}
-  DB.reports.push(d);
+  const claimed=await _claimNextReportNum();
+  if(/^SR-\d{5}$/i.test(d.jobNo))d.jobNo='SR-'+String(claimed).padStart(5,'0');
+  else if(DB.reports.some(r=>r.jobNo===d.jobNo)){if(!confirm(`Report number "${d.jobNo}" already exists. Save anyway?`))return;}
+  d.id=claimed;
+  await _appendReportAtomic(d);
   let c=DB.custs.find(x=>x.name===d.customer);if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:'',agent:''});}
-  saveDB();toast('Saved!','success');showPage('reports');
+  _saveSideEffects();toast('Saved!','success');showPage('reports');
 }
 
 // ===== OUTLOOK / CALENDAR SYNC =====
