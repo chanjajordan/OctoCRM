@@ -88,6 +88,7 @@ a,button,input,select,textarea{touch-action:manipulation}
 .tb{height:auto;min-height:64px;border-bottom:1px solid var(--bdr);display:flex;align-items:center;justify-content:space-between;padding:0 24px;padding-top:env(safe-area-inset-top,0px);background:rgba(255,255,255,.85);backdrop-filter:saturate(180%) blur(14px);-webkit-backdrop-filter:saturate(180%) blur(14px);position:sticky;top:0;z-index:50}
 .tb-t{font-size:var(--fs-xl);font-weight:700;letter-spacing:-.3px}
 .tb-a{display:flex;gap:8px;align-items:center}
+.tb-bi{display:none}.tb-job .tb-bl,.tb-rpt .tb-bl{display:inline}
 .ct{padding:24px}
 
 /* ===== BUTTONS ===== */
@@ -274,7 +275,10 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
   .sb.mopen{transform:translateX(0)}
   .mn{margin-left:0;padding-bottom:80px;overflow-x:hidden;width:100%}
   .tb{min-height:58px;padding:0 16px;padding-top:env(safe-area-inset-top,0px);padding-left:max(16px,env(safe-area-inset-left,16px));padding-right:max(16px,env(safe-area-inset-right,16px))}.tb-t{font-size:var(--fs-lg)}
-  .tb-a{gap:6px}.tb-a .btn{padding:8px 12px;font-size:var(--fs-xs);min-height:38px}
+  .tb-a{gap:6px;flex-shrink:0}.tb-a .btn{padding:8px 12px;font-size:var(--fs-xs);min-height:38px}
+  .tb{gap:8px}.tb>div:first-child{min-width:0;flex:1}.tb-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tb-job .tb-bl,.tb-rpt .tb-bl{display:none}.tb-job .tb-bi,.tb-rpt .tb-bi{display:block;width:19px;height:19px}
+  .tb-job,.tb-rpt{width:42px;height:42px;padding:0!important;display:flex;align-items:center;justify-content:center;min-height:42px}
   .ct{padding:14px 12px;overflow-x:hidden}
   .mob-nav{display:block}
   #menuBtn{display:flex!important}
@@ -377,8 +381,8 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
   <div class="tb-a">
     <button class="btn-i" onclick="openGlobalSearch()" title="Search everything"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg></button>
     <button class="btn-i" id="bellBtn" onclick="toggleNotifPanel()" style="position:relative" title="Notifications"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg><span id="bellBadge" style="position:absolute;top:-2px;right:-2px;background:var(--er);color:#fff;font-size:10px;font-weight:700;min-width:18px;height:18px;border-radius:9px;display:none;align-items:center;justify-content:center;padding:0 4px">0</span></button>
-    <button class="btn btn-s btn-sm" onclick="openNewJobModal()">+ Job</button>
-    <button class="btn btn-p btn-sm" onclick="showPage('create-report')">+ Report</button>
+    <button class="btn btn-s btn-sm tb-job" onclick="openNewJobModal()"><span class="tb-bl">+ Job</span><svg class="tb-bi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button class="btn btn-p btn-sm tb-rpt" onclick="showPage('create-report')"><span class="tb-bl">+ Report</span><svg class="tb-bi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M12 11v6M9 14h6"/></svg></button>
   </div>
 </div>
 
@@ -447,6 +451,7 @@ function initFB(){
           Object.keys(DB.companies).forEach(k=>{if(CO[k])Object.assign(CO[k],DB.companies[k]);});
         }
         try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+        autoBackupSnapshot();
         notifyDiffFromCloud();
         refreshPage();
       }
@@ -725,9 +730,21 @@ function loadDB(){
   saveDB();
 }
 
+// All top-level DB keys EXCEPT 'reports'. saveDB() pushes these via shallow
+// update() so a stale client can never clobber the cloud 'reports' list.
+// 'reports' is written ONLY through the atomic per-ID helpers below.
+const _NON_REPORT_KEYS=['custs','jobs','machines','agents','pos','partsStock','techs','users','companies','deletedMachines','deletedCusts','nC','nJ','nM','nA','nPO','nPS','nT','nU','nP'];
+function _nonReportPayload(){
+  const u={};
+  _NON_REPORT_KEYS.forEach(k=>{if(DB[k]!==undefined)u[k]=DB[k];});
+  return u;
+}
 function saveDB(){
   try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
-  if(USE_FB&&fbDB)fbDB.ref('octoCRM_v4').set(DB).catch(()=>{});
+  if(USE_FB&&fbDB){
+    // update() merges at the top level — leaves octoCRM_v4/reports & /nR untouched.
+    fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
+  }
 }
 
 // ===== MULTI-USER SAFE WRITES =====
@@ -745,25 +762,46 @@ async function _claimNextReportNum(){
 // Atomically append a new report to the cloud reports array so concurrent
 // saves from different users don't clobber each other (whole-DB set() would).
 async function _appendReportAtomic(rpt){
-  DB.reports.push(rpt);
+  return _upsertReportAtomic(rpt);
+}
+// Atomically insert OR update a single report by id in the cloud array.
+// Used for create, edit, and status changes. A stale client only touches
+// this one report — it can never overwrite the whole reports list.
+async function _upsertReportAtomic(rpt){
+  const i=DB.reports.findIndex(x=>x&&x.id===rpt.id);
+  if(i>=0)DB.reports[i]=rpt;else DB.reports.push(rpt);
   try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
   if(USE_FB&&fbDB){
     try{
       await fbDB.ref('octoCRM_v4/reports').transaction(arr=>{
         if(!Array.isArray(arr))arr=[];
-        if(!arr.some(x=>x&&x.id===rpt.id))arr.push(rpt);
+        const k=arr.findIndex(x=>x&&x.id===rpt.id);
+        if(k>=0)arr[k]=rpt;else arr.push(rpt);
         return arr;
       });
     }catch(e){}
   }
 }
-// Push side-effect collection changes (custs, parts, jobs) WITHOUT clobbering reports.
-// Uses shallow update() so 'reports' (already appended atomically) is untouched.
+// Atomically remove a single report by id from the cloud array, so a delete
+// from a stale client removes only that report, not everyone else's additions.
+async function _deleteReportAtomic(id){
+  DB.reports=DB.reports.filter(r=>r&&r.id!==id);
+  try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+  if(USE_FB&&fbDB){
+    try{
+      await fbDB.ref('octoCRM_v4/reports').transaction(arr=>{
+        if(!Array.isArray(arr))return arr;
+        return arr.filter(x=>x&&x.id!==id);
+      });
+    }catch(e){}
+  }
+}
+// Push side-effect collection changes (everything EXCEPT reports) WITHOUT
+// clobbering the cloud reports list. Uses shallow update().
 function _saveSideEffects(){
   try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
   if(USE_FB&&fbDB){
-    const u={custs:DB.custs||[],parts:DB.parts||[],jobs:DB.jobs||[],nC:DB.nC,nP:DB.nP,nJ:DB.nJ};
-    fbDB.ref('octoCRM_v4').update(u).catch(()=>{});
+    fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
   }
 }
 
@@ -1224,7 +1262,7 @@ function applyJobPrefill(j){
 }
 
 function updateJobSt(id,st){const j=DB.jobs.find(x=>x.id===id);if(j){j.status=st;saveDB();toast(`Job → ${st}`,'success');}}
-function updateRptSt(id,st){const r=DB.reports.find(x=>x.id===id);if(r){r.status=st;saveDB();toast(`${r.jobNo} → ${st}`,'success');}}
+function updateRptSt(id,st){const r=DB.reports.find(x=>x.id===id);if(r){r.status=st;_upsertReportAtomic(r);toast(`${r.jobNo} → ${st}`,'success');}}
 
 function openNewJobModal(){
   const cs=getAllCusts();
@@ -1564,7 +1602,7 @@ function renderRptCards(reps){
   }).join('');
 }
 
-function delRpt(id){if(!confirm('Delete?'))return;DB.reports=DB.reports.filter(r=>r.id!==id);saveDB();renderReports();toast('Deleted.','info');}
+function delRpt(id){if(!confirm('Delete?'))return;_deleteReportAtomic(id);renderReports();toast('Deleted.','info');}
 function viewRptPhotos(id){const r=DB.reports.find(x=>x.id===id);if(!r?.photos?.length){toast('No photos.','info');return;}openLBx(r.photos,0);}
 
 function editReport(id){
@@ -1788,7 +1826,7 @@ function saveEditReport(){
     checklist:cls.length?JSON.parse(JSON.stringify(cls[0])):null,
     checklists:cls.length?JSON.parse(JSON.stringify(cls)):[]
   };
-  saveDB();closeModal();renderReports();renderDash();toast('Report updated.','success');
+  _upsertReportAtomic(DB.reports[i]);closeModal();renderReports();renderDash();toast('Report updated.','success');
 }
 
 function viewRptPreview(id){
@@ -2978,15 +3016,18 @@ async function saveAndEmailCR(){
   if(!d.jobNo){toast('Job No. required.','error');return;}
   const em=document.getElementById('crEml')?.value;
   if(!em){toast('Enter customer email.','error');return;}
-  // Save report
-  d.id=DB.nR++;d.scannedAt=new Date().toISOString();
+  // Save report — atomic claim + atomic upsert (multi-user safe, no clobber).
+  const _claimed=await _claimNextReportNum();
+  if(/^SR-\d{5}$/i.test(d.jobNo)){d.jobNo='SR-'+String(_claimed).padStart(5,'0');}
+  else if(DB.reports.some(r=>r.jobNo===d.jobNo)){if(!confirm(`Report number "${d.jobNo}" already exists. Save anyway?`)){DB.nR=Math.max(DB.nR,_claimed);return;}}
+  d.id=_claimed;d.scannedAt=new Date().toISOString();
   if(window._linkedJobId)d.jobId=window._linkedJobId;
-  DB.reports.push(d);
   let c=DB.custs.find(x=>x.name===d.customer);
   if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:em,agent:''});}
   else if(c&&em){c.email=em;}
   linkReportToJob(d);savePartsFromCR();
-  saveDB();toast('Report saved!','success');window._linkedJobId=null;
+  await _upsertReportAtomic(d);
+  _saveSideEffects();toast('Report saved!','success');window._linkedJobId=null;
   // Generate PDF and email
   const result=await generateReportPDF(d,false);
   const co=CO[d.company]||CO.octopack;
@@ -4925,10 +4966,14 @@ function renderDataMgmt(){
         <button class="btn btn-p btn-sm" onclick="if(confirm('Import 42 customers + 132 machines + 10 agents from XLSX? Duplicates will be skipped.'))loadXLSXSeed()">📥 Load XLSX Machine Records</button>
       </div>
     </div>
+    <div class="oc" style="border-left:4px solid var(--ok)"><h3>🛟 Auto-Backups (safety net)</h3>
+      <p>The app keeps the last 10 cloud snapshots locally on this device. If reports ever go missing, restore a snapshot from before the loss.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
+        <button class="btn btn-s btn-sm" onclick="openAutoBackups()">🛟 View / Restore Backups</button>
+      </div>
+    </div>
   </div>`;
 }
-
-// CSV helpers
 function escCSV(v){
   if(v===null||v===undefined)return'';
   const s=String(v);
@@ -5138,6 +5183,11 @@ function importCSV(){
       });
       
       saveDB();
+      // If reports were imported, push each to cloud atomically so the shallow
+      // saveDB() (which intentionally skips 'reports') doesn't drop them.
+      if(table==='reports'&&(added||updated)){
+        (DB.reports||[]).slice().forEach(r=>{if(r&&r.id!=null)_upsertReportAtomic(r);});
+      }
       toast(`Import done: ${added} added, ${updated} updated.`,'success');
       renderDataMgmt();
     }catch(err){
@@ -5474,6 +5524,71 @@ function _idbOpen(){
 function _idbPut(key,val){return _idbOpen().then(db=>new Promise((res,rej)=>{const tx=db.transaction(_IDB_STORE,'readwrite');tx.objectStore(_IDB_STORE).put(val,key);tx.oncomplete=()=>{db.close();res(true);};tx.onerror=()=>{db.close();rej(tx.error);};tx.onabort=()=>{db.close();rej(tx.error||new Error('IDB write aborted (quota?)'));};}));}
 function _idbGet(key){return _idbOpen().then(db=>new Promise((res,rej)=>{const tx=db.transaction(_IDB_STORE,'readonly');const r=tx.objectStore(_IDB_STORE).get(key);r.onsuccess=()=>{db.close();res(r.result);};r.onerror=()=>{db.close();rej(r.error);};}));}
 function _idbDel(key){return _idbOpen().then(db=>new Promise((res)=>{const tx=db.transaction(_IDB_STORE,'readwrite');tx.objectStore(_IDB_STORE).delete(key);tx.oncomplete=()=>{db.close();res(true);};tx.onerror=()=>{db.close();res(false);};}));}
+
+// ===== AUTO-BACKUP (safety net) =====
+// On every cloud sync we snapshot the DB to IndexedDB, keeping a rolling set of
+// the last 10. If a clobber ever drops reports again, the previous snapshot here
+// still holds them — recoverable via restoreAutoBackup(). Throttled to 1/2min.
+const _BK_PREFIX='ocrm_autobak_',_BK_MAX=10;let _lastBkTs=0;
+function autoBackupSnapshot(){
+  try{
+    const now=Date.now();
+    if(now-_lastBkTs<120000)return; // throttle: at most every 2 min
+    _lastBkTs=now;
+    if(!DB||!Array.isArray(DB.reports))return;
+    const snap={ts:now,reportCount:DB.reports.length,jobCount:(DB.jobs||[]).length,nR:DB.nR,data:JSON.parse(JSON.stringify(DB))};
+    _idbPut(_BK_PREFIX+now,snap).then(()=>_pruneAutoBackups()).catch(()=>{});
+  }catch(e){}
+}
+function _bkKeys(){return _idbOpen().then(db=>new Promise(res=>{
+  const tx=db.transaction(_IDB_STORE,'readonly');const st=tx.objectStore(_IDB_STORE);
+  const keys=[];const rq=st.openKeyCursor?st.openKeyCursor():st.getAllKeys();
+  if(st.openKeyCursor){rq.onsuccess=()=>{const c=rq.result;if(c){if(String(c.key).indexOf(_BK_PREFIX)===0)keys.push(c.key);c.continue();}else{db.close();res(keys.sort());}};rq.onerror=()=>{db.close();res(keys);};}
+  else{rq.onsuccess=()=>{db.close();res((rq.result||[]).filter(k=>String(k).indexOf(_BK_PREFIX)===0).sort());};rq.onerror=()=>{db.close();res([]);};}
+}));}
+function _pruneAutoBackups(){return _bkKeys().then(keys=>{const extra=keys.length-_BK_MAX;for(let i=0;i<extra;i++)_idbDel(keys[i]);});}
+async function listAutoBackups(){
+  const keys=await _bkKeys();const out=[];
+  for(const k of keys){try{const v=await _idbGet(k);if(v)out.push({key:k,ts:v.ts,reportCount:v.reportCount,jobCount:v.jobCount,nR:v.nR});}catch(e){}}
+  return out.sort((a,b)=>b.ts-a.ts);
+}
+async function restoreAutoBackup(key){
+  const v=await _idbGet(key);if(!v||!v.data)throw new Error('backup not found');
+  return v.data; // caller decides how to merge/restore
+}
+async function openAutoBackups(){
+  openModal('🛟 Auto-Backups','<div class="es" style="padding:16px"><p>Loading backups…</p></div>','');
+  let list=[];try{list=await listAutoBackups();}catch(e){}
+  const body=document.getElementById('globalModalContent').querySelector('.mb');
+  if(!list.length){body.innerHTML='<div class="es" style="padding:16px"><p>No auto-backups yet. They are created automatically when the app syncs with the cloud.</p></div>';return;}
+  const curR=(DB.reports||[]).length;
+  body.innerHTML=`<p style="color:var(--t2);margin-bottom:12px">Current device has <strong>${curR}</strong> report(s). Pick a snapshot to compare/restore. Restore only <strong>adds back missing reports by ID</strong> — it never deletes or overwrites what you have now.</p>`+
+    list.map(b=>{
+      let when='';try{when=new Date(b.ts).toLocaleString('en-SG');}catch(e){when=String(b.ts);}
+      const more=b.reportCount>curR?`<span class="bd bd-ok">+${b.reportCount-curR} more reports</span>`:`<span class="bd">${b.reportCount} reports</span>`;
+      return `<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${when}</span>${more}</div>
+        <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val">${b.reportCount}</span></div>
+        <div class="rpt-card-row"><span class="rc-label">Jobs</span><span class="rc-val">${b.jobCount}</span></div>
+        <div class="rpt-card-actions"><button class="btn btn-sm btn-p" onclick="doRestoreAutoBackup('${b.key}')">Restore missing reports</button></div></div>`;
+    }).join('');
+}
+async function doRestoreAutoBackup(key){
+  try{
+    const data=await restoreAutoBackup(key);
+    const bakReports=Array.isArray(data.reports)?data.reports:[];
+    const haveIds=new Set((DB.reports||[]).map(r=>r&&r.id));
+    const missing=bakReports.filter(r=>r&&!haveIds.has(r.id));
+    if(!missing.length){toast('Nothing to restore — this snapshot has no reports you are missing.','info');return;}
+    if(!confirm(`Restore ${missing.length} missing report(s) from this backup? They will be added back (nothing deleted).`))return;
+    // Bump nR so future numbers don't collide
+    const maxId=Math.max(DB.nR||1,...bakReports.map(r=>(r&&typeof r.id==='number')?r.id+1:1));
+    DB.nR=maxId;
+    for(const r of missing){await _upsertReportAtomic(r);}
+    _saveSideEffects();
+    closeModal();renderReports();renderDash();
+    toast(`Restored ${missing.length} report(s).`,'success');
+  }catch(e){toast('Restore failed: '+e.message,'error');}
+}
 // Tiny sync marker in localStorage so UI/reset can detect seed without async. {savedAt,slim,store,images}
 function _seedMeta(){
   try{const m=localStorage.getItem('ocrm4_seed_meta');if(m)return JSON.parse(m);}catch(e){}
