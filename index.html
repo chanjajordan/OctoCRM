@@ -1516,6 +1516,44 @@ function syncJobMachineToRegistry(d){
   toast(`New machine "${serial}" added to registry.`,'info');
 }
 
+// Register every machine on a report (primary + extras) into DB.machines.
+// Mirrors syncJobMachineToRegistry but handles the report machines[] array,
+// so machines entered during report creation show up in the Machine list.
+function syncReportMachinesToRegistry(d){
+  if(!Array.isArray(DB.machines))DB.machines=[];
+  const cust=(d.customer||'').trim();
+  // Collect every (serial,model) pair on the report: primary + extras + machines[]
+  const list=[];
+  if(d.serial||d.model)list.push({serial:(d.serial||'').trim(),model:(d.model||'').trim()});
+  (d.machines||[]).forEach(m=>{const s=(m.serial||'').trim(),mo=(m.model||'').trim();if(s||mo)list.push({serial:s,model:mo});});
+  let addedAny=false;
+  const addedNames=[];
+  const seen=new Set();
+  list.forEach(item=>{
+    const serial=item.serial;
+    if(!serial)return; // need a serial to register
+    if(seen.has(serial))return;seen.add(serial);
+    const existing=DB.machines.find(m=>m.serial===serial);
+    if(existing){
+      // Backfill any missing identifying fields so the machine shows up correctly
+      let ch=false;
+      if((!existing.customer||!existing.customer.trim())&&cust){existing.customer=cust;ch=true;}
+      if((!existing.model||!existing.model.trim())&&item.model){existing.model=item.model;ch=true;}
+      if(ch)addedAny=true;
+      return;
+    }
+    if(!DB.nM)DB.nM=200;
+    DB.machines.push({
+      id:DB.nM++,serial:serial,model:item.model||'',category:'',
+      customer:cust,location:'',installDate:'',
+      warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''
+    });
+    addedAny=true;addedNames.push(serial);
+  });
+  if(addedNames.length)toast('Registered to machine list: '+addedNames.join(', '),'success');
+  return addedNames.length>0;
+}
+
 // Sync contact person + phone from job form into the linked customer record
 function syncJobContactToCustomer(d){
   if(!d.customer)return;
@@ -1793,6 +1831,7 @@ function saveEditReport(){
   const newCustSig=sc&&sc._drawn?sc.toDataURL():(window._erCustSig||'');
   const newEngSig=se&&se._drawn?se.toDataURL():(window._erEngSig||'');
   const cls=Array.isArray(window._erChecklists)?window._erChecklists:[];
+  syncExtraMachinesFromDOM('er');
   const erPrimaryModel=document.getElementById('erMd').value.trim();
   const erPrimarySerial=document.getElementById('erSr').value.trim();
   const erMachines=[];
@@ -1826,7 +1865,10 @@ function saveEditReport(){
     checklist:cls.length?JSON.parse(JSON.stringify(cls[0])):null,
     checklists:cls.length?JSON.parse(JSON.stringify(cls)):[]
   };
-  _upsertReportAtomic(DB.reports[i]);closeModal();renderReports();renderDash();toast('Report updated.','success');
+  syncReportMachinesToRegistry(DB.reports[i]);
+  _upsertReportAtomic(DB.reports[i]);closeModal();renderReports();renderDash();
+  if(document.getElementById('machinesContent'))renderMachines();
+  toast('Report updated.','success');
 }
 
 function viewRptPreview(id){
@@ -2661,7 +2703,7 @@ function onCustChange(){
   }else{
     mdSel.innerHTML='<option value="">No machines found</option><option value="__custom__">✏ Type custom model...</option>';
   }
-  mdSel.style.display='';document.getElementById('crMdCustom').style.display='none';
+  mdSel.style.display='';document.getElementById('crMdCustom').style.display='none';document.getElementById('crMdCustom').value='';
   
   mdSel.onchange=function(){
     if(this.value==='__custom__'){this.style.display='none';document.getElementById('crMdCustom').style.display='';document.getElementById('crMdCustom').focus();
@@ -2672,7 +2714,7 @@ function onCustChange(){
   
   // Reset serial
   document.getElementById('crSr').innerHTML='<option value="">— Select model first —</option>';
-  document.getElementById('crSrCustom').style.display='none';
+  document.getElementById('crSrCustom').style.display='none';document.getElementById('crSrCustom').value='';
   document.getElementById('crSr').style.display='';
 
   // Refresh additional machines list so dropdown options reflect new customer
@@ -2685,6 +2727,24 @@ let crExtraMachines=[]; // [{model, serial}, ...]
 function addExtraMachine(model,serial){
   crExtraMachines.push({model:model||'',serial:serial||''});
   renderExtraMachList('cr');
+}
+
+// Read extra-machine fields LIVE from the DOM into the state array right before
+// save. Guards against any state-desync (custom serial typed but oninput state
+// not captured), so a freshly-typed custom serial is never dropped on save.
+function syncExtraMachinesFromDOM(scope){
+  const wrapId=scope==='cr'?'crExtraMachList':'erExtraMachList';
+  const wrap=document.getElementById(wrapId);
+  if(!wrap)return;
+  const list=scope==='cr'?crExtraMachines:(window._erExtraMachines||[]);
+  wrap.querySelectorAll('[data-emidx]').forEach(el=>{
+    const idx=parseInt(el.getAttribute('data-emidx'));
+    const key=el.getAttribute('data-emkey');
+    if(isNaN(idx)||!list[idx])return;
+    let v=(el.value||'').trim();
+    if(v==='__custom__'||v==='')return; // ignore placeholder/empty selects
+    list[idx][key]=v;
+  });
 }
 
 function rmExtraMachine(idx,scope){
@@ -2726,14 +2786,14 @@ function renderExtraMachList(scope){
         <div>
           <label style="display:block;font-size:11px;color:var(--t3);margin-bottom:3px">Machine ${i+2} — Model${showModelInput?' <button type="button" onclick="exitCustomExtra('+i+',\'model\',\''+scope+'\')" style="background:none;border:none;color:var(--ac);cursor:pointer;font-size:10px;padding:0;margin-left:6px">← back to list</button>':''}</label>
           ${showModelInput?
-            `<input class="fc" placeholder="Type model" value="${E(m.model||'')}" oninput="updExtraMach(${i},'model',this.value,'${scope}')" autocomplete="off">`:
-            `<select class="fc" onchange="onExtraModelChange(${i},this.value,'${scope}')">${modelOpts}</select>`}
+            `<input class="fc" data-emidx="${i}" data-emkey="model" placeholder="Type model" value="${E(m.model||'')}" oninput="updExtraMach(${i},'model',this.value,'${scope}')" autocomplete="off">`:
+            `<select class="fc" data-emidx="${i}" data-emkey="model" onchange="onExtraModelChange(${i},this.value,'${scope}')">${modelOpts}</select>`}
         </div>
         <div>
           <label style="display:block;font-size:11px;color:var(--t3);margin-bottom:3px">Serial${showSerialInput&&!showModelInput?' <button type="button" onclick="exitCustomExtra('+i+',\'serial\',\''+scope+'\')" style="background:none;border:none;color:var(--ac);cursor:pointer;font-size:10px;padding:0;margin-left:6px">← back to list</button>':''}</label>
           ${showSerialInput?
-            `<input class="fc" placeholder="Type serial" value="${E(m.serial||'')}" oninput="updExtraMach(${i},'serial',this.value,'${scope}')" autocomplete="off">`:
-            `<select class="fc" onchange="onExtraSerialChange(${i},this.value,'${scope}')">${serialOpts}</select>`}
+            `<input class="fc" data-emidx="${i}" data-emkey="serial" placeholder="Type serial" value="${E(m.serial||'')}" oninput="updExtraMach(${i},'serial',this.value,'${scope}')" autocomplete="off">`:
+            `<select class="fc" data-emidx="${i}" data-emkey="serial" onchange="onExtraSerialChange(${i},this.value,'${scope}')">${serialOpts}</select>`}
         </div>
       </div>
       <button type="button" class="btn btn-sm btn-d" onclick="rmExtraMachine(${i},'${scope}')" style="flex-shrink:0;padding:6px 10px" title="Remove">✕</button>
@@ -2803,7 +2863,7 @@ function onModelChange(){
   }else{
     srSel.innerHTML='<option value="">No serials found</option><option value="__custom__">✏ Type serial...</option>';
   }
-  srSel.style.display='';document.getElementById('crSrCustom').style.display='none';
+  srSel.style.display='';document.getElementById('crSrCustom').style.display='none';document.getElementById('crSrCustom').value='';
   srSel.onchange=function(){if(this.value==='__custom__'){this.style.display='none';document.getElementById('crSrCustom').style.display='';document.getElementById('crSrCustom').focus();}};
 }
 
@@ -2900,7 +2960,11 @@ function clrSig(cid){const c=document.getElementById(cid);if(!c)return;const ctx
 function getFieldVal(selId,customId){
   const sel=document.getElementById(selId);
   const custom=document.getElementById(customId);
-  if(custom&&custom.style.display!=='none'&&custom.value.trim())return custom.value.trim();
+  // A typed custom value always wins — even if the input is visually hidden
+  // (e.g. model auto-selected the only existing serial, but the user typed a
+  // NEW serial in the custom box without re-picking "Type custom"). Previously
+  // a hidden box was ignored, so the new serial/model was silently dropped.
+  if(custom&&custom.value&&custom.value.trim())return custom.value.trim();
   if(sel&&sel.value&&sel.value!=='__custom__'&&sel.value!=='')return sel.value.trim();
   return'';
 }
@@ -2915,10 +2979,13 @@ function getCRData(){
   const engineers=getSelectedEngineers();
   const primaryModel=getFieldVal('crMd','crMdCustom');
   const primarySerial=getFieldVal('crSr','crSrCustom');
-  // Build machines[] array: primary + extras (skip empties)
+  // Build machines[] array: primary + extras. Skip rows with no serial — a
+  // machine row with a model but blank serial can't be registered and would
+  // otherwise create a phantom empty-serial entry.
+  syncExtraMachinesFromDOM('cr');
   const machines=[];
-  if(primaryModel||primarySerial)machines.push({model:primaryModel,serial:primarySerial});
-  (crExtraMachines||[]).forEach(m=>{if(m.model||m.serial)machines.push({model:m.model||'',serial:m.serial||''});});
+  if(primarySerial)machines.push({model:primaryModel,serial:primarySerial});
+  (crExtraMachines||[]).forEach(m=>{const s=(m.serial||'').trim();if(s)machines.push({model:m.model||'',serial:s});});
   return{
     company:document.getElementById('crCo').value,
     jobNo:document.getElementById('crJN').value.trim(),
@@ -2966,6 +3033,10 @@ function savePartsFromCR(){
 async function saveCR(){
   const d=getCRData();
   if(!d.jobNo){toast('Job No. required.','error');return;}
+  // Guard: model picked but no serial → machine can't be registered, warn user
+  if(d.model&&!d.serial){
+    if(!confirm('You selected a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
+  }
   // 1. Atomically claim a unique report id from cloud (prevents duplicate SR numbers)
   const claimed=await _claimNextReportNum();
   // 2. If user kept the auto-prefilled SR-NNNNN format, sync it to the actually-claimed number
@@ -2988,6 +3059,7 @@ async function saveCR(){
   }
   linkReportToJob(d);
   savePartsFromCR();
+  syncReportMachinesToRegistry(d);
   // 5. Push side effects via shallow update (does NOT clobber 'reports')
   _saveSideEffects();
   toast('Report saved!','success');
@@ -3026,6 +3098,7 @@ async function saveAndEmailCR(){
   if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:em,agent:''});}
   else if(c&&em){c.email=em;}
   linkReportToJob(d);savePartsFromCR();
+  syncReportMachinesToRegistry(d);
   await _upsertReportAtomic(d);
   _saveSideEffects();toast('Report saved!','success');window._linkedJobId=null;
   // Generate PDF and email
@@ -3054,7 +3127,23 @@ function getAllMachinesDB(){
   const blocked=new Set(DB.deletedMachines||[]);
   const m={};
   (DB.machines||[]).forEach(mc=>{if(!blocked.has(mc.serial))m[mc.serial]={...mc,reports:[],lastService:'',issues:[]};});
-  DB.reports.forEach(r=>{if(!r.serial||blocked.has(r.serial))return;if(!m[r.serial])m[r.serial]={serial:r.serial,model:r.model,customer:r.customer,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:'',maintFrequency:'',category:'',reports:[],lastService:'',issues:[]};m[r.serial].reports.push(r);if(!m[r.serial].lastService||r.date>m[r.serial].lastService)m[r.serial].lastService=r.date;if(r.status!=='Completed')m[r.serial].issues.push(r);});
+  DB.reports.forEach(r=>{
+    // Link the report to EVERY serial it references: primary r.serial + all r.machines[]
+    const serials=[];
+    if(r.serial)serials.push(r.serial);
+    if(Array.isArray(r.machines))r.machines.forEach(mm=>{if(mm&&mm.serial)serials.push(mm.serial);});
+    const uniq=[...new Set(serials)];
+    uniq.forEach(s=>{
+      if(!s||blocked.has(s))return;
+      if(!m[s]){
+        const mm=Array.isArray(r.machines)?r.machines.find(x=>x&&x.serial===s):null;
+        m[s]={serial:s,model:(mm&&mm.model)||(s===r.serial?r.model:'')||'',customer:r.customer,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:'',maintFrequency:'',category:'',reports:[],lastService:'',issues:[]};
+      }
+      m[s].reports.push(r);
+      if(!m[s].lastService||r.date>m[s].lastService)m[s].lastService=r.date;
+      if(r.status!=='Completed')m[s].issues.push(r);
+    });
+  });
   return Object.values(m);
 }
 let curMachCat='all';
@@ -3092,6 +3181,7 @@ function mCards(ms){
     <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val" style="text-align:right">${(m.reports||[]).length?`<button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="openMachineReports('${E(m.serial).replace(/'/g,'&#39;')}')">📋 ${(m.reports||[]).length} report${m.reports.length>1?'s':''} →</button>`:'<em style="color:var(--t3)">0</em>'}</span></div>
     <div class="rpt-card-actions">
       ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editMachine('${E(m.serial)}')">Edit</button>`:''}
+      ${canEdit()?`<button class="btn btn-sm btn-s" onclick="copyMachine('${E(m.serial)}')">📑 Copy</button>`:''}
       ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delMachine('${E(m.serial)}')">Delete</button>`:''}
     </div>
   </div>`;}).join('');
@@ -3164,6 +3254,20 @@ function editMachine(serial){
   const m=(DB.machines||[]).find(x=>x.serial===serial);
   if(m)openMachineModal(m);
   else openMachineModal({serial});
+}
+
+// Copy a machine: opens Add Machine pre-filled with the same customer/model/
+// category/warranty/etc., but with a BLANK editable serial. User just types
+// the new serial — fast way to register multiple identical units.
+function copyMachine(serial){
+  const m=(DB.machines||[]).find(x=>x.serial===serial);
+  if(!m){toast('Machine not found.','error');return;}
+  const copy={...m};
+  delete copy.serial;   // blank serial → modal treats it as a NEW machine (editable serial, required)
+  delete copy.id;
+  delete copy.reports;  // don't carry over derived report links
+  openMachineModal(copy);
+  setTimeout(()=>{const s=document.getElementById('mSr');if(s){s.value='';s.focus();}toast('Copy of machine — enter the new serial number.','info');},80);
 }
 
 // Cascade-update all references to a serial number across the database.
