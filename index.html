@@ -453,7 +453,11 @@ function initFB(){
         try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
         autoBackupSnapshot();
         notifyDiffFromCloud();
-        refreshPage();
+        // Don't blow away an in-progress create/edit form when another user's
+        // change arrives. DB is already updated above; defer the visual
+        // re-render until the user leaves the form (see _isUserBusyEditing).
+        if(_isUserBusyEditing())_pendingRefresh=true;
+        else refreshPage();
       }
     });
   }catch(e){console.warn('FB err:',e)}
@@ -867,6 +871,7 @@ function canManageUsers(){return CUR_USER&&CUR_USER.role==='admin';}
 // ===== NAV =====
 let curJF='all';
 function showPage(p){
+  _pendingRefresh=false; // any navigation renders fresh from current DB
   document.querySelectorAll('.pg').forEach(e=>e.classList.remove('active'));
   document.querySelectorAll('.ni').forEach(e=>e.classList.remove('active'));
   const pg=document.getElementById('page-'+p);if(pg)pg.classList.add('active');
@@ -894,6 +899,16 @@ function showPage(p){
   else if(p==='pm-schedule')renderPMSchedule();
 }
 
+let _pendingRefresh=false;
+// True while the user is actively filling a form that a live re-render would wipe:
+// the Create Report page, or any open modal (Edit Report, etc.).
+function _isUserBusyEditing(){
+  const cr=document.getElementById('page-create-report');
+  if(cr&&cr.classList.contains('active'))return true;
+  const gm=document.getElementById('globalModal');
+  if(gm&&gm.classList.contains('open'))return true;
+  return false;
+}
 function refreshPage(){
   const a=document.querySelector('.pg.active');
   if(!a)return;
@@ -929,7 +944,7 @@ function prBd(p){const m={'Low':'bd-tl','Medium':'bd-ac','High':'bd-wn','Urgent'
 function tyBd(t){const m={'Preventive Maintenance':'bd-ok','Corrective Maintenance':'bd-wn','Breakdown Call':'bd-er','Follow-Up Call':'bd-tl','Installation':'bd-ac','Inspection':'bd-pu','Emergency':'bd-er'};return`<span class="bd ${m[t]||'bd-ac'}">${E(t)}</span>`}
 function toast(msg,type='info'){const c=document.getElementById('toastC'),t=document.createElement('div');t.className=`ts ${type}`;const i={success:'✓',error:'✕',info:'ℹ'};t.innerHTML=`<span style="font-weight:700;font-size:18px">${i[type]||'ℹ'}</span><span>${msg}</span>`;c.appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.3s';setTimeout(()=>t.remove(),300)},3e3)}
 function openModal(title,bodyHTML,footerHTML){const mc=document.getElementById('globalModalContent');mc.innerHTML=`<div class="mh"><h2>${title}</h2><button class="btn-i" onclick="closeModal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div><div class="mb">${bodyHTML}</div>${footerHTML?`<div class="mf">${footerHTML}</div>`:''}`;document.getElementById('globalModal').classList.add('open')}
-function closeModal(){document.getElementById('globalModal').classList.remove('open')}
+function closeModal(){document.getElementById('globalModal').classList.remove('open');if(_pendingRefresh&&!_isUserBusyEditing())refreshPage();}
 function closePnl(){document.getElementById('detPnl').classList.remove('open')}
 document.getElementById('globalModal').addEventListener('mousedown',e=>{window._modalMouseDownTarget=e.target;});
 document.getElementById('globalModal').addEventListener('click',e=>{if(e.target.id==='globalModal'&&window._modalMouseDownTarget&&window._modalMouseDownTarget.id==='globalModal')closeModal();});
@@ -1866,7 +1881,13 @@ function saveEditReport(){
     checklists:cls.length?JSON.parse(JSON.stringify(cls)):[]
   };
   syncReportMachinesToRegistry(DB.reports[i]);
-  _upsertReportAtomic(DB.reports[i]);closeModal();renderReports();renderDash();
+  _upsertReportAtomic(DB.reports[i]);
+  // Persist side-effects (new machines, bumped nM, customer backfills) to the
+  // cloud. Without this, machines registered during an edit live only in memory
+  // and vanish the next time a Firebase 'value' event overwrites DB.machines.
+  // (saveCR / saveAndEmailCR already do this; edit must too.)
+  _saveSideEffects();
+  closeModal();renderReports();renderDash();
   if(document.getElementById('machinesContent'))renderMachines();
   toast('Report updated.','success');
 }
