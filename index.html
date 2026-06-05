@@ -3294,17 +3294,23 @@ function copyMachine(serial){
 // Cascade-update all references to a serial number across the database.
 // Used when a user renames a machine's serial number to keep linked
 // reports/jobs/parts/POs/checklists in sync.
+// Returns the list of reports whose serial fields were changed, so the caller
+// can persist them via _upsertReportAtomic (saveDB() never writes reports).
 function cascadeSerialChange(oldSerial,newSerial){
-  if(!oldSerial||!newSerial||oldSerial===newSerial)return;
+  if(!oldSerial||!newSerial||oldSerial===newSerial)return [];
+  const changed=[];
   DB.reports.forEach(r=>{
-    if(r.serial===oldSerial)r.serial=newSerial;
-    if(Array.isArray(r.machines)){r.machines.forEach(mm=>{if(mm.serial===oldSerial)mm.serial=newSerial;});}
-    if(Array.isArray(r.checklists)){r.checklists.forEach(cl=>{if(cl.serial===oldSerial)cl.serial=newSerial;});}
-    if(r.checklist&&r.checklist.serial===oldSerial)r.checklist.serial=newSerial;
+    let ch=false;
+    if(r.serial===oldSerial){r.serial=newSerial;ch=true;}
+    if(Array.isArray(r.machines)){r.machines.forEach(mm=>{if(mm.serial===oldSerial){mm.serial=newSerial;ch=true;}});}
+    if(Array.isArray(r.checklists)){r.checklists.forEach(cl=>{if(cl.serial===oldSerial){cl.serial=newSerial;ch=true;}});}
+    if(r.checklist&&r.checklist.serial===oldSerial){r.checklist.serial=newSerial;ch=true;}
+    if(ch)changed.push(r);
   });
   DB.jobs.forEach(j=>{if(j.machine===oldSerial)j.machine=newSerial;});
   (DB.parts||[]).forEach(p=>{if(p.serial===oldSerial)p.serial=newSerial;});
   (DB.pos||[]).forEach(p=>{if(p.serial===oldSerial)p.serial=newSerial;});
+  return changed;
 }
 
 function saveMachine(){
@@ -3333,18 +3339,22 @@ function saveMachine(){
     // Editing existing
     const i=DB.machines.findIndex(m=>m.serial===origSerial);
     if(i>=0){
+      const changedReports=new Map(); // id -> report (dedupe)
       // If serial changed, check duplicate + cascade ALL references
       if(origSerial!==d.serial){
         if(DB.machines.find(m=>m.serial===d.serial)){toast('That serial already exists on another machine.','error');return;}
-        cascadeSerialChange(origSerial,d.serial);
+        cascadeSerialChange(origSerial,d.serial).forEach(r=>changedReports.set(r.id,r));
       }
       // If customer changed, update the link to all linked reports too
       const oldCust=DB.machines[i].customer;
       if(oldCust!==d.customer){
-        DB.reports.forEach(r=>{if(r.serial===d.serial&&r.customer===oldCust)r.customer=d.customer;});
+        DB.reports.forEach(r=>{if(r.serial===d.serial&&r.customer===oldCust){r.customer=d.customer;changedReports.set(r.id,r);}});
         DB.jobs.forEach(j=>{if(j.machine===d.serial&&j.customer===oldCust)j.customer=d.customer;});
       }
       DB.machines[i]={...DB.machines[i],...d};
+      // Persist any reports whose serial/customer we just rewrote — saveDB()
+      // below only writes non-report keys, so report edits would be lost on sync.
+      changedReports.forEach(r=>_upsertReportAtomic(r));
     }else{
       d.id=DB.nM++;DB.machines.push(d);
     }
@@ -3524,11 +3534,18 @@ function saveCust(){
       const oldName=DB.custs[i].name;
       DB.custs[i]={...DB.custs[i],...d};
       // If name changed, update linked machines and reports
+      const changedReports=[];
       if(oldName!==d.name){
         (DB.machines||[]).forEach(m=>{if(m.customer===oldName)m.customer=d.name;});
-        DB.reports.forEach(r=>{if(r.customer===oldName)r.customer=d.name;});
+        DB.reports.forEach(r=>{if(r.customer===oldName){r.customer=d.name;changedReports.push(r);}});
         DB.jobs.forEach(j=>{if(j.customer===oldName)j.customer=d.name;});
       }
+      saveDB();
+      // Persist renamed reports atomically — saveDB() doesn't write reports, so
+      // without this the old customer name survives in the cloud and getAllCusts
+      // resurrects it as a ghost duplicate after the next sync.
+      changedReports.forEach(r=>_upsertReportAtomic(r));
+      closeModal();renderCusts();toast('Saved.','success');return;
     }else{d.id=DB.nC++;DB.custs.push(d);}
   }
   else{d.id=DB.nC++;DB.custs.push(d);}
