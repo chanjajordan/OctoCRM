@@ -450,9 +450,6 @@ function initFB(){
         if(DB.companies&&typeof DB.companies==='object'){
           Object.keys(DB.companies).forEach(k=>{if(CO[k])Object.assign(CO[k],DB.companies[k]);});
         }
-        // Baseline for diff-based side-effect writes: remember the cloud state we
-        // just received so the next saveDB() only pushes items WE changed.
-        _cloudSnap=_snapNonReport();
         try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
         autoBackupSnapshot();
         notifyDiffFromCloud();
@@ -740,69 +737,19 @@ function loadDB(){
 // All top-level DB keys EXCEPT 'reports'. saveDB() pushes these via shallow
 // update() so a stale client can never clobber the cloud 'reports' list.
 // 'reports' is written ONLY through the atomic per-ID helpers below.
-const _NON_REPORT_KEYS=['custs','jobs','machines','agents','pos','partsStock','techs','users','companies','deletedMachines','deletedCusts','nC','nJ','nM','nA','nPO','nPS','nT','nU','nP'];
+const _NON_REPORT_KEYS=['custs','jobs','machines','agents','pos','parts','partsStock','techs','users','companies','deletedMachines','deletedCusts','nC','nJ','nM','nA','nPO','nPS','nT','nU','nP'];
 function _nonReportPayload(){
   const u={};
   _NON_REPORT_KEYS.forEach(k=>{if(DB[k]!==undefined)u[k]=DB[k];});
   return u;
 }
-// ===== DIFF-BASED SIDE-EFFECT PERSISTENCE (multi-user safe) =====
-// Array collections keyed by a stable numeric id.
-const _ID_COLLS=['custs','jobs','machines','agents','pos','partsStock','techs','users'];
-const _TOMB_ARRS=['deletedMachines','deletedCusts'];
-const _COUNTERS=['nC','nJ','nM','nA','nPO','nPS','nT','nU','nP'];
-// Snapshot of the last cloud state we received — the baseline we diff against so
-// each save pushes ONLY the items this client actually changed/removed.
-let _cloudSnap=null;
-function _snapNonReport(){
-  try{const o={};_NON_REPORT_KEYS.forEach(k=>{if(DB[k]!==undefined)o[k]=DB[k];});return JSON.parse(JSON.stringify(o));}
-  catch(e){return null;}
-}
-// Persist non-report collections WITHOUT clobbering other users' concurrent
-// edits. Each id-collection is written via a transaction that overlays only the
-// items WE changed and removes only the ids WE deleted — items another client
-// touched in the same array are left intact. Reports are NOT handled here (they
-// have their own atomic per-id path); this only covers _NON_REPORT_KEYS.
-function _persistSideEffects(){
+function saveDB(){
   try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
-  if(!(USE_FB&&fbDB))return;
-  const snap=_cloudSnap;
-  _ID_COLLS.forEach(key=>{
-    const local=Array.isArray(DB[key])?DB[key]:[];
-    // If any item lacks an id we can't safely diff — fall back to whole-array
-    // write (same behaviour as before this change).
-    if(local.some(x=>!x||x.id==null)){fbDB.ref('octoCRM_v4/'+key).set(local).catch(()=>{});return;}
-    const base=snap&&Array.isArray(snap[key])?snap[key]:null;
-    let changed,deletedIds;
-    if(!base){changed=local;deletedIds=[];} // no baseline → write everything
-    else{
-      const baseById=new Map(base.filter(x=>x&&x.id!=null).map(x=>[x.id,JSON.stringify(x)]));
-      const localIds=new Set(local.map(x=>x.id));
-      changed=local.filter(x=>baseById.get(x.id)!==JSON.stringify(x)); // added or modified
-      deletedIds=[...baseById.keys()].filter(id=>!localIds.has(id));
-    }
-    if(!changed.length&&!deletedIds.length)return;
-    const chMap=new Map(changed.map(x=>[x.id,x])),delSet=new Set(deletedIds);
-    fbDB.ref('octoCRM_v4/'+key).transaction(arr=>{
-      if(!Array.isArray(arr))arr=[];
-      if(delSet.size)arr=arr.filter(x=>!(x&&delSet.has(x.id)));
-      chMap.forEach((item,id)=>{const k=arr.findIndex(x=>x&&x.id===id);if(k>=0)arr[k]=item;else arr.push(item);});
-      return arr;
-    }).catch(()=>{});
-  });
-  // Tombstone string arrays: union (a delete must never be undone by a stale peer).
-  _TOMB_ARRS.forEach(key=>{
-    const local=Array.isArray(DB[key])?DB[key]:[];
-    if(!local.length)return;
-    fbDB.ref('octoCRM_v4/'+key).transaction(arr=>{const s=new Set(Array.isArray(arr)?arr:[]);local.forEach(v=>s.add(v));return[...s];}).catch(()=>{});
-  });
-  // companies: per-key object merge (letterhead overrides).
-  if(DB.companies&&typeof DB.companies==='object')fbDB.ref('octoCRM_v4/companies').update(DB.companies).catch(()=>{});
-  // counters: max-merge so a stale client never rewinds a counter (→ duplicate ids).
-  _COUNTERS.forEach(key=>{const v=DB[key];if(typeof v!=='number')return;
-    fbDB.ref('octoCRM_v4/'+key).transaction(cur=>(typeof cur==='number'&&cur>v?cur:v)).catch(()=>{});});
+  if(USE_FB&&fbDB){
+    // update() merges at the top level — leaves octoCRM_v4/reports & /nR untouched.
+    fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
+  }
 }
-function saveDB(){_persistSideEffects();}
 
 // ===== MULTI-USER SAFE WRITES =====
 // Atomically claim the next report number via Firebase transaction.
@@ -854,9 +801,13 @@ async function _deleteReportAtomic(id){
   }
 }
 // Push side-effect collection changes (everything EXCEPT reports) WITHOUT
-// clobbering the cloud reports list, AND without clobbering other users'
-// concurrent edits to other items — see _persistSideEffects.
-function _saveSideEffects(){_persistSideEffects();}
+// clobbering the cloud reports list. Uses shallow update().
+function _saveSideEffects(){
+  try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+  if(USE_FB&&fbDB){
+    fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
+  }
+}
 
 // ===== AUTH =====
 function doLogin(){
@@ -2893,7 +2844,7 @@ function onExtraModelChange(idx,val,scope){
     list[idx].customModel=true;list[idx].customSerial=true;
     list[idx].model='';list[idx].serial='';
     renderExtraMachList(scope);
-    setTimeout(()=>{const wrap=document.getElementById(scope==='cr'?'crExtraMachList':'erExtraMachList');const inp=wrap?.querySelector(`input[data-emidx="${idx}"][data-emkey="model"]`);inp?.focus();},30);
+    setTimeout(()=>{const wrap=document.getElementById(scope==='cr'?'crExtraMachList':'erExtraMachList');const inp=wrap?.querySelectorAll('input.fc')[idx*2];inp?.focus();},30);
     return;
   }
   list[idx].customModel=false;list[idx].customSerial=false;
@@ -2907,7 +2858,7 @@ function onExtraSerialChange(idx,val,scope){
   if(val==='__custom__'){
     list[idx].customSerial=true;list[idx].serial='';
     renderExtraMachList(scope);
-    setTimeout(()=>{const wrap=document.getElementById(scope==='cr'?'crExtraMachList':'erExtraMachList');const inp=wrap?.querySelector(`input[data-emidx="${idx}"][data-emkey="serial"]`);inp?.focus();},30);
+    setTimeout(()=>{const wrap=document.getElementById(scope==='cr'?'crExtraMachList':'erExtraMachList');const inp=wrap?.querySelectorAll('input.fc')[idx*2+1];inp?.focus();},30);
     return;
   }
   list[idx].customSerial=false;
@@ -3190,7 +3141,7 @@ async function saveAndEmailCR(){
   showPage('reports');
 }
 
-function previewCR(){const d=getCRData();const fakeId=Date.now();DB.reports.push({...d,id:fakeId});try{viewRptPreview(fakeId);}finally{DB.reports=DB.reports.filter(r=>r.id!==fakeId);}}
+function previewCR(){const d=getCRData();const fakeId=Date.now();DB.reports.push({...d,id:fakeId});viewRptPreview(fakeId);DB.reports=DB.reports.filter(r=>r.id!==fakeId);}
 
 // ===== MACHINES (from DB.machines + report history) =====
 function getAllMachinesDB(){
@@ -5376,7 +5327,7 @@ function importCSV(){
       saveDB();
       // If reports were imported, push each to cloud atomically so the shallow
       // saveDB() (which intentionally skips 'reports') doesn't drop them.
-      if(table==='reports'&&(added||updated)){
+      if(type==='reports'&&(added||updated)){
         (DB.reports||[]).slice().forEach(r=>{if(r&&r.id!=null)_upsertReportAtomic(r);});
       }
       toast(`Import done: ${added} added, ${updated} updated.`,'success');
@@ -5405,11 +5356,7 @@ function importJSON(file){
       if(!data.reports&&!data.custs&&!data.techs){toast('Invalid backup file.','error');return;}
       DB=data;
       if(!Array.isArray(DB.users)||!DB.users.length){DB.users=[{id:1,username:'admin',password:'admin123',name:'Administrator',role:'admin'}];DB.nU=2;}
-      try{localStorage.setItem('ocrm4',JSON.stringify(DB));}catch(e){}
-      // Deliberate FULL replace (like resetAllData): push the whole DB — INCLUDING
-      // reports — then reload. saveDB() never writes reports, so otherwise the
-      // restore would be silently reverted by the next live-sync 'value' event.
-      if(USE_FB&&fbDB){fbDB.ref('octoCRM_v4').set(DB).then(()=>location.reload()).catch(()=>location.reload());return;}
+      saveDB();
       toast('Database restored from backup!','success');
       renderDataMgmt();
     }catch(err){toast('Invalid JSON file: '+err.message,'error');}
@@ -5665,10 +5612,14 @@ function doManualMerge(){
   // Fill empty fields in keep from del
   Object.keys(del).forEach(k=>{if(k!==meta.key&&(keep[k]===''||keep[k]===null||keep[k]===undefined)&&del[k]!==''&&del[k]!==null&&del[k]!==undefined){keep[k]=del[k];}});
 
+  // Reports rewritten here must be pushed via _upsertReportAtomic — saveDB()
+  // intentionally skips 'reports', so a shallow update would let the next cloud
+  // 'value' event revert the reassignment and orphan the references.
+  const _mergedReports=[];
   if(kind==='customers'){
     const keepName=keep.name,delName=del.name;
     (DB.machines||[]).forEach(m=>{if(m.customer===delName)m.customer=keepName;});
-    DB.reports.forEach(r=>{if(r.customer===delName)r.customer=keepName;});
+    DB.reports.forEach(r=>{if(r.customer===delName){r.customer=keepName;_mergedReports.push(r);}});
     DB.jobs.forEach(j=>{if(j.customer===delName)j.customer=keepName;});
     (DB.parts||[]).forEach(p=>{if(p.customer===delName)p.customer=keepName;});
     (DB.pos||[]).forEach(p=>{if(p.customer===delName)p.customer=keepName;});
@@ -5676,7 +5627,7 @@ function doManualMerge(){
   }else if(kind==='machines'){
     const keepSer=keep.serial,delSer=del.serial;
     if(keepSer!==delSer){
-      DB.reports.forEach(r=>{if(r.serial===delSer)r.serial=keepSer;});
+      DB.reports.forEach(r=>{if(r.serial===delSer){r.serial=keepSer;_mergedReports.push(r);}});
       DB.jobs.forEach(j=>{if(j.machine===delSer)j.machine=keepSer;});
       (DB.parts||[]).forEach(p=>{if(p.serial===delSer)p.serial=keepSer;});
       (DB.pos||[]).forEach(p=>{if(p.serial===delSer)p.serial=keepSer;});
@@ -5693,7 +5644,9 @@ function doManualMerge(){
     DB.agents=DB.agents.filter(a=>a.id!==st.delId);
   }
 
-  saveDB();closeModal();
+  saveDB();
+  _mergedReports.forEach(r=>{if(r&&r.id!=null)_upsertReportAtomic(r);});
+  closeModal();
   window._mmState=null;
   if(kind==='customers')renderCusts();
   else if(kind==='machines')renderMachines();
@@ -5845,12 +5798,7 @@ function loadSeedData(){
   _loadSeedPayload().then(seed=>{
     if(!seed||!seed.data){toast('Seed data missing or corrupt.','error');return;}
     DB=JSON.parse(JSON.stringify(seed.data));
-    try{localStorage.setItem('ocrm4',JSON.stringify(DB));}catch(e){}
-    // Full replace (like resetAllData): push the whole DB incl. reports, then
-    // reload. saveDB() never writes reports, so without this the seed's reports
-    // would be reverted by the next live-sync 'value' event.
-    if(USE_FB&&fbDB){fbDB.ref('octoCRM_v4').set(DB).then(()=>location.reload()).catch(()=>location.reload());return;}
-    refreshPage();
+    saveDB();refreshPage();
     toast(seed.slim?'Slim seed loaded (photos/signatures were not included).':'Full seed loaded with images.','success');
   }).catch(e=>toast('Failed to load seed: '+e.message,'error'));
 }
