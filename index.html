@@ -443,8 +443,9 @@ function initFB(){
         if(!Array.isArray(DB.parts))DB.parts=[];
         if(!Array.isArray(DB.partsStock))DB.partsStock=[];
         if(!Array.isArray(DB.pos))DB.pos=[];
+        if(!Array.isArray(DB.leaves))DB.leaves=[];
         _ensurePOIds();
-        if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;if(!DB.nPO)DB.nPO=1;
+        if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;if(!DB.nPO)DB.nPO=1;if(!DB.nL)DB.nL=1;
         if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=DB.users.length+1;
         // Merge persisted company letterhead overrides from cloud
         if(DB.companies&&typeof DB.companies==='object'){
@@ -590,8 +591,9 @@ function loadDB(){
   if(!Array.isArray(DB.parts))DB.parts=[];
   if(!Array.isArray(DB.partsStock))DB.partsStock=[];
   if(!Array.isArray(DB.pos))DB.pos=[];
+  if(!Array.isArray(DB.leaves))DB.leaves=[];
   _ensurePOIds();
-  if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;if(!DB.nPO)DB.nPO=1;
+  if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;if(!DB.nPO)DB.nPO=1;if(!DB.nL)DB.nL=1;
 
   // Merge persisted company letterhead overrides
   if(DB.companies&&typeof DB.companies==='object'){
@@ -737,7 +739,7 @@ function loadDB(){
 // All top-level DB keys EXCEPT 'reports'. saveDB() pushes these via shallow
 // update() so a stale client can never clobber the cloud 'reports' list.
 // 'reports' is written ONLY through the atomic per-ID helpers below.
-const _NON_REPORT_KEYS=['custs','jobs','machines','agents','pos','parts','partsStock','techs','users','companies','deletedMachines','deletedCusts','nC','nJ','nM','nA','nPO','nPS','nT','nU','nP'];
+const _NON_REPORT_KEYS=['custs','jobs','machines','agents','pos','parts','partsStock','techs','users','companies','deletedMachines','deletedCusts','leaves','nC','nJ','nM','nA','nPO','nPS','nT','nU','nP','nL'];
 function _nonReportPayload(){
   const u={};
   _NON_REPORT_KEYS.forEach(k=>{if(DB[k]!==undefined)u[k]=DB[k];});
@@ -1073,7 +1075,7 @@ function renderJobs(){
   const s=(document.getElementById('jSrch')?.value||'').toLowerCase();
   let jobs=[...DB.jobs].sort((a,b)=>b.id-a.id);
   if(curJF!=='all'){
-    if(curJF==='Follow-Up')jobs=jobs.filter(j=>j.status==='Pending Follow-Up'||(j.followUp&&j.followUp.trim()));
+    if(curJF==='Follow-Up')jobs=jobs.filter(j=>j.status==='Pending Follow-Up'||(j.followUp&&j.followUp.trim()&&j.status!=='Completed'));
     else if(curJF==='Active')jobs=jobs.filter(j=>j.status!=='Completed');
     else jobs=jobs.filter(j=>j.status===curJF);
   }
@@ -3553,7 +3555,56 @@ function saveCust(){
 }
 
 // ===== TECHNICIANS =====
-function renderTechs(){document.getElementById('techContent').innerHTML=`<div class="tw"><div class="th"><h3>Technicians</h3><button class="btn btn-p btn-sm" onclick="openTechModal()">+ Add</button></div>${DB.techs.map(t=>{const aj=DB.jobs.filter(j=>j.status!=='Completed'&&((j.techIds||[]).includes(t.id)||j.techId===t.id)).length;return`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(t.name)}</span><span class="bd ${aj?'bd-wn':'bd-ok'}">${aj?'Busy ('+aj+')':'Available'}</span></div><div class="rpt-card-row"><span class="rc-label">WhatsApp</span><span class="rc-val"><a href="https://wa.me/${t.phone.replace(/[^0-9]/g,'')}" target="_blank" style="color:var(--wa);text-decoration:none">${E(t.phone)}</a></span></div><div class="rpt-card-row"><span class="rc-label">Email</span><span class="rc-val">${t.email?`<a href="mailto:${t.email}" style="color:var(--ac);text-decoration:none">${E(t.email)}</a>`:'—'}</span></div><div class="rpt-card-row"><span class="rc-label">Spec</span><span class="rc-val">${E(t.spec)}</span></div><div class="rpt-card-actions">${canEdit()?`<button class="btn btn-sm btn-s" onclick="editTech(${t.id})">Edit</button>`:''} ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delTech(${t.id})">Remove</button>`:''}</div></div>`}).join('')||'<div class="es"><p>No technicians.</p></div>'}</div>`;}
+function _techOnLeaveToday(tid){
+  const today=_fmtD(new Date());
+  return (DB.leaves||[]).find(lv=>lv.techId===tid&&lv.start&&lv.start<=today&&(lv.end||lv.start)>=today);
+}
+function renderTechs(){document.getElementById('techContent').innerHTML=`<div class="tw"><div class="th"><h3>Technicians</h3><div style="display:flex;gap:8px;flex-wrap:wrap">${canEdit()?'<button class="btn btn-s btn-sm" onclick="openLeaveModal()">🌴 Leave / MC</button>':''}<button class="btn btn-p btn-sm" onclick="openTechModal()">+ Add</button></div></div>${DB.techs.map(t=>{const aj=DB.jobs.filter(j=>j.status!=='Completed'&&((j.techIds||[]).includes(t.id)||j.techId===t.id)).length;const lv=_techOnLeaveToday(t.id);const lvSty=lv?_leaveStyle(lv.type):null;return`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(t.name)}</span>${lv?`<span class="bd" style="background:${lvSty.bg};color:${lvSty.c}">${lvSty.icon} ${E(lv.type)}</span>`:`<span class="bd ${aj?'bd-wn':'bd-ok'}">${aj?'Busy ('+aj+')':'Available'}</span>`}</div><div class="rpt-card-row"><span class="rc-label">WhatsApp</span><span class="rc-val"><a href="https://wa.me/${t.phone.replace(/[^0-9]/g,'')}" target="_blank" style="color:var(--wa);text-decoration:none">${E(t.phone)}</a></span></div><div class="rpt-card-row"><span class="rc-label">Email</span><span class="rc-val">${t.email?`<a href="mailto:${t.email}" style="color:var(--ac);text-decoration:none">${E(t.email)}</a>`:'—'}</span></div><div class="rpt-card-row"><span class="rc-label">Spec</span><span class="rc-val">${E(t.spec)}</span></div><div class="rpt-card-actions">${canEdit()?`<button class="btn btn-sm btn-s" onclick="editTech(${t.id})">Edit</button>`:''} ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delTech(${t.id})">Remove</button>`:''}</div></div>`}).join('')||'<div class="es"><p>No technicians.</p></div>'}</div>${_renderLeaveList()}`;}
+// Upcoming + current leave/MC list (past entries hidden)
+function _renderLeaveList(){
+  const today=_fmtD(new Date());
+  const ups=(DB.leaves||[]).filter(lv=>(lv.end||lv.start)>=today).sort((a,b)=>(a.start||'').localeCompare(b.start||''));
+  return `<div class="tw" style="margin-top:16px"><div class="th"><h3>🌴 Leave / MC Schedule</h3></div>${
+    ups.length?ups.map(lv=>{const sty=_leaveStyle(lv.type);const nm=lv.techName||(DB.techs.find(t=>t.id===lv.techId)||{}).name||'Technician';const range=lv.end&&lv.end!==lv.start?`${lv.start} → ${lv.end}`:lv.start;return`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(nm)}</span><span class="bd" style="background:${sty.bg};color:${sty.c}">${sty.icon} ${E(lv.type)}</span></div><div class="rpt-card-row"><span class="rc-label">Dates</span><span class="rc-val">${E(range)}</span></div>${lv.note?`<div class="rpt-card-row"><span class="rc-label">Note</span><span class="rc-val" style="max-width:60%">${E(lv.note)}</span></div>`:''}<div class="rpt-card-actions">${canEdit()?`<button class="btn btn-sm btn-s" onclick="openLeaveModal(${lv.id})">Edit</button>`:''} ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delLeave(${lv.id})">Remove</button>`:''}</div></div>`}).join(''):'<div class="es" style="padding:20px"><p>No upcoming leave or MC recorded.</p></div>'
+  }</div>`;
+}
+function openLeaveModal(id){
+  const lv=id?(DB.leaves||[]).find(x=>x.id===id):null;const d=lv||{};
+  const techs=DB.techs||[];
+  if(!techs.length){toast('Add a technician first.','error');return;}
+  const types=['Annual Leave','Medical Leave (MC)','Off Day','Other'];
+  openModal(lv?'Edit Leave / MC':'Add Leave / MC',`
+    <input type="hidden" id="eLvId" value="${d.id||''}">
+    <div class="fg"><label>Technician</label><select class="fc" id="lvTech">${techs.map(t=>`<option value="${t.id}"${d.techId===t.id?' selected':''}>${E(t.name)}</option>`).join('')}</select></div>
+    <div class="fg"><label>Type</label><select class="fc" id="lvType">${types.map(ty=>`<option${d.type===ty?' selected':''}>${ty}</option>`).join('')}</select></div>
+    <div class="fr"><div class="fg"><label>Start Date</label><input class="fc" type="date" id="lvStart" value="${E(d.start||'')}"></div><div class="fg"><label>End Date</label><input class="fc" type="date" id="lvEnd" value="${E(d.end||d.start||'')}"></div></div>
+    <div class="fg"><label>Note (optional)</label><input class="fc" id="lvNote" value="${E(d.note||'')}" placeholder="e.g. Overseas / clinic name"></div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveLeave()">Save</button>`);
+}
+function saveLeave(){
+  const eid=document.getElementById('eLvId').value;
+  const techId=parseInt(document.getElementById('lvTech').value);
+  const tech=DB.techs.find(t=>t.id===techId);
+  const start=document.getElementById('lvStart').value;
+  let end=document.getElementById('lvEnd').value||start;
+  if(!tech||!start){toast('Technician and start date required.','error');return;}
+  if(end<start)end=start; // guard reversed range
+  const d={techId:techId,techName:tech.name,type:document.getElementById('lvType').value,start:start,end:end,note:document.getElementById('lvNote').value.trim()};
+  if(!Array.isArray(DB.leaves))DB.leaves=[];
+  if(eid){const i=DB.leaves.findIndex(x=>x.id===parseInt(eid));if(i>=0)DB.leaves[i]={...DB.leaves[i],...d};}
+  else{d.id=DB.nL++;DB.leaves.push(d);}
+  saveDB();closeModal();renderTechs();
+  if(document.getElementById('calendarContent')&&document.getElementById('calendarContent').innerHTML)renderCal();
+  renderDash();
+  toast('Leave / MC saved.','success');
+}
+function delLeave(id){
+  if(!confirm('Remove this leave / MC entry?'))return;
+  DB.leaves=(DB.leaves||[]).filter(lv=>lv.id!==id);
+  saveDB();renderTechs();
+  if(document.getElementById('calendarContent')&&document.getElementById('calendarContent').innerHTML)renderCal();
+  toast('Removed.','info');
+}
 function openTechModal(data){const d=data||{};openModal(d.name?'Edit Technician':'Add Technician',`<input type="hidden" id="eTId" value="${d.id||''}"><div class="fg"><label>Name</label><input class="fc" id="tNm" value="${E(d.name||'')}"></div><div class="fg"><label>WhatsApp</label><input class="fc" id="tPh" value="${E(d.phone||'')}" placeholder="+65..."></div><div class="fg"><label>Email</label><input class="fc" type="email" id="tEm" value="${E(d.email||'')}" placeholder="tech@company.com"></div><div class="fg"><label>Specialization</label><select class="fc" id="tSp"><option${d.spec==='General'?' selected':''}>General</option><option${d.spec==='Strapping Machines'?' selected':''}>Strapping Machines</option><option${d.spec==='Wrapping Machines'?' selected':''}>Wrapping Machines</option><option${d.spec==='Sealing Machines'?' selected':''}>Sealing Machines</option><option${d.spec==='Electrical'?' selected':''}>Electrical</option><option${d.spec==='Mechanical'?' selected':''}>Mechanical</option></select></div>`,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveTech()">Save</button>`);}
 function editTech(id){const t=DB.techs.find(x=>x.id===id);if(t)openTechModal(t);}
 function saveTech(){const eidEl=document.getElementById('eTId');const eid=eidEl?eidEl.value:'';const d={name:document.getElementById('tNm').value.trim(),phone:document.getElementById('tPh').value.trim(),email:document.getElementById('tEm').value.trim(),spec:document.getElementById('tSp').value};if(!d.name||!d.phone){toast('Name & phone required.','error');return;}if(eid&&eid!==''){const i=DB.techs.findIndex(t=>t.id===parseInt(eid));if(i>=0)DB.techs[i]={...DB.techs[i],...d};}else{d.id=DB.nT++;DB.techs.push(d);}saveDB();closeModal();renderTechs();toast('Saved.','success');}
@@ -3629,7 +3680,27 @@ function _collectCalEvents(){
   Object.keys(_H).forEach(dt=>{
     ae(dt,{type:'holiday',id:0,l:'🎉 '+_H[dt],full:_H[dt],sub:'🇸🇬 Singapore Public Holiday',bg:'var(--pus)',c:'var(--pu)',dot:'var(--pu)'});
   });
+  // Technician leave / MC — expand each record across its date range (inclusive)
+  (DB.leaves||[]).forEach(lv=>{
+    if(!lv.start)return;
+    const sty=_leaveStyle(lv.type);
+    const nm=lv.techName||(DB.techs.find(t=>t.id===lv.techId)||{}).name||'Technician';
+    const d0=new Date(lv.start+'T00:00:00');const d1=new Date((lv.end||lv.start)+'T00:00:00');
+    if(isNaN(d0)||isNaN(d1)||d1<d0)return;
+    let safety=0;
+    for(let d=new Date(d0);d<=d1&&safety<400;d.setDate(d.getDate()+1),safety++){
+      ae(_fmtD(d),{type:'leave',id:lv.id,l:sty.icon+' '+nm.substring(0,16),full:nm+' — '+lv.type,sub:(lv.note?lv.note:lv.type)+(d1>d0?' · '+lv.start+'→'+(lv.end||lv.start):''),bg:sty.bg,c:sty.c,dot:sty.c});
+    }
+  });
   return ev;
+}
+// Colour + icon per leave type
+function _leaveStyle(type){
+  const t=(type||'').toLowerCase();
+  if(t.includes('mc')||t.includes('medical'))return{icon:'🤒',bg:'var(--ers)',c:'var(--er)'};
+  if(t.includes('off'))return{icon:'🛌',bg:'rgba(148,163,184,.12)',c:'var(--t2)'};
+  if(t.includes('annual')||t.includes('leave'))return{icon:'🌴',bg:'var(--tls)',c:'var(--tl)'};
+  return{icon:'📌',bg:'var(--wns)',c:'var(--wn)'};
 }
 
 function showDayEvents(ds){
@@ -3641,8 +3712,8 @@ function showDayEvents(ds){
   const ttl=`${wk}, ${d.getDate()} ${mo} ${d.getFullYear()}`;
   if(!de.length){openModal(ttl,'<p style="color:var(--t3);padding:20px;text-align:center">No events on this day.</p>',`<button class="btn btn-s" onclick="closeModal()">Close</button>`);return;}
   const body=de.map(e=>{
-    const action=e.type==='holiday'?'':e.type==='job'?`onclick="closeModal();showPage('jobs');setTimeout(()=>{if(typeof showJobById==='function')showJobById(${e.id});},150)"`:`onclick="closeModal();showPage('reports');setTimeout(()=>{const r=DB.reports.find(x=>x.id===${e.id});if(r&&typeof viewRptPreview==='function')viewRptPreview(${e.id});},150)"`;
-    return `<div class="cal-agenda-ev" style="background:${e.bg};cursor:${e.type==='holiday'?'default':'pointer'}" ${action}>
+    const action=(e.type==='holiday'||e.type==='leave')?'':e.type==='job'?`onclick="closeModal();showPage('jobs');setTimeout(()=>{if(typeof showJobById==='function')showJobById(${e.id});},150)"`:`onclick="closeModal();showPage('reports');setTimeout(()=>{const r=DB.reports.find(x=>x.id===${e.id});if(r&&typeof viewRptPreview==='function')viewRptPreview(${e.id});},150)"`;
+    return `<div class="cal-agenda-ev" style="background:${e.bg};cursor:${(e.type==='holiday'||e.type==='leave')?'default':'pointer'}" ${action}>
       <div class="ae-dot" style="background:${e.dot}"></div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:700;color:${e.c};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${E(e.full)}</div>
@@ -3689,8 +3760,8 @@ function renderCal(){
             <span class="ad-day">${wkS[d.getDay()]} · ${evs.length} event${evs.length>1?'s':''}</span>
           </div>`;
         evs.forEach(e=>{
-          const action=e.type==='holiday'?'':e.type==='job'?`onclick="showPage('jobs');setTimeout(()=>{if(typeof showJobById==='function')showJobById(${e.id});},150)"`:`onclick="showPage('reports');setTimeout(()=>{if(typeof viewRptPreview==='function')viewRptPreview(${e.id});},150)"`;
-          h+=`<div class="cal-agenda-ev" style="background:${e.bg};cursor:${e.type==='holiday'?'default':'pointer'}" ${action}>
+          const action=(e.type==='holiday'||e.type==='leave')?'':e.type==='job'?`onclick="showPage('jobs');setTimeout(()=>{if(typeof showJobById==='function')showJobById(${e.id});},150)"`:`onclick="showPage('reports');setTimeout(()=>{if(typeof viewRptPreview==='function')viewRptPreview(${e.id});},150)"`;
+          h+=`<div class="cal-agenda-ev" style="background:${e.bg};cursor:${(e.type==='holiday'||e.type==='leave')?'default':'pointer'}" ${action}>
             <div class="ae-dot" style="background:${e.dot}"></div>
             <div style="flex:1;min-width:0">
               <div style="font-weight:700;color:${e.c};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${E(e.full)}</div>
@@ -4570,13 +4641,18 @@ function savePO(){
   p.type=document.getElementById('ePoType').value.trim();
   p.priority=document.getElementById('ePoPri').value.trim();
   // Cascade PO-No rename to ALL linked jobs + reports so links survive
+  const changedReports=[];
   if(oldPoNo&&oldPoNo!==p.poNo){
     DB.jobs.forEach(j=>{if(j.poNo===oldPoNo)j.poNo=p.poNo;});
-    DB.reports.forEach(r=>{if(r.poNo===oldPoNo)r.poNo=p.poNo;});
+    DB.reports.forEach(r=>{if(r.poNo===oldPoNo){r.poNo=p.poNo;changedReports.push(r);}});
   }
   // Update customer field on all linked jobs (match new poNo or legacy jobId)
   DB.jobs.forEach(j=>{if(j.poNo===p.poNo||(p.jobId&&j.id===p.jobId)){j.customer=p.customer;}});
-  saveDB();closeModal();renderPOImport();toast('PO updated.','success');
+  saveDB();
+  // saveDB() skips 'reports' — push renamed reports atomically or the PO-No
+  // reassignment reverts on the next cloud sync and breaks the report link.
+  changedReports.forEach(r=>{if(r&&r.id!=null)_upsertReportAtomic(r);});
+  closeModal();renderPOImport();toast('PO updated.','success');
 }
 
 function delPO(id){
@@ -5055,6 +5131,7 @@ function renderDataMgmt(){
         <button class="btn btn-p btn-sm" onclick="exportCSV('companies')">Companies (3)</button>
         <button class="btn btn-p btn-sm" onclick="exportCSV('inventory')">Inventory (${(DB.partsStock||[]).length})</button>
         <button class="btn btn-p btn-sm" onclick="exportCSV('pos')">Purchase Orders (${(DB.pos||[]).length})</button>
+        <button class="btn btn-p btn-sm" onclick="exportCSV('leaves')">Leave / MC (${(DB.leaves||[]).length})</button>
         <button class="btn btn-s btn-sm" onclick="exportAllCSV()">📦 Export All</button>
       </div>
     </div>
@@ -5072,6 +5149,7 @@ function renderDataMgmt(){
           <option value="companies">Companies Letterhead</option>
           <option value="inventory">Inventory / Parts Stock</option>
           <option value="pos">Purchase Orders</option>
+          <option value="leaves">Leave / MC</option>
         </select>
       </div>
       <div class="fg">
@@ -5165,6 +5243,9 @@ function exportCSV(table){
     case 'pos':
       headers=['id','poNo','date','customer','address','contact','contactPhone','title','desc','model','serial','type','priority','status','jobId','createdAt'];
       rows=DB.pos||[];break;
+    case 'leaves':
+      headers=['id','techId','techName','type','start','end','note'];
+      rows=DB.leaves||[];break;
     default:return;
   }
   
@@ -5175,7 +5256,7 @@ function exportCSV(table){
 
 function exportAllCSV(){
   const ts=new Date().toISOString().split('T')[0];
-  ['customers','machines','reports','jobs','technicians','agents','companies','inventory','pos'].forEach(t=>exportCSV(t));
+  ['customers','machines','reports','jobs','technicians','agents','companies','inventory','pos','leaves'].forEach(t=>exportCSV(t));
   toast('All tables exported.','success');
 }
 
@@ -5190,7 +5271,8 @@ function downloadTemplate(){
     agents:'id,name,type,address,contact,phone,email\n,New Agent Co,Agent,123 Street,Mr Smith,+6512345678,agent@company.com',
     companies:'key,name,addr,tel,email,uen,color,tag\noctopack,OCTOPACK SEA PTE LTD,7 Yishun Industrial Street 1 #03-49,+65 6909 8136,CS@octopack.com.sg,201709641E,#1d4ed8,OCTOPACK - The Better Way To Pack\njw,JW Supplies & Works Pte Ltd,9 Yishun Industrial Street 1 #02-37,+65 9061 8811,joyce@jwsupplies.sg,201822151K,#2563eb,JW Supplies & Works Pte Ltd\nredbox,Redbox Global Solutions Pte Ltd,7 Yishun Industrial Street 1 #03-49,+65 6909 8136,engineering@redboxgs.com,201710953N,#dc2626,Redbox Global Solutions',
     inventory:'id,name,qty,reorderAt,notes\n,Drive Belt,5,2,Supplier ABC — P/N 12345\n,Hydraulic Oil 5L,3,1,',
-    pos:'id,poNo,date,customer,address,contact,contactPhone,title,desc,model,serial,type,priority,status,jobId,createdAt\n,PO-2025-001,2025-05-01,Example Corp,123 Main St,John Doe,+6512345678,PM Service,Routine maintenance,ET300PPS,SN12345,Preventive Maintenance,Medium,Open,,'
+    pos:'id,poNo,date,customer,address,contact,contactPhone,title,desc,model,serial,type,priority,status,jobId,createdAt\n,PO-2025-001,2025-05-01,Example Corp,123 Main St,John Doe,+6512345678,PM Service,Routine maintenance,ET300PPS,SN12345,Preventive Maintenance,Medium,Open,,',
+    leaves:'id,techId,techName,type,start,end,note\n,,Colin Tan,Annual Leave,2026-06-15,2026-06-18,Overseas\n,,Ahmad Razak,Medical Leave (MC),2026-06-20,2026-06-20,Clinic'
   };
   downloadFile(templates[type]||'',`octocrm_${type}_template.csv`);
   toast('Template downloaded.','success');
@@ -5319,6 +5401,20 @@ function importCSV(){
             const fields={poNo:obj.pono,date:obj.date||'',customer:obj.customer||'',address:obj.address||'',contact:obj.contact||'',contactPhone:obj.contactphone||'',title:obj.title||'',desc:obj.desc||'',model:obj.model||'',serial:obj.serial||'',type:obj.type||'',priority:obj.priority||'Medium',status:obj.status||'Open',jobId:obj.jobid?parseInt(obj.jobid):null,createdAt:obj.createdat||new Date().toISOString()};
             if(existing){Object.assign(existing,fields);updated++;}
             else{DB.pos.push({id:DB.nPO++,...fields});added++;}
+            break;
+          }
+          case 'leaves':{
+            if(!obj.start)return;
+            if(!Array.isArray(DB.leaves))DB.leaves=[];
+            if(!DB.nL)DB.nL=1;
+            // Resolve technician: prefer techName match, fall back to techId
+            const tech=DB.techs.find(t=>(obj.techname&&t.name.toLowerCase()===obj.techname.toLowerCase())||(obj.techid&&t.id===parseInt(obj.techid)));
+            if(!tech)return; // skip rows with no matching technician
+            const end=obj.end||obj.start;
+            const fields={techId:tech.id,techName:tech.name,type:obj.type||'Annual Leave',start:obj.start,end:end<obj.start?obj.start:end,note:obj.note||''};
+            const existing=obj.id?DB.leaves.find(l=>l.id===parseInt(obj.id)):null;
+            if(existing){Object.assign(existing,fields);updated++;}
+            else{DB.leaves.push({id:DB.nL++,...fields});added++;}
             break;
           }
         }
@@ -5477,8 +5573,9 @@ function showDuplicateCheck(){
 function mergeCusts(keepId,keepName,removeId,removeName){
   if(!confirm(`Merge "${removeName}" into "${keepName}"?\n\nAll machines, reports, and jobs under "${removeName}" will be updated to "${keepName}".`))return;
   // Update all references
+  const changedReports=[];
   (DB.machines||[]).forEach(m=>{if(m.customer===removeName)m.customer=keepName;});
-  DB.reports.forEach(r=>{if(r.customer===removeName)r.customer=keepName;});
+  DB.reports.forEach(r=>{if(r.customer===removeName){r.customer=keepName;changedReports.push(r);}});
   DB.jobs.forEach(j=>{if(j.customer===removeName)j.customer=keepName;});
   // Merge contact info if keep is empty
   const keep=DB.custs.find(c=>c.id===keepId);
@@ -5492,7 +5589,11 @@ function mergeCusts(keepId,keepName,removeId,removeName){
   }
   // Remove the duplicate
   DB.custs=DB.custs.filter(c=>c.id!==removeId);
-  saveDB();closeModal();renderCusts();renderMachines();
+  saveDB();
+  // saveDB() skips 'reports' — push reassigned reports atomically or the merge
+  // reverts on next cloud sync and resurrects the removed customer as a ghost.
+  changedReports.forEach(r=>{if(r&&r.id!=null)_upsertReportAtomic(r);});
+  closeModal();renderCusts();renderMachines();
   toast(`Merged "${removeName}" → "${keepName}"`,'success');
   // Re-check
   setTimeout(()=>showDuplicateCheck(),500);
