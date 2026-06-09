@@ -1319,7 +1319,7 @@ function openNewJobModal(){
     <div class="fg"><label>Technician(s) — select one or more</label>
       <div id="jTeChecks" style="display:flex;flex-wrap:wrap;gap:8px;padding:8px 0">${DB.techs.map(t=>`<label style="display:flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid var(--bdr);border-radius:var(--r);cursor:pointer;font-size:var(--fs-sm);background:var(--input);min-height:44px"><input type="checkbox" class="jTeChk" value="${t.id}" style="width:18px;height:18px;accent-color:var(--ac)">${E(t.name)}</label>`).join('')}</div>
     </div>
-    <div class="fg"><label>Type</label><select class="fc" id="jTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Follow-Up Call</option><option>Installation</option><option>Emergency</option></select></div>
+    <div class="fg"><label>Type</label><select class="fc" id="jTy"><option>Preventive Maintenance</option><option>Corrective Maintenance</option><option>Breakdown Call</option><option>Follow-Up Call</option><option>Installation</option><option>Meeting</option><option>Emergency</option></select></div>
     <div class="fr"><div class="fg"><label>Date</label><input class="fc" type="date" id="jDt"></div><div class="fg"><label>Time</label><input class="fc" type="time" id="jTm"></div></div>
     <div class="fg"><label>Symptom / Description</label><textarea class="fc" id="jDs" placeholder="Describe the issue, symptoms reported by customer..."></textarea></div>
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-wa" onclick="saveJobAndWA()">Save & WhatsApp</button><button class="btn btn-p" onclick="saveJob()">Save</button>`);
