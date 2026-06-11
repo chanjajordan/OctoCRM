@@ -776,10 +776,12 @@ async function _appendReportAtomic(rpt){
 // Atomically insert OR update a single report by id in the cloud array.
 // Used for create, edit, and status changes. A stale client only touches
 // this one report — it can never overwrite the whole reports list.
-async function _upsertReportAtomic(rpt){
+async function _upsertReportAtomic(rpt,_skipLocalSave){
   const i=DB.reports.findIndex(x=>x&&x.id===rpt.id);
   if(i>=0)DB.reports[i]=rpt;else DB.reports.push(rpt);
-  try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
+  // _skipLocalSave: bulk callers (importCSV/importJSON) already wrote
+  // localStorage once via saveDB() — skip the per-report whole-DB stringify.
+  if(!_skipLocalSave){try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}}
   if(USE_FB&&fbDB){
     try{
       await fbDB.ref('octoCRM_v4/reports').transaction(arr=>{
@@ -5427,7 +5429,7 @@ function importCSV(){
       // If reports were imported, push each to cloud atomically so the shallow
       // saveDB() (which intentionally skips 'reports') doesn't drop them.
       if(type==='reports'&&(added||updated)){
-        (DB.reports||[]).slice().forEach(r=>{if(r&&r.id!=null)_upsertReportAtomic(r);});
+        (DB.reports||[]).slice().forEach(r=>{if(r&&r.id!=null)_upsertReportAtomic(r,true);});
       }
       toast(`Import done: ${added} added, ${updated} updated.`,'success');
       renderDataMgmt();
@@ -5455,7 +5457,14 @@ function importJSON(file){
       if(!data.reports&&!data.custs&&!data.techs){toast('Invalid backup file.','error');return;}
       DB=data;
       if(!Array.isArray(DB.users)||!DB.users.length){DB.users=[{id:1,username:'admin',password:'admin123',name:'Administrator',role:'admin'}];DB.nU=2;}
+      // Normalize arrays/counters — older backups may predate parts/leaves/pos
+      // keys; without this, DB.parts.push etc. crash after a restore.
+      ['reports','jobs','techs','custs','machines','agents','deletedCusts','deletedMachines','parts','partsStock','pos','leaves'].forEach(k=>{if(!Array.isArray(DB[k]))DB[k]=[];});
+      if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;if(!DB.nPO)DB.nPO=1;if(!DB.nL)DB.nL=1;
       saveDB();
+      // saveDB() skips 'reports' — push each restored report atomically or the
+      // restore silently reverts on the next cloud sync.
+      (DB.reports||[]).slice().forEach(r=>{if(r&&r.id!=null)_upsertReportAtomic(r,true);});
       toast('Database restored from backup!','success');
       renderDataMgmt();
     }catch(err){toast('Invalid JSON file: '+err.message,'error');}
