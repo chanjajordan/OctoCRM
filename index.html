@@ -431,38 +431,11 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
 const FB_CFG={apiKey:"AIzaSyCSQAS7mFBlTfmz0FVWaSLgI-Puk1Y3sN4",authDomain:"octocrm1.firebaseapp.com",databaseURL:"https://octocrm1-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"octocrm1",storageBucket:"octocrm1.firebasestorage.app",messagingSenderId:"212247591529",appId:"1:212247591529:web:4a076e40a71b59646b00f8"};
 const USE_FB=true;let fbDB=null,fbOK=false;
 
-// ===== STARTUP WRITE QUEUE =====
-// On a fresh device, the Firebase SDK scripts + initFB() can take a real few
-// seconds to come up (no cached SDK/auth, often a weak field connection).
-// saveDB()/_saveSideEffects()/_upsertReportAtomic()/_deleteReportAtomic() only
-// check `if(USE_FB&&fbDB)` — if fbDB is still null when the user saves
-// something, that write was previously just SKIPPED, no error, no retry. Then
-// initFB()'s first cloud snapshot arrives and does `DB=d`, wholesale
-// replacing the in-memory (and then re-persisted-to-localStorage) DB with the
-// cloud version — silently erasing whatever was created in that window.
-// Fix: queue those writes instead of dropping them, and flush the queue the
-// moment fbDB becomes available — BEFORE the first cloud snapshot listener
-// attaches — so the queued writes land in Firebase first and the incoming
-// snapshot already reflects them.
-let _pendingSideEffectsSync=false;
-let _pendingReportWrites=[];
-function _queueSideEffectsSync(){_pendingSideEffectsSync=true;}
-function _queueReportWrite(fn){_pendingReportWrites.push(fn);}
-function _flushPendingFbWrites(){
-  if(_pendingSideEffectsSync){
-    _pendingSideEffectsSync=false;
-    fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
-  }
-  const q=_pendingReportWrites;_pendingReportWrites=[];
-  q.forEach(fn=>{try{fn();}catch(e){}});
-}
-
 function initFB(){
   if(!USE_FB)return;
   try{
     if(!firebase.apps.length)firebase.initializeApp(FB_CFG);
     fbDB=firebase.database();
-    _flushPendingFbWrites();
     fbDB.ref('.info/connected').on('value',s=>{fbOK=s.val()===true;updSync();});
     fbDB.ref('octoCRM_v4').on('value',s=>{
       const d=s.val();
@@ -780,8 +753,6 @@ function saveDB(){
   if(USE_FB&&fbDB){
     // update() merges at the top level — leaves octoCRM_v4/reports & /nR untouched.
     fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
-  }else if(USE_FB){
-    _queueSideEffectsSync(); // fbDB not connected yet — flush once it is (see initFB)
   }
 }
 
@@ -820,15 +791,6 @@ async function _upsertReportAtomic(rpt,_skipLocalSave){
         return arr;
       });
     }catch(e){}
-  }else if(USE_FB){
-    // fbDB not connected yet — queue the same upsert to replay once it is,
-    // instead of silently dropping this report (see initFB / _flushPendingFbWrites).
-    _queueReportWrite(()=>fbDB.ref('octoCRM_v4/reports').transaction(arr=>{
-      if(!Array.isArray(arr))arr=[];
-      const k=arr.findIndex(x=>x&&x.id===rpt.id);
-      if(k>=0)arr[k]=rpt;else arr.push(rpt);
-      return arr;
-    }).catch(()=>{}));
   }
 }
 // Atomically remove a single report by id from the cloud array, so a delete
@@ -843,11 +805,6 @@ async function _deleteReportAtomic(id){
         return arr.filter(x=>x&&x.id!==id);
       });
     }catch(e){}
-  }else if(USE_FB){
-    _queueReportWrite(()=>fbDB.ref('octoCRM_v4/reports').transaction(arr=>{
-      if(!Array.isArray(arr))return arr;
-      return arr.filter(x=>x&&x.id!==id);
-    }).catch(()=>{}));
   }
 }
 // Push side-effect collection changes (everything EXCEPT reports) WITHOUT
@@ -856,8 +813,6 @@ function _saveSideEffects(){
   try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
   if(USE_FB&&fbDB){
     fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
-  }else if(USE_FB){
-    _queueSideEffectsSync();
   }
 }
 
@@ -1586,16 +1541,14 @@ function syncJobMachineToRegistry(d){
 // Register every machine on a report (primary + extras) into DB.machines.
 // Mirrors syncJobMachineToRegistry but handles the report machines[] array,
 // so machines entered during report creation show up in the Machine list.
-// silent=true suppresses the per-call toast and just returns addedNames[] —
-// used by rescanReportsForMachines() to bulk-scan every report without
-// firing one toast per report.
-function syncReportMachinesToRegistry(d,silent){
+function syncReportMachinesToRegistry(d){
   if(!Array.isArray(DB.machines))DB.machines=[];
   const cust=(d.customer||'').trim();
   // Collect every (serial,model) pair on the report: primary + extras + machines[]
   const list=[];
   if(d.serial||d.model)list.push({serial:(d.serial||'').trim(),model:(d.model||'').trim()});
   (d.machines||[]).forEach(m=>{const s=(m.serial||'').trim(),mo=(m.model||'').trim();if(s||mo)list.push({serial:s,model:mo});});
+  let addedAny=false;
   const addedNames=[];
   const seen=new Set();
   list.forEach(item=>{
@@ -1605,8 +1558,10 @@ function syncReportMachinesToRegistry(d,silent){
     const existing=DB.machines.find(m=>m.serial===serial);
     if(existing){
       // Backfill any missing identifying fields so the machine shows up correctly
-      if((!existing.customer||!existing.customer.trim())&&cust)existing.customer=cust;
-      if((!existing.model||!existing.model.trim())&&item.model)existing.model=item.model;
+      let ch=false;
+      if((!existing.customer||!existing.customer.trim())&&cust){existing.customer=cust;ch=true;}
+      if((!existing.model||!existing.model.trim())&&item.model){existing.model=item.model;ch=true;}
+      if(ch)addedAny=true;
       return;
     }
     if(!DB.nM)DB.nM=200;
@@ -1615,27 +1570,10 @@ function syncReportMachinesToRegistry(d,silent){
       customer:cust,location:'',installDate:'',
       warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''
     });
-    addedNames.push(serial);
+    addedAny=true;addedNames.push(serial);
   });
-  if(addedNames.length&&!silent)toast('Registered to machine list: '+addedNames.join(', '),'success');
-  return addedNames;
-}
-
-// Bulk-reconcile: scan EVERY service report for machine serials that never
-// made it into the registry (e.g. reports saved before a past sync bug was
-// fixed, or CSV-imported reports) and register them. Reuses the exact same
-// per-report logic saveCR/saveEditReport already call — just looped silently
-// across all reports with one summary toast instead of one per report.
-function rescanReportsForMachines(){
-  if(!confirm(`Scan all ${DB.reports.length} service report(s) for machine serial numbers missing from the registry, and add them?\n\nExisting machines will also get blank customer/model fields backfilled from reports.`))return;
-  const allAdded=new Set();
-  DB.reports.forEach(r=>{
-    syncReportMachinesToRegistry(r,true).forEach(s=>allAdded.add(s));
-  });
-  saveDB();
-  renderMachines();
-  if(allAdded.size)toast(`Scan complete: ${allAdded.size} new machine(s) added — ${[...allAdded].join(', ')}`,'success');
-  else toast('Scan complete: no missing machines found. Registry is up to date.','info');
+  if(addedNames.length)toast('Registered to machine list: '+addedNames.join(', '),'success');
+  return addedNames.length>0;
 }
 
 // Sync contact person + phone from job form into the linked customer record
@@ -1918,28 +1856,9 @@ function saveEditReport(){
   syncExtraMachinesFromDOM('er');
   const erPrimaryModel=document.getElementById('erMd').value.trim();
   const erPrimarySerial=document.getElementById('erSr').value.trim();
-  // Guard: model but no serial → can't register, warn user. Create-report
-  // (saveCR) already had this for the primary field; edit mode never did —
-  // a model typed with no serial here just saved silently, never registered.
-  if(erPrimaryModel&&!erPrimarySerial){
-    if(!confirm('You entered a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
-  }
   const erMachines=[];
-  // Same "needs a serial to register" rule getCRData() uses for extras —
-  // previously this filter was more permissive (model OR serial) than
-  // create's (serial required), so a model-only extra row here silently
-  // saved a phantom {model,serial:''} entry that could never be registered,
-  // with no warning telling the user their 2nd/3rd machine wasn't tracked.
-  const erDroppedExtraModels=[];
   if(erPrimaryModel||erPrimarySerial)erMachines.push({model:erPrimaryModel,serial:erPrimarySerial});
-  (window._erExtraMachines||[]).forEach(m=>{
-    const s=(m.serial||'').trim();
-    if(s)erMachines.push({model:m.model||'',serial:s});
-    else if((m.model||'').trim())erDroppedExtraModels.push(m.model.trim());
-  });
-  if(erDroppedExtraModels.length){
-    if(!confirm(`Additional machine(s) "${erDroppedExtraModels.join('", "')}" have no serial number and will NOT be saved on this report or added to the registry.\n\nSave anyway?`))return;
-  }
+  (window._erExtraMachines||[]).forEach(m=>{if(m.model||m.serial)erMachines.push({model:m.model||'',serial:m.serial||''});});
   DB.reports[i]={...DB.reports[i],
     company:document.getElementById('erCo').value,
     jobNo:document.getElementById('erJN').value.trim(),
@@ -2130,56 +2049,6 @@ const PM_CHECKLISTS={
     readings:[
       {label:'Battery DC (Vac/Vdc)',unit:'V'},
       {label:'Battery Charger (Vdc, if any)',unit:'V'}
-    ]
-  },
-  strapping_machine:{
-    name:'Automatic / Semi-Auto Strapping Machine',
-    company:'octopack',
-    sections:[
-      {title:'1. Strap Feed & Path',items:[
-        'Check strap reel dispenser and reel brake',
-        'Inspect strap guide chute / arch track for wear or debris',
-        'Check feed and eject roller condition and grip',
-        'Verify strap-width setting matches installed strap',
-        'Clear strap path — remove jammed strap, dust, offcuts',
-        'Check strap coil core holder and tension arm'
-      ]},
-      {title:'2. Sealing / Welding Head',items:[
-        'Inspect heater blade / welding element',
-        'Test cooling fan operation',
-        'Clean sealing plate, gripper and slider',
-        'Check cutter blade sharpness — replace if worn',
-        'Inspect sealing cam and slider for wear',
-        'Verify seal / weld strength on a test strap'
-      ]},
-      {title:'3. Tension & Drive',items:[
-        'Check tension motor and belt',
-        'Verify tension setting accuracy against gauge',
-        'Lubricate cams, gears and sliders',
-        'Check main drive belt tension and wear',
-        'Listen for abnormal motor noise / vibration'
-      ]},
-      {title:'4. Electrical & Controls',items:[
-        'Test control panel buttons and display',
-        'Check micro-switches and limit switches',
-        'Inspect wiring, terminations and connectors',
-        'Test foot pedal / auto-cycle trigger',
-        'Verify photo sensors (auto models)',
-        'Test emergency stop function'
-      ]},
-      {title:'5. Mechanical / Frame',items:[
-        'Tighten all bolts and fasteners',
-        'Check table / arch alignment',
-        'Inspect castors / levelling feet',
-        'Check guards and covers in place',
-        'Clean machine body and work surface'
-      ]},
-      {title:'6. Final Test',items:[
-        'Run full strap cycle — verify seal and tension',
-        'Confirm cycle time within spec',
-        'Check no alarms or fault codes',
-        'Verify all safety features operate'
-      ]}
     ]
   },
   air_cushion:{
@@ -2805,8 +2674,8 @@ function renderCreateReport(){
       </div>
 
       <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
-        <button class="btn btn-ok" id="crSaveEmailBtn" onclick="saveAndEmailCR()">💾 Save & Email PDF</button>
-        <button class="btn btn-p" id="crSaveOnlyBtn" onclick="saveCR()">Save Only</button>
+        <button class="btn btn-ok" onclick="saveAndEmailCR()">💾 Save & Email PDF</button>
+        <button class="btn btn-p" onclick="saveCR()">Save Only</button>
         <button class="btn btn-s" onclick="previewCR()">👁 Preview</button>
       </div>
     </div>`;
@@ -3143,16 +3012,8 @@ function getCRData(){
   // otherwise create a phantom empty-serial entry.
   syncExtraMachinesFromDOM('cr');
   const machines=[];
-  // Extra rows with a model but no serial can't be registered (same rule as
-  // the primary field) — track them so the caller can warn before silently
-  // dropping the row, instead of the machine just vanishing with no notice.
-  const droppedExtraModels=[];
   if(primarySerial)machines.push({model:primaryModel,serial:primarySerial});
-  (crExtraMachines||[]).forEach(m=>{
-    const s=(m.serial||'').trim();
-    if(s)machines.push({model:m.model||'',serial:s});
-    else if((m.model||'').trim())droppedExtraModels.push(m.model.trim());
-  });
+  (crExtraMachines||[]).forEach(m=>{const s=(m.serial||'').trim();if(s)machines.push({model:m.model||'',serial:s});});
   return{
     company:document.getElementById('crCo').value,
     jobNo:document.getElementById('crJN').value.trim(),
@@ -3164,7 +3025,6 @@ function getCRData(){
     model:primaryModel,
     serial:primarySerial,
     machines:machines,
-    droppedExtraModels:droppedExtraModels, // transient — caller warns then strips before persisting
     engineer:engineers.join(', '),
     engineers:engineers,
     type:document.getElementById('crTy').value,
@@ -3198,64 +3058,41 @@ function savePartsFromCR(){
   });
 }
 
-// Shared lock across saveCR / saveAndEmailCR — prevents the classic mobile
-// double-submit: the "claim report number" step awaits a Firebase round-trip
-// with no visual feedback, so a slow/laggy tap on Android re-fires the button
-// mid-save. Without this, each fire claims its OWN atomic number (no
-// collision there) but both go on to append a full duplicate report.
-let _crSubmitLock=false;
-function _crLockButtons(lock){
-  const b1=document.getElementById('crSaveOnlyBtn'),b2=document.getElementById('crSaveEmailBtn');
-  [b1,b2].forEach(b=>{if(b)b.disabled=lock;});
-}
 async function saveCR(){
-  if(_crSubmitLock)return; // ignore re-entrant tap while a save is already in flight
-  _crSubmitLock=true;_crLockButtons(true);
-  try{
-    const d=getCRData();
-    if(!d.jobNo){toast('Job No. required.','error');return;}
-    // Guard: model picked but no serial → machine can't be registered, warn user
-    if(d.model&&!d.serial){
-      if(!confirm('You selected a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
-    }
-    // Same guard for additional machine rows — without this, a model typed
-    // with no serial on an extra machine just vanishes (not saved on the
-    // report, not registered) with zero indication anything was dropped.
-    if(d.droppedExtraModels&&d.droppedExtraModels.length){
-      if(!confirm(`Additional machine(s) "${d.droppedExtraModels.join('", "')}" have no serial number and will NOT be saved on this report or added to the registry.\n\nSave the report anyway?`))return;
-    }
-    delete d.droppedExtraModels; // transient warning-only field — don't persist it
-    // 1. Atomically claim a unique report id from cloud (prevents duplicate SR numbers)
-    const claimed=await _claimNextReportNum();
-    // 2. If user kept the auto-prefilled SR-NNNNN format, sync it to the actually-claimed number
-    if(/^SR-\d{5}$/i.test(d.jobNo)){
-      d.jobNo='SR-'+String(claimed).padStart(5,'0');
-    } else if(DB.reports.some(r=>r.jobNo===d.jobNo)){
-      if(!confirm(`Report number "${d.jobNo}" already exists. Save anyway?`))return;
-    }
-    d.id=claimed;
-    d.scannedAt=new Date().toISOString();
-    if(window._linkedJobId)d.jobId=window._linkedJobId;
-    // 3. Atomically append to cloud reports array — concurrent saves both survive
-    await _appendReportAtomic(d);
-    // 4. Side effects (new cust / parts / job link)
-    let c=DB.custs.find(x=>x.name===d.customer);
-    if(!c&&d.customer){
-      const newAddr=document.getElementById('crCuAddr')?.value.trim()||'';
-      const newEmail=document.getElementById('crCuEmailNew')?.value.trim()||'';
-      DB.custs.push({id:DB.nC++,name:d.customer,address:newAddr,contact:d.contact,phone:d.contactNum,email:newEmail,agent:''});
-    }
-    linkReportToJob(d);
-    savePartsFromCR();
-    syncReportMachinesToRegistry(d);
-    // 5. Push side effects via shallow update (does NOT clobber 'reports')
-    _saveSideEffects();
-    toast('Report saved!','success');
-    window._linkedJobId=null;
-    showPage('reports');
-  } finally {
-    _crSubmitLock=false;_crLockButtons(false);
+  const d=getCRData();
+  if(!d.jobNo){toast('Job No. required.','error');return;}
+  // Guard: model picked but no serial → machine can't be registered, warn user
+  if(d.model&&!d.serial){
+    if(!confirm('You selected a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
   }
+  // 1. Atomically claim a unique report id from cloud (prevents duplicate SR numbers)
+  const claimed=await _claimNextReportNum();
+  // 2. If user kept the auto-prefilled SR-NNNNN format, sync it to the actually-claimed number
+  if(/^SR-\d{5}$/i.test(d.jobNo)){
+    d.jobNo='SR-'+String(claimed).padStart(5,'0');
+  } else if(DB.reports.some(r=>r.jobNo===d.jobNo)){
+    if(!confirm(`Report number "${d.jobNo}" already exists. Save anyway?`))return;
+  }
+  d.id=claimed;
+  d.scannedAt=new Date().toISOString();
+  if(window._linkedJobId)d.jobId=window._linkedJobId;
+  // 3. Atomically append to cloud reports array — concurrent saves both survive
+  await _appendReportAtomic(d);
+  // 4. Side effects (new cust / parts / job link)
+  let c=DB.custs.find(x=>x.name===d.customer);
+  if(!c&&d.customer){
+    const newAddr=document.getElementById('crCuAddr')?.value.trim()||'';
+    const newEmail=document.getElementById('crCuEmailNew')?.value.trim()||'';
+    DB.custs.push({id:DB.nC++,name:d.customer,address:newAddr,contact:d.contact,phone:d.contactNum,email:newEmail,agent:''});
+  }
+  linkReportToJob(d);
+  savePartsFromCR();
+  syncReportMachinesToRegistry(d);
+  // 5. Push side effects via shallow update (does NOT clobber 'reports')
+  _saveSideEffects();
+  toast('Report saved!','success');
+  window._linkedJobId=null;
+  showPage('reports');
 }
 
 // Auto-complete linked job when report signed by both
@@ -3275,56 +3112,40 @@ function linkReportToJob(rpt){
 }
 
 async function saveAndEmailCR(){
-  if(_crSubmitLock)return; // shares the lock with saveCR — blocks cross-button double-tap too
-  _crSubmitLock=true;_crLockButtons(true);
-  try{
-    const d=getCRData();
-    if(!d.jobNo){toast('Job No. required.','error');return;}
-    const em=document.getElementById('crEml')?.value;
-    if(!em){toast('Enter customer email.','error');return;}
-    // Same guards saveCR() applies — this path skipped them entirely before,
-    // so a model-with-no-serial (primary OR extra machine row) saved with no
-    // warning at all here.
-    if(d.model&&!d.serial){
-      if(!confirm('You selected a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
-    }
-    if(d.droppedExtraModels&&d.droppedExtraModels.length){
-      if(!confirm(`Additional machine(s) "${d.droppedExtraModels.join('", "')}" have no serial number and will NOT be saved on this report or added to the registry.\n\nSave the report anyway?`))return;
-    }
-    delete d.droppedExtraModels; // transient warning-only field — don't persist it
-    // Save report — atomic claim + atomic upsert (multi-user safe, no clobber).
-    const _claimed=await _claimNextReportNum();
-    if(/^SR-\d{5}$/i.test(d.jobNo)){d.jobNo='SR-'+String(_claimed).padStart(5,'0');}
-    else if(DB.reports.some(r=>r.jobNo===d.jobNo)){if(!confirm(`Report number "${d.jobNo}" already exists. Save anyway?`)){DB.nR=Math.max(DB.nR,_claimed);return;}}
-    d.id=_claimed;d.scannedAt=new Date().toISOString();
-    if(window._linkedJobId)d.jobId=window._linkedJobId;
-    let c=DB.custs.find(x=>x.name===d.customer);
-    if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:em,agent:''});}
-    else if(c&&em){c.email=em;}
-    linkReportToJob(d);savePartsFromCR();
-    syncReportMachinesToRegistry(d);
-    await _upsertReportAtomic(d);
-    _saveSideEffects();toast('Report saved!','success');window._linkedJobId=null;
-    // Generate PDF and email
-    const result=await generateReportPDF(d,false);
-    const co=CO[d.company]||CO.octopack;
-    const cc=document.getElementById('crCC')?.value||'';
-    const subj=`Service Report ${d.jobNo} — ${d.type} — ${co.name}`;
-    const body=`Dear ${d.contact||'Customer'},\n\nPlease find attached the signed service report.\n\nJob No.: ${d.jobNo}\nDate: ${d.date}\nEquipment: ${d.model} (S/N: ${d.serial})\nType: ${d.type}\nStatus: ${d.status}\n\nRegards,\n${d.engineer||''}\n${co.name}`;
-    // Try native share (mobile can attach PDF directly)
-    if(result&&navigator.share&&navigator.canShare){
-      try{
-        const file=new File([result.blob],result.fileName,{type:'application/pdf'});
-        if(navigator.canShare({files:[file]})){await navigator.share({title:subj,files:[file]});toast('Shared!','success');showPage('reports');return;}
-      }catch(e){if(e.name!=='AbortError')console.warn(e);}
-    }
-    // Fallback: download PDF + open email
-    if(result)result.pdf.save(result.fileName);
-    window.open(`mailto:${em}?cc=${encodeURIComponent(cc)}&subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body+(result?'\n\n📎 Attach the downloaded PDF: '+result.fileName:''))}`);
-    showPage('reports');
-  } finally {
-    _crSubmitLock=false;_crLockButtons(false);
+  const d=getCRData();
+  if(!d.jobNo){toast('Job No. required.','error');return;}
+  const em=document.getElementById('crEml')?.value;
+  if(!em){toast('Enter customer email.','error');return;}
+  // Save report — atomic claim + atomic upsert (multi-user safe, no clobber).
+  const _claimed=await _claimNextReportNum();
+  if(/^SR-\d{5}$/i.test(d.jobNo)){d.jobNo='SR-'+String(_claimed).padStart(5,'0');}
+  else if(DB.reports.some(r=>r.jobNo===d.jobNo)){if(!confirm(`Report number "${d.jobNo}" already exists. Save anyway?`)){DB.nR=Math.max(DB.nR,_claimed);return;}}
+  d.id=_claimed;d.scannedAt=new Date().toISOString();
+  if(window._linkedJobId)d.jobId=window._linkedJobId;
+  let c=DB.custs.find(x=>x.name===d.customer);
+  if(!c&&d.customer){DB.custs.push({id:DB.nC++,name:d.customer,address:'',contact:d.contact,phone:d.contactNum,email:em,agent:''});}
+  else if(c&&em){c.email=em;}
+  linkReportToJob(d);savePartsFromCR();
+  syncReportMachinesToRegistry(d);
+  await _upsertReportAtomic(d);
+  _saveSideEffects();toast('Report saved!','success');window._linkedJobId=null;
+  // Generate PDF and email
+  const result=await generateReportPDF(d,false);
+  const co=CO[d.company]||CO.octopack;
+  const cc=document.getElementById('crCC')?.value||'';
+  const subj=`Service Report ${d.jobNo} — ${d.type} — ${co.name}`;
+  const body=`Dear ${d.contact||'Customer'},\n\nPlease find attached the signed service report.\n\nJob No.: ${d.jobNo}\nDate: ${d.date}\nEquipment: ${d.model} (S/N: ${d.serial})\nType: ${d.type}\nStatus: ${d.status}\n\nRegards,\n${d.engineer||''}\n${co.name}`;
+  // Try native share (mobile can attach PDF directly)
+  if(result&&navigator.share&&navigator.canShare){
+    try{
+      const file=new File([result.blob],result.fileName,{type:'application/pdf'});
+      if(navigator.canShare({files:[file]})){await navigator.share({title:subj,files:[file]});toast('Shared!','success');showPage('reports');return;}
+    }catch(e){if(e.name!=='AbortError')console.warn(e);}
   }
+  // Fallback: download PDF + open email
+  if(result)result.pdf.save(result.fileName);
+  window.open(`mailto:${em}?cc=${encodeURIComponent(cc)}&subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body+(result?'\n\n📎 Attach the downloaded PDF: '+result.fileName:''))}`);
+  showPage('reports');
 }
 
 function previewCR(){const d=getCRData();const fakeId=Date.now();DB.reports.push({...d,id:fakeId});viewRptPreview(fakeId);DB.reports=DB.reports.filter(r=>r.id!==fakeId);}
@@ -3361,7 +3182,7 @@ function renderMachines(){
   ms.forEach(m=>{const c=m.category||'Uncategorized';catCounts[c]=(catCounts[c]||0)+1;});
   const defCount=ms.filter(m=>(m.issues||[]).length>0).length;
   const filtered=curMachCat==='all'?ms:curMachCat==='Defective'?ms.filter(m=>(m.issues||[]).length>0):ms.filter(m=>(m.category||'Uncategorized')===curMachCat);
-  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="rescanReportsForMachines()" title="Scan all service reports for machine serials missing from this registry">🔄 Scan Reports</button><button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-sm btn-s" onclick="openManualMerge(\'machines\')">⇄ Merge</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
+  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-sm btn-s" onclick="openManualMerge(\'machines\')">⇄ Merge</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--bdr)">
     <button class="fc-chip${curMachCat==='all'?' active':''}" onclick="curMachCat='all';renderMachines()">All (${ms.length})</button>
     ${defCount?`<button class="fc-chip${curMachCat==='Defective'?' active':''}" onclick="curMachCat='Defective';renderMachines()" style="${curMachCat==='Defective'?'background:var(--er);border-color:var(--er)':''}">⚠ Defective (${defCount})</button>`:''}
@@ -3440,7 +3261,7 @@ function openMachineModal(data){
     <input class="fc" id="mCatCustom" placeholder="Type new category..." style="display:none;margin-top:6px">
     </div>
     <div class="fr"><div class="fg"><label>Serial Number</label><input class="fc" id="mSr" value="${E(d.serial||'')}" ${d.serial?'readonly style="background:var(--bdr)"':''}></div><div class="fg"><label>Model</label><input class="fc" id="mMd" value="${E(d.model||'')}"></div></div>
-    <div class="fg"><label>Customer</label><select class="fc" id="mCu" onchange="onMachineCustChange()"><option value="">— Select —</option>${cs.map(c=>`<option${c.name===d.customer?' selected':''}>${E(c.name)}</option>`).join('')}</select></div>
+    <div class="fg"><label>Customer</label><select class="fc" id="mCu"><option value="">— Select —</option>${cs.map(c=>`<option${c.name===d.customer?' selected':''}>${E(c.name)}</option>`).join('')}</select></div>
     <div class="fg"><label>Location / Address</label><input class="fc" id="mLo" value="${E(d.location||'')}"></div>
     <div class="fr"><div class="fg"><label>Install Date</label><input class="fc" type="date" id="mDt" value="${E(d.installDate||'')}"></div><div class="fg"><label>Warranty</label><input class="fc" id="mWr" value="${E(d.warranty||'12 months')}"></div></div>
     <div class="fr"><div class="fg"><label>Purchase / Rental</label><select class="fc" id="mPR"><option${d.purchaseRental==='Purchase'?' selected':''}>Purchase</option><option${d.purchaseRental==='Rental'?' selected':''}>Rental</option></select></div><div class="fg"><label>Service Contract</label><input class="fc" id="mSC" value="${E(d.serviceContract||'Nil')}"></div></div>
@@ -3448,18 +3269,6 @@ function openMachineModal(data){
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveMachine()">Save</button>`);
   // Category custom toggle
   setTimeout(()=>{document.getElementById('mCat').onchange=function(){if(this.value==='__other__'){document.getElementById('mCatCustom').style.display='';document.getElementById('mCatCustom').focus();}else{document.getElementById('mCatCustom').style.display='none';}};},50);
-}
-
-// Pull the selected customer's registered address into Location — only when
-// Location is currently blank, so it never clobbers a location someone
-// already typed (same "backfill only if blank" rule syncJobMachineToRegistry
-// and syncJobContactToCustomer already use elsewhere in this app).
-function onMachineCustChange(){
-  const custName=document.getElementById('mCu')?.value;
-  const locInput=document.getElementById('mLo');
-  if(!locInput||!custName||locInput.value.trim())return;
-  const c=getAllCusts().find(x=>x.name===custName);
-  if(c&&c.address)locInput.value=c.address;
 }
 
 function getMachineCategories(){
@@ -4826,19 +4635,8 @@ function editPO(id){
 function savePO(){
   const id=parseInt(document.getElementById('ePoId').value);
   const p=(DB.pos||[]).find(x=>x.id===id);if(!p)return;
-  const newPoNo=document.getElementById('ePoNum').value.trim();
-  // Required — same rule importPO() already enforces on create. Without this,
-  // a blanked poNo breaks this PO's own tracking AND (see guard below) can
-  // cross-contaminate other jobs that also have no PO linked.
-  if(!newPoNo){toast('PO No. required.','error');return;}
-  // Warn on collision with a DIFFERENT existing PO — poNo is the only link
-  // key on the tracking page, so two records sharing one would silently
-  // merge their linked-jobs/reports display together.
-  if(DB.pos.some(x=>x.id!==p.id&&x.poNo===newPoNo)){
-    if(!confirm(`Another PO already uses number "${newPoNo}". Saving will merge their tracking (both share linked jobs/reports by number). Continue?`))return;
-  }
   const oldPoNo=p.poNo;
-  p.poNo=newPoNo;
+  p.poNo=document.getElementById('ePoNum').value.trim();
   p.date=document.getElementById('ePoDate').value;
   p.customer=document.getElementById('ePoCust').value.trim();
   p.title=document.getElementById('ePoTitle').value.trim();
@@ -4853,12 +4651,8 @@ function savePO(){
     DB.jobs.forEach(j=>{if(j.poNo===oldPoNo)j.poNo=p.poNo;});
     DB.reports.forEach(r=>{if(r.poNo===oldPoNo){r.poNo=p.poNo;changedReports.push(r);}});
   }
-  // Update customer field on all linked jobs (match new poNo or legacy jobId).
-  // p.poNo is truthy-guarded here (matches the same guard renderPOTrkCards
-  // uses) — without it, any OTHER job with an empty poNo (the common case for
-  // jobs created without a PO) would match on '' and get its customer field
-  // silently overwritten.
-  DB.jobs.forEach(j=>{if((p.poNo&&j.poNo===p.poNo)||(p.jobId&&j.id===p.jobId)){j.customer=p.customer;}});
+  // Update customer field on all linked jobs (match new poNo or legacy jobId)
+  DB.jobs.forEach(j=>{if(j.poNo===p.poNo||(p.jobId&&j.id===p.jobId)){j.customer=p.customer;}});
   saveDB();
   // saveDB() skips 'reports' — push renamed reports atomically or the PO-No
   // reassignment reverts on the next cloud sync and breaks the report link.
@@ -4867,7 +4661,7 @@ function savePO(){
 }
 
 function delPO(id){
-  if(!confirm('Delete this PO record? (Linked job(s) will NOT be deleted.)'))return;
+  if(!confirm('Delete this PO record? (The linked job will NOT be deleted.)'))return;
   DB.pos=DB.pos.filter(p=>p.id!==id);
   saveDB();renderPOImport();toast('PO record removed.','info');
 }
@@ -5099,12 +4893,6 @@ function importPO(){
     fromPO:true
   };
   DB.jobs.push(j);
-  // Register/update the machine in the maintenance registry — same helper
-  // saveJob() already calls for manually-created jobs. Without this, a PO
-  // naming a machine (model/serial) created a job referencing it but the
-  // machine itself never entered DB.machines: no PM Schedule entry, no
-  // maintenance frequency, never picked up by autoSchedulePM().
-  syncJobMachineToRegistry(j);
   // Also store the PO record itself for tracking
   if(!Array.isArray(DB.pos))DB.pos=[];
   if(!DB.nPO)DB.nPO=1;
@@ -5136,33 +4924,28 @@ function importPO(){
 // Runs on app load — creates Open jobs 2 weeks before due dates
 function autoSchedulePM(){
   if(!Array.isArray(DB.machines)||!DB.machines.length)return;
+  const today=new Date();
   const horizonDays=14;
-  const todayISO=new Date().toISOString().split('T')[0];
   let created=0;
   DB.machines.forEach(m=>{
-    // Routed through getPMStatus() (not a separate calc) so this respects a
-    // manual pmDueOverride exactly like the PM Schedule page + "Create PM Job
-    // Now" button do — otherwise the auto-scan would silently recompute its
-    // own (possibly wrong) date and ignore the override entirely.
-    const pm=getPMStatus(m);
-    if(!pm.hasFreq||pm.daysUntil==null)return;
-    // Trigger on OVERDUE (daysUntil<0) too, not just the upcoming 14-day
-    // window. The old code advanced an overdue date to the NEXT future cycle
-    // before checking the horizon, so a machine overdue by (say) 10 days on a
-    // 6-month interval jumped ~6 months ahead and never got a catch-up job.
-    if(pm.daysUntil>horizonDays)return;
-    // Overdue → schedule today (catch-up); upcoming → the actual due date.
-    const dueISO=pm.daysUntil<0?todayISO:pm.nextDue;
-    if(!dueISO)return;
-    // Dedup on ANY open PM job for this machine (matches the hasOpenJob check
-    // used elsewhere on the PM Schedule page), not an exact date match. An
-    // exact-date dedup let an overdue job's re-scanned "today" date drift with
-    // each scan, creating a fresh duplicate catch-up job every time.
-    const existing=DB.jobs.find(j=>j.machine===m.serial&&j.type==='Preventive Maintenance'&&j.status!=='Completed');
+    if(!m.maintFrequency)return;
+    const freq=parseFloat(m.maintFrequency);if(!freq||freq<=0)return;
+    const intervalMonths=Math.round(12/freq);
+    // Find last service for this machine
+    const lastRpt=DB.reports.filter(r=>r.serial===m.serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+    const lastDate=lastRpt?new Date(lastRpt.date):(m.installDate?new Date(m.installDate):null);
+    if(!lastDate||isNaN(lastDate))return;
+    const nextDue=new Date(lastDate);nextDue.setMonth(nextDue.getMonth()+intervalMonths);
+    // If overdue, advance to next future cycle (so we always check the next upcoming due date)
+    while(nextDue<today){nextDue.setMonth(nextDue.getMonth()+intervalMonths);}
+    const diffDays=Math.round((nextDue-today)/(1000*60*60*24));
+    if(diffDays<0||diffDays>horizonDays)return;
+    // Check if a PM job already exists for this serial in this window
+    const dueISO=nextDue.toISOString().split('T')[0];
+    const existing=DB.jobs.find(j=>j.machine===m.serial&&j.type==='Preventive Maintenance'&&j.date===dueISO&&j.status!=='Completed');
     if(existing)return;
     // Auto-create
     const c=DB.custs.find(x=>x.name===m.customer)||{};
-    const lastRpt=_lastPMReport(m.serial);
     DB.jobs.push({
       id:DB.nJ++,
       title:`Scheduled PM — ${m.model} (${m.serial})`,
@@ -5172,9 +4955,9 @@ function autoSchedulePM(){
       machine:m.serial,model:m.model,
       chargeable:getWarrantyStatus(m.serial).foc?'FOC':'Chargeable',
       poNo:'',techIds:[],techId:null,
-      type:'Preventive Maintenance',priority:pm.daysUntil<0?'High':'Medium',
+      type:'Preventive Maintenance',priority:'Medium',
       date:dueISO,time:'',
-      desc:`Auto-scheduled PM. Last service: ${lastRpt?lastRpt.date:'(install date)'}. Frequency: ${m.maintFrequency||'—'}/year.${pm.manualOverride?' (manual due date)':''}`,
+      desc:`Auto-scheduled PM. Last service: ${lastRpt?lastRpt.date:'(install date)'}. Frequency: ${freq}/year.`,
       status:'Open',
       createdAt:new Date().toISOString(),
       waSent:false,startTime:null,endTime:null,followUp:'',
@@ -5186,44 +4969,17 @@ function autoSchedulePM(){
 }
 
 // Compute PM status for a single machine. Returns {hasFreq, intervalMonths, lastDate, nextDue, daysUntil, statusLabel, statusColor}
-// Latest PM report for a machine serial — checks BOTH the primary r.serial
-// AND every entry in r.machines[] (multi-machine reports), matching the
-// linking convention in getAllMachinesDB(). A serial-only check misses PM
-// visits where this machine was an extra/secondary machine on the report,
-// so "last PM" goes stale and overdue dates never recalculate.
-function _lastPMReport(serial){
-  return DB.reports.filter(r=>{
-    if(r.type!=='Preventive Maintenance')return false;
-    if(r.serial===serial)return true;
-    return Array.isArray(r.machines)&&r.machines.some(mm=>mm&&mm.serial===serial);
-  }).sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
-}
 function getPMStatus(m){
-  const out={hasFreq:false,intervalMonths:0,lastDate:null,nextDue:null,daysUntil:null,statusLabel:'No schedule',statusColor:'var(--t3)',manualOverride:false};
-  const freq=parseFloat(m.maintFrequency)||0;
-  out.lastDate=(_lastPMReport(m.serial)||{}).date||m.installDate||null;
-  // Manual override always wins — user set this because auto-calc from PM
-  // reports / install date was wrong or missing. Skipped entirely until cleared.
-  if(m.pmDueOverride){
-    const nd=new Date(m.pmDueOverride+'T00:00:00');
-    if(isNaN(nd))return out; // corrupt override — fall through as "No schedule" rather than crash
-    out.hasFreq=true;
-    out.manualOverride=true;
-    out.intervalMonths=freq>0?Math.round(12/freq):0;
-    out.nextDue=m.pmDueOverride;
-    const today=new Date();today.setHours(0,0,0,0);
-    out.daysUntil=Math.round((nd-today)/86400000);
-    if(out.daysUntil<0){out.statusLabel='⚠ Overdue since '+out.nextDue;out.statusColor='var(--er)';}
-    else if(out.daysUntil<=14){out.statusLabel='Due in '+out.daysUntil+'d';out.statusColor='var(--wn)';}
-    else if(out.daysUntil<=30){out.statusLabel='Due in '+out.daysUntil+'d';out.statusColor='var(--ac)';}
-    else{out.statusLabel='OK ('+out.daysUntil+'d)';out.statusColor='var(--ok)';}
-    return out;
-  }
-  if(!freq||freq<=0)return out;
+  const out={hasFreq:false,intervalMonths:0,lastDate:null,nextDue:null,daysUntil:null,statusLabel:'No schedule',statusColor:'var(--t3)'};
+  if(!m.maintFrequency)return out;
+  const freq=parseFloat(m.maintFrequency);if(!freq||freq<=0)return out;
   out.hasFreq=true;
   out.intervalMonths=Math.round(12/freq);
-  if(!out.lastDate)return out;
-  const ld=new Date(out.lastDate);if(isNaN(ld))return out;
+  const lastRpt=DB.reports.filter(r=>r.serial===m.serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+  const lastDate=lastRpt?lastRpt.date:(m.installDate||'');
+  if(!lastDate)return out;
+  out.lastDate=lastDate;
+  const ld=new Date(lastDate);if(isNaN(ld))return out;
   const nd=new Date(ld);nd.setMonth(nd.getMonth()+out.intervalMonths);
   const today=new Date();today.setHours(0,0,0,0);
   out.nextDue=nd.toISOString().split('T')[0];
@@ -5287,20 +5043,19 @@ function renderPMSchedule(){
       const hasOpenJob=DB.jobs.find(j=>j.machine===m.serial&&j.type==='Preventive Maintenance'&&j.status!=='Completed');
       return`<div class="rpt-card">
         <div class="rpt-card-top"><span style="font-weight:700">${E(m.model)} — ${E(m.serial)}</span>
-          <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="bd" style="background:${pm.statusColor}20;color:${pm.statusColor};border:1px solid ${pm.statusColor}">${pm.statusLabel}</span>${pm.manualOverride?'<span class="bd bd-pu" style="font-size:10px">✏ Manual</span>':''}</div>
+          <span class="bd" style="background:${pm.statusColor}20;color:${pm.statusColor};border:1px solid ${pm.statusColor}">${pm.statusLabel}</span>
         </div>
         <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(m.customer||'')}</span></div>
         <div class="rpt-card-row"><span class="rc-label">Location</span><span class="rc-val" style="max-width:65%">${E(m.location||'')}</span></div>
         ${pm.hasFreq?`
-          ${m.maintFrequency?`<div class="rpt-card-row"><span class="rc-label">Frequency</span><span class="rc-val">${E(m.maintFrequency)} / year (every ${pm.intervalMonths} months)</span></div>`:`<div class="rpt-card-row"><span class="rc-label">Frequency</span><span class="rc-val" style="color:var(--t3);font-style:italic">Not set — manual date only</span></div>`}
+          <div class="rpt-card-row"><span class="rc-label">Frequency</span><span class="rc-val">${E(m.maintFrequency)} / year (every ${pm.intervalMonths} months)</span></div>
           <div class="rpt-card-row"><span class="rc-label">Last PM</span><span class="rc-val">${E(pm.lastDate||'(using install date)')}</span></div>
-          <div class="rpt-card-row"><span class="rc-label">Next Due</span><span class="rc-val" style="font-weight:700;color:${pm.statusColor}">${E(pm.nextDue||'—')}${pm.manualOverride?' <span style="font-weight:500;color:var(--pu)">(manual)</span>':''}</span></div>
+          <div class="rpt-card-row"><span class="rc-label">Next Due</span><span class="rc-val" style="font-weight:700;color:${pm.statusColor}">${E(pm.nextDue||'—')}</span></div>
           ${hasOpenJob?`<div class="rpt-card-row"><span class="rc-label">Open Job</span><span class="rc-val"><span class="bd bd-ac">JOB-${String(hasOpenJob.id).padStart(4,'0')}</span> ${E(hasOpenJob.date||'')}</span></div>`:''}
         `:`<div class="rpt-card-row"><span class="rc-label">PM Setup</span><span class="rc-val" style="color:var(--t3);font-style:italic">No maintenance frequency set</span></div>`}
         <div class="rpt-card-actions">
           ${pm.hasFreq&&!hasOpenJob&&pm.daysUntil!=null&&pm.daysUntil<=30?`<button class="btn btn-sm btn-ok" onclick="createPMJobNow('${E(m.serial)}')">📅 Create PM Job Now</button>`:''}
-          ${canEdit()?`<button class="btn btn-sm btn-s" onclick="openPMFreqModal('${E(m.serial)}')">⚙ ${m.maintFrequency?'Edit Frequency':'Set PM Frequency'}</button>`:''}
-          ${canEdit()?`<button class="btn btn-sm btn-s" onclick="openPMDueOverrideModal('${E(m.serial)}')">📅 ${m.pmDueOverride?'Edit Due Date':'Set Due Date Manually'}</button>`:''}
+          ${canEdit()?`<button class="btn btn-sm btn-s" onclick="openPMFreqModal('${E(m.serial)}')">⚙ ${pm.hasFreq?'Edit Frequency':'Set PM Frequency'}</button>`:''}
           ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editMachine('${E(m.serial)}')">Edit Machine</button>`:''}
         </div>
       </div>`;
@@ -5325,7 +5080,7 @@ function openPMFreqModal(serial){
       </select>
     </div>
     <div class="fg"><label>Service Contract Note (optional)</label><input class="fc" id="pmSC" value="${E(m.serviceContract||'')}" placeholder="e.g. 2 yrs contract until 2027"></div>
-    <p style="font-size:var(--fs-xs);color:var(--t3)">Last PM: ${E((_lastPMReport(serial)||{}).date||'(none — install date will be used)')}</p>
+    <p style="font-size:var(--fs-xs);color:var(--t3)">Last PM: ${E((DB.reports.filter(r=>r.serial===serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0]||{}).date||'(none — install date will be used)')}</p>
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="savePMFreq('${E(serial)}')">Save</button>`);
 }
 
@@ -5336,36 +5091,6 @@ function savePMFreq(serial){
   saveDB();closeModal();renderPMSchedule();toast('PM schedule updated.','success');
 }
 
-// Manual PM due-date override — for when auto-calc (from PM reports / install
-// date) is wrong or missing. Takes priority over the calculated date in
-// getPMStatus() until cleared. Stored as m.pmDueOverride ('YYYY-MM-DD').
-function openPMDueOverrideModal(serial){
-  const m=(DB.machines||[]).find(x=>x.serial===serial);
-  if(!m){toast('Machine not found.','error');return;}
-  const pm=getPMStatus(m);
-  openModal('Set PM Due Date — '+E(m.model)+' ('+E(serial)+')',`
-    <p style="color:var(--t2);margin-bottom:14px">Manually set this machine's next PM due date. Use this when the auto-calculated date is wrong or missing (e.g. no PM report on file, or a bad install date). The manual date overrides auto-calculation until you clear it.</p>
-    <div class="fg"><label>Next PM Due Date</label><input class="fc" type="date" id="pmDueDt" value="${E(m.pmDueOverride||pm.nextDue||'')}"></div>
-    <p style="font-size:var(--fs-xs);color:var(--t3)">Auto-calculated date: ${E(pm.manualOverride?'(hidden while override is set)':(pm.nextDue||'— (no frequency / last PM on file)'))}</p>
-  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button>${m.pmDueOverride?`<button class="btn btn-d" onclick="clearPMDueOverride('${E(serial)}')">Clear Override</button>`:''}<button class="btn btn-p" onclick="savePMDueOverride('${E(serial)}')">Save</button>`);
-}
-function savePMDueOverride(serial){
-  const dt=document.getElementById('pmDueDt').value;
-  if(!dt){toast('Pick a date.','error');return;}
-  const m=(DB.machines||[]).find(x=>x.serial===serial);if(!m)return;
-  m.pmDueOverride=dt;
-  saveDB();closeModal();renderPMSchedule();
-  if(document.getElementById('dashContent'))renderDash();
-  toast('PM due date set manually.','success');
-}
-function clearPMDueOverride(serial){
-  const m=(DB.machines||[]).find(x=>x.serial===serial);if(!m)return;
-  delete m.pmDueOverride;
-  saveDB();closeModal();renderPMSchedule();
-  if(document.getElementById('dashContent'))renderDash();
-  toast('Manual override cleared — using auto-calculated date.','info');
-}
-
 function createPMJobNow(serial){
   const m=(DB.machines||[]).find(x=>x.serial===serial);if(!m)return;
   const pm=getPMStatus(m);
@@ -5373,7 +5098,7 @@ function createPMJobNow(serial){
   const today=new Date().toISOString().split('T')[0];
   // Overdue → schedule today. Future → use due date.
   const dueISO=(pm.daysUntil!=null&&pm.daysUntil<0)?today:(pm.nextDue||today);
-  const lastRpt=_lastPMReport(m.serial);
+  const lastRpt=DB.reports.filter(r=>r.serial===m.serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
   DB.jobs.push({
     id:DB.nJ++,
     title:`PM — ${m.model} (${m.serial})`,
@@ -5500,7 +5225,7 @@ function exportCSV(table){
       headers=['id','name','address','contact','phone','email','agent'];
       rows=DB.custs;break;
     case 'machines':
-      headers=['id','serial','model','category','customer','location','installDate','warranty','purchaseRental','serviceContract','maintFrequency','pmDueOverride'];
+      headers=['id','serial','model','category','customer','location','installDate','warranty','purchaseRental','serviceContract','maintFrequency'];
       rows=DB.machines||[];break;
     case 'reports':
       headers=['id','company','jobNo','date','customer','contact','contactNum','model','serial','machines','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit','checklist','checklists'];
@@ -5544,7 +5269,7 @@ function downloadTemplate(){
   const type=document.getElementById('impType').value;
   const templates={
     customers:'id,name,address,contact,phone,email,agent\n,Example Corp,123 Main St,John Doe,+6512345678,john@example.com,Redbox Global Solutions Pte Ltd',
-    machines:'id,serial,model,category,customer,location,installDate,warranty,purchaseRental,serviceContract,maintFrequency,pmDueOverride\n,SN12345,ET300PPS,Stretch Wrapping Machines,Example Corp,123 Main St,2024-01-15,12 months,Purchase,Nil,,',
+    machines:'id,serial,model,category,customer,location,installDate,warranty,purchaseRental,serviceContract,maintFrequency\n,SN12345,ET300PPS,Stretch Wrapping Machines,Example Corp,123 Main St,2024-01-15,12 months,Purchase,Nil,',
     reports:'id,company,jobNo,date,customer,contact,contactNum,model,serial,machines,engineer,type,timeStart,timeEnd,remarks,recommendations,status,nextVisit,checklist\n,octopack,SR-99999,2026-04-15,Example Corp,John,+65123,ET300PPS,SN12345,"[{""model"":""ET300PPS"",""serial"":""SN12345""}]",Colin Tan,Preventive Maintenance,09:00,11:00,Performed PM,All OK,Completed,,',
     jobs:'id,title,customer,machine,model,type,priority,date,time,status,desc\n,PM Service Example,Example Corp,SN12345,ET300PPS,Preventive Maintenance,Medium,2026-05-01,09:00,Open,Routine PM check',
     technicians:'id,name,phone,email,spec\n,New Tech,+6599999999,tech@company.com,General',
@@ -5617,8 +5342,8 @@ function importCSV(){
             if(!obj.serial)return;
             if(!Array.isArray(DB.machines))DB.machines=[];
             const existing=DB.machines.find(m=>m.serial===obj.serial);
-            if(existing){Object.assign(existing,{model:obj.model||existing.model,category:obj.category||existing.category,customer:obj.customer||existing.customer,location:obj.location||existing.location,installDate:obj.installdate||existing.installDate,warranty:obj.warranty||existing.warranty,purchaseRental:obj.purchaserental||existing.purchaseRental,serviceContract:obj.servicecontract||existing.serviceContract,maintFrequency:obj.maintfrequency||existing.maintFrequency,pmDueOverride:obj.pmdueoverride||existing.pmDueOverride});updated++;}
-            else{DB.machines.push({id:DB.nM++,serial:obj.serial,model:obj.model||'',category:obj.category||'',customer:obj.customer||'',location:obj.location||'',installDate:obj.installdate||'',warranty:obj.warranty||'12 months',purchaseRental:obj.purchaserental||'Purchase',serviceContract:obj.servicecontract||'Nil',maintFrequency:obj.maintfrequency||'',pmDueOverride:obj.pmdueoverride||''});added++;}
+            if(existing){Object.assign(existing,{model:obj.model||existing.model,category:obj.category||existing.category,customer:obj.customer||existing.customer,location:obj.location||existing.location,installDate:obj.installdate||existing.installDate,warranty:obj.warranty||existing.warranty,purchaseRental:obj.purchaserental||existing.purchaseRental,serviceContract:obj.servicecontract||existing.serviceContract,maintFrequency:obj.maintfrequency||existing.maintFrequency});updated++;}
+            else{DB.machines.push({id:DB.nM++,serial:obj.serial,model:obj.model||'',category:obj.category||'',customer:obj.customer||'',location:obj.location||'',installDate:obj.installdate||'',warranty:obj.warranty||'12 months',purchaseRental:obj.purchaserental||'Purchase',serviceContract:obj.servicecontract||'Nil',maintFrequency:obj.maintfrequency||''});added++;}
             break;
           }
           case 'reports':{
