@@ -429,13 +429,21 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
 <script>
 // ===== FIREBASE =====
 const FB_CFG={apiKey:"AIzaSyCSQAS7mFBlTfmz0FVWaSLgI-Puk1Y3sN4",authDomain:"octocrm1.firebaseapp.com",databaseURL:"https://octocrm1-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"octocrm1",storageBucket:"octocrm1.firebasestorage.app",messagingSenderId:"212247591529",appId:"1:212247591529:web:4a076e40a71b59646b00f8"};
-const USE_FB=true;let fbDB=null,fbOK=false;
+const USE_FB=true;let fbDB=null,fbOK=false,fbStorage=null,fbAuthReady=false;
 
 function initFB(){
   if(!USE_FB)return;
   try{
     if(!firebase.apps.length)firebase.initializeApp(FB_CFG);
     fbDB=firebase.database();
+    // Cloud photo storage (optional — degrades to inline base64 if unavailable).
+    try{
+      if(firebase.storage){fbStorage=firebase.storage();}
+      if(firebase.auth){
+        firebase.auth().onAuthStateChanged(u=>{fbAuthReady=!!u;});
+        firebase.auth().signInAnonymously().catch(e=>console.warn('anon auth (photos will stay inline until enabled):',e&&e.code||e));
+      }
+    }catch(e){console.warn('storage/auth init:',e);}
     fbDB.ref('.info/connected').on('value',s=>{fbOK=s.val()===true;updSync();});
     fbDB.ref('octoCRM_v4').on('value',s=>{
       const d=s.val();
@@ -1773,7 +1781,7 @@ function _paintSigCanvas(cid,dataUrl){
 }
 
 function addErPhotos(files){if(!files)return;Array.from(files).forEach(f=>{if(window._erPhotos.length>=10)return;const r=new FileReader();r.onload=e=>{compImg(e.target.result,800,.7,d=>{window._erPhotos.push({dataUrl:d,caption:'Photo '+(window._erPhotos.length+1),timestamp:new Date().toLocaleString()});updErPhGrid();});};r.readAsDataURL(f);});}
-function updErPhGrid(){const g=document.getElementById('erPhGrid');if(!g)return;const ps=window._erPhotos||[];if(!ps.length){g.innerHTML='<span style="color:var(--t3);font-size:var(--fs-sm)">No photos.</span>';return;}g.innerHTML=ps.map((p,i)=>`<div class="photo-thumb"><img src="${p.dataUrl}" onclick="openLBx(window._erPhotos,${i})"><button class="photo-del" onclick="event.stopPropagation();window._erPhotos.splice(${i},1);updErPhGrid()">✕</button></div>`).join('');}
+function updErPhGrid(){const g=document.getElementById('erPhGrid');if(!g)return;const ps=window._erPhotos||[];if(!ps.length){g.innerHTML='<span style="color:var(--t3);font-size:var(--fs-sm)">No photos.</span>';return;}g.innerHTML=ps.map((p,i)=>`<div class="photo-thumb"><img src="${photoSrc(p)}" onclick="openLBx(window._erPhotos,${i})"><button class="photo-del" onclick="event.stopPropagation();window._erPhotos.splice(${i},1);updErPhGrid()">✕</button></div>`).join('');}
 
 function erAddChecklist(tplId){
   if(!tplId)return;
@@ -1843,7 +1851,7 @@ function erRenderChecklists(){
   host.innerHTML=html;
 }
 
-function saveEditReport(){
+async function saveEditReport(){
   const id=parseInt(document.getElementById('erId').value);
   const i=DB.reports.findIndex(r=>r.id===id);if(i<0){toast('Report not found.','error');return;}
   const checkedEng=[...document.querySelectorAll('.erEnChk:checked')].map(c=>c.value);
@@ -1888,6 +1896,7 @@ function saveEditReport(){
     checklists:cls.length?JSON.parse(JSON.stringify(cls)):[]
   };
   syncReportMachinesToRegistry(DB.reports[i]);
+  await uploadReportPhotos(DB.reports[i]);
   _upsertReportAtomic(DB.reports[i]);
   // Persist side-effects (new machines, bumped nM, customer backfills) to the
   // cloud. Without this, machines registered during an edit live only in memory
@@ -1915,7 +1924,7 @@ function viewRptPreview(id){
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Recommendations</th><td colspan="3" style="border:1px solid #ccc;padding:8px;white-space:pre-line">${E(r.recommendations)}</td></tr>
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Status</th><td style="border:1px solid #ccc;padding:8px;font-weight:700">${E(r.status)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Next Visit</th><td style="border:1px solid #ccc;padding:8px">${E(r.nextVisit||'—')}</td></tr></table>
     ${(()=>{const arr=Array.isArray(r.checklists)&&r.checklists.length?r.checklists:(r.checklist&&r.checklist.tplId?[r.checklist]:[]);if(!arr.length)return'';const tot=arr.reduce((a,c)=>{a.ok+=(c.items||[]).filter(i=>i.status==='OK').length;a.ng+=(c.items||[]).filter(i=>i.status==='NG').length;a.na+=(c.items||[]).filter(i=>i.status==='NA').length;a.n+=(c.items||[]).length;return a;},{ok:0,ng:0,na:0,n:0});return `<div style="margin-top:16px;padding:10px 12px;background:#eef4ff;border:1px solid #c9d6ee;border-radius:6px;font-size:12px"><strong>✅ PM Checklist${arr.length>1?'s':''} Attached:</strong> ${arr.map(c=>E(PM_CHECKLISTS[c.tplId]?.name||c.tplId)+(c.serial?' (S/N: '+E(c.serial)+')':'')).join(', ')} — ${tot.ok} OK / ${tot.ng} NG / ${tot.na} NA out of ${tot.n} items. <em>Full checklist included in PDF export.</em></div>`;})()}
-    ${photos.length?`<div style="margin-top:16px;padding-top:12px;border-top:1px solid #ddd"><strong>📸 Photos (${photos.length})</strong><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${photos.map((p,i)=>`<img src="${p.dataUrl}" style="width:100px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #ccc;cursor:pointer" onclick="openLBx(DB.reports.find(x=>x.id===${id}).photos,${i})">`).join('')}</div></div>`:''}
+    ${photos.length?`<div style="margin-top:16px;padding-top:12px;border-top:1px solid #ddd"><strong>📸 Photos (${photos.length})</strong><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${photos.map((p,i)=>`<img src="${photoSrc(p)}" style="width:100px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #ccc;cursor:pointer" onclick="openLBx(DB.reports.find(x=>x.id===${id}).photos,${i})">`).join('')}</div></div>`:''}
     ${r.engSig||r.custSig?`<div style="display:flex;justify-content:space-between;margin-top:20px;padding-top:16px;border-top:2px solid #333"><div style="text-align:center;width:45%">${r.engSig?`<img src="${r.engSig}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">ENGINEER</div></div><div style="text-align:center;width:45%">${r.custSig?`<img src="${r.custSig}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">${E(r.sigName||'CUSTOMER')}</div></div></div>`:''}
   </div>`;
   openModal('Report Preview — '+r.jobNo,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>${canEdit()?`<button class="btn btn-s" onclick="closeModal();editReport(${r.id})">✏ Edit</button>`:''}<button class="btn btn-s" onclick="downloadReportPDF(${r.id})">📥 PDF</button><button class="btn btn-p" onclick="emailReportPDF(${r.id})">📧 Email PDF</button>`);
@@ -2674,8 +2683,8 @@ function renderCreateReport(){
       </div>
 
       <div style="display:flex;gap:10px;margin-top:20px;flex-wrap:wrap">
-        <button class="btn btn-ok" onclick="saveAndEmailCR()">💾 Save & Email PDF</button>
-        <button class="btn btn-p" onclick="saveCR()">Save Only</button>
+        <button class="btn btn-ok" id="crSaveEmailBtn" onclick="saveAndEmailCR()">💾 Save & Email PDF</button>
+        <button class="btn btn-p" id="crSaveBtn" onclick="saveCR()">Save Only</button>
         <button class="btn btn-s" onclick="previewCR()">👁 Preview</button>
       </div>
     </div>`;
@@ -2978,12 +2987,64 @@ function addCCEmail(email){
 
 function addCrPhotos(files){if(!files)return;Array.from(files).forEach(f=>{if(crPhotos.length>=10)return;const r=new FileReader();r.onload=e=>{compImg(e.target.result,800,.7,d=>{crPhotos.push({dataUrl:d,caption:'Photo '+(crPhotos.length+1),timestamp:new Date().toLocaleString()});updCrPhGrid();});};r.readAsDataURL(f);});}
 function compImg(src,maxW,q,cb){const img=new Image();img.onload=function(){const c=document.createElement('canvas');let w=img.width,h=img.height;if(w>maxW){h=h*(maxW/w);w=maxW;}c.width=w;c.height=h;const ctx=c.getContext('2d');ctx.drawImage(img,0,0,w,h);cb(c.toDataURL('image/jpeg',q));};img.src=src;}
-function updCrPhGrid(){const g=document.getElementById('crPhGrid');if(!crPhotos.length){g.innerHTML='<span style="color:var(--t3);font-size:var(--fs-sm)">No photos yet.</span>';return;}g.innerHTML=crPhotos.map((p,i)=>`<div class="photo-thumb"><img src="${p.dataUrl}" onclick="openLBx(crPhotos,${i})"><button class="photo-del" onclick="event.stopPropagation();crPhotos.splice(${i},1);updCrPhGrid()">✕</button></div>`).join('');}
+function updCrPhGrid(){const g=document.getElementById('crPhGrid');if(!crPhotos.length){g.innerHTML='<span style="color:var(--t3);font-size:var(--fs-sm)">No photos yet.</span>';return;}g.innerHTML=crPhotos.map((p,i)=>`<div class="photo-thumb"><img src="${photoSrc(p)}" onclick="openLBx(crPhotos,${i})"><button class="photo-del" onclick="event.stopPropagation();crPhotos.splice(${i},1);updCrPhGrid()">✕</button></div>`).join('');}
 
 function initSig(cid){const c=document.getElementById(cid);if(!c)return;const ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);ctx.strokeStyle='#222';ctx.lineWidth=2;ctx.lineCap='round';c._drawn=false;let d=false;function gp(e){const r=c.getBoundingClientRect(),sx=c.width/r.width,sy=c.height/r.height,t=e.touches?e.touches[0]:e;return{x:(t.clientX-r.left)*sx,y:(t.clientY-r.top)*sy}}
 c.addEventListener('mousedown',e=>{d=true;const p=gp(e);ctx.beginPath();ctx.moveTo(p.x,p.y)});c.addEventListener('mousemove',e=>{if(!d)return;const p=gp(e);ctx.lineTo(p.x,p.y);ctx.stroke();c._drawn=true});c.addEventListener('mouseup',()=>d=false);c.addEventListener('mouseleave',()=>d=false);
 c.addEventListener('touchstart',e=>{e.preventDefault();d=true;const p=gp(e);ctx.beginPath();ctx.moveTo(p.x,p.y)},{passive:false});c.addEventListener('touchmove',e=>{e.preventDefault();if(!d)return;const p=gp(e);ctx.lineTo(p.x,p.y);ctx.stroke();c._drawn=true},{passive:false});c.addEventListener('touchend',()=>d=false);}
 function clrSig(cid){const c=document.getElementById(cid);if(!c)return;const ctx=c.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);c._drawn=false;}
+
+// ===== CLOUD PHOTO STORAGE (Firebase Storage) =====
+// Photos are captured as compressed base64 (works offline). On report SAVE we try
+// to upload each new photo to Firebase Storage and replace the heavy base64 with a
+// small URL. If upload fails (offline / Storage not yet enabled) the base64 is kept
+// as a fallback, so nothing is ever lost and the app behaves like before.
+// A photo object is one of: {dataUrl,...} (not uploaded) or {url,path,...} (uploaded).
+
+// Resolve the best <img src> for a photo object — URL if uploaded, else inline base64.
+function photoSrc(p){return (p&&(p.url||p.dataUrl))||'';}
+
+// Upload a single base64 data URL to Storage; returns {url, path}.
+async function _uploadPhotoDataUrl(reportId,dataUrl,idx){
+  if(!fbStorage)throw new Error('storage-unavailable');
+  const path=`reports/${reportId}/${Date.now()}_${idx}.jpg`;
+  const ref=fbStorage.ref().child(path);
+  await ref.putString(dataUrl,'data_url',{contentType:'image/jpeg'});
+  const url=await ref.getDownloadURL();
+  return {url,path};
+}
+
+// Upload any not-yet-uploaded photos on a report, mutating each photo in place:
+// on success sets p.url + p.path and DROPS p.dataUrl (the storage win). On failure
+// leaves p.dataUrl untouched (offline fallback). Returns count uploaded.
+async function uploadReportPhotos(rpt){
+  if(!rpt||!Array.isArray(rpt.photos)||!rpt.photos.length)return 0;
+  if(!fbStorage||!fbAuthReady)return 0;   // Storage/auth not ready → keep base64, no-op
+  let n=0;
+  for(let i=0;i<rpt.photos.length;i++){
+    const p=rpt.photos[i];
+    if(!p||p.url||!p.dataUrl)continue;     // already uploaded or nothing to upload
+    try{
+      const {url,path}=await _uploadPhotoDataUrl(rpt.id,p.dataUrl,i);
+      p.url=url;p.path=path;delete p.dataUrl;   // shrink: keep only the URL
+      n++;
+    }catch(e){console.warn('photo upload failed (kept inline):',e&&e.code||e);}
+  }
+  return n;
+}
+
+// For PDF embedding: convert a Storage URL to a base64 data URL (needs bucket CORS).
+// Returns a data URL, or '' if it can't be fetched (PDF then omits that photo).
+async function _photoToDataUrlForPdf(p){
+  if(!p)return '';
+  if(p.dataUrl)return p.dataUrl;
+  if(!p.url)return '';
+  try{
+    const resp=await fetch(p.url,{mode:'cors'});
+    const blob=await resp.blob();
+    return await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob);});
+  }catch(e){console.warn('PDF photo fetch failed (needs bucket CORS):',e&&e.message||e);return '';}
+}
 
 function getFieldVal(selId,customId){
   const sel=document.getElementById(selId);
@@ -3058,13 +3119,31 @@ function savePartsFromCR(){
   });
 }
 
+// Guard against double-submit (Android sometimes fires the tap twice, or a user
+// re-taps during the slow async save → a second report number is claimed and a
+// duplicate report is created). This flag + button-disable makes save re-entrant-safe.
+let _crSaving=false;
+function _setCRSaving(on,label){
+  _crSaving=on;
+  ['crSaveBtn','crSaveEmailBtn'].forEach(id=>{
+    const b=document.getElementById(id);
+    if(!b)return;
+    b.disabled=on;
+    if(on){b.dataset._t=b.dataset._t||b.textContent;b.textContent=label||'Saving…';}
+    else if(b.dataset._t){b.textContent=b.dataset._t;delete b.dataset._t;}
+  });
+}
+
 async function saveCR(){
+  if(_crSaving)return;
   const d=getCRData();
   if(!d.jobNo){toast('Job No. required.','error');return;}
   // Guard: model picked but no serial → machine can't be registered, warn user
   if(d.model&&!d.serial){
     if(!confirm('You selected a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
   }
+  _setCRSaving(true);
+  try{
   // 1. Atomically claim a unique report id from cloud (prevents duplicate SR numbers)
   const claimed=await _claimNextReportNum();
   // 2. If user kept the auto-prefilled SR-NNNNN format, sync it to the actually-claimed number
@@ -3076,6 +3155,8 @@ async function saveCR(){
   d.id=claimed;
   d.scannedAt=new Date().toISOString();
   if(window._linkedJobId)d.jobId=window._linkedJobId;
+  // 2b. Upload photos to cloud storage (replaces base64 w/ URL; keeps base64 if offline)
+  await uploadReportPhotos(d);
   // 3. Atomically append to cloud reports array — concurrent saves both survive
   await _appendReportAtomic(d);
   // 4. Side effects (new cust / parts / job link)
@@ -3093,6 +3174,8 @@ async function saveCR(){
   toast('Report saved!','success');
   window._linkedJobId=null;
   showPage('reports');
+  }catch(e){toast('Save failed: '+((e&&e.message)||e),'error');}
+  finally{_setCRSaving(false);}
 }
 
 // Auto-complete linked job when report signed by both
@@ -3112,10 +3195,13 @@ function linkReportToJob(rpt){
 }
 
 async function saveAndEmailCR(){
+  if(_crSaving)return;
   const d=getCRData();
   if(!d.jobNo){toast('Job No. required.','error');return;}
   const em=document.getElementById('crEml')?.value;
   if(!em){toast('Enter customer email.','error');return;}
+  _setCRSaving(true);
+  try{
   // Save report — atomic claim + atomic upsert (multi-user safe, no clobber).
   const _claimed=await _claimNextReportNum();
   if(/^SR-\d{5}$/i.test(d.jobNo)){d.jobNo='SR-'+String(_claimed).padStart(5,'0');}
@@ -3127,6 +3213,7 @@ async function saveAndEmailCR(){
   else if(c&&em){c.email=em;}
   linkReportToJob(d);savePartsFromCR();
   syncReportMachinesToRegistry(d);
+  await uploadReportPhotos(d);
   await _upsertReportAtomic(d);
   _saveSideEffects();toast('Report saved!','success');window._linkedJobId=null;
   // Generate PDF and email
@@ -3146,6 +3233,8 @@ async function saveAndEmailCR(){
   if(result)result.pdf.save(result.fileName);
   window.open(`mailto:${em}?cc=${encodeURIComponent(cc)}&subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(body+(result?'\n\n📎 Attach the downloaded PDF: '+result.fileName:''))}`);
   showPage('reports');
+  }catch(e){toast('Save failed: '+((e&&e.message)||e),'error');}
+  finally{_setCRSaving(false);}
 }
 
 function previewCR(){const d=getCRData();const fakeId=Date.now();DB.reports.push({...d,id:fakeId});viewRptPreview(fakeId);DB.reports=DB.reports.filter(r=>r.id!==fakeId);}
@@ -3182,7 +3271,23 @@ function renderMachines(){
   ms.forEach(m=>{const c=m.category||'Uncategorized';catCounts[c]=(catCounts[c]||0)+1;});
   const defCount=ms.filter(m=>(m.issues||[]).length>0).length;
   const filtered=curMachCat==='all'?ms:curMachCat==='Defective'?ms.filter(m=>(m.issues||[]).length>0):ms.filter(m=>(m.category||'Uncategorized')===curMachCat);
-  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-sm btn-s" onclick="openManualMerge(\'machines\')">⇄ Merge</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
+  const cs=getAllCusts();
+  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?`<button class="btn btn-sm btn-s" onclick="scanRegisterMachines()">🔎 Scan Reports</button><button class="btn btn-sm ${bulkMode?'btn-p':'btn-s'}" onclick="toggleBulkMode()">${bulkMode?'✓ Done':'☰ Bulk Edit'}</button><button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-sm btn-s" onclick="openManualMerge('machines')">⇄ Merge</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>`:''}</div></div>
+  ${bulkMode?`<div style="padding:12px 20px;border-bottom:1px solid var(--bdr);background:var(--acs)">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <strong><span id="bulkCount">${bulkSel.size}</span> selected</strong>
+      <div style="display:flex;gap:8px"><button class="btn btn-sm btn-s" onclick="bulkSelectAll()">Select all shown</button><button class="btn btn-sm btn-s" onclick="bulkClear()">Clear</button></div>
+    </div>
+    <div class="fr" style="margin-top:10px">
+      <div class="fg"><label>Set Category</label><select class="fc" id="bkCat"><option value="">— keep —</option>${cats.map(c=>`<option>${E(c)}</option>`).join('')}</select></div>
+      <div class="fg"><label>Set Customer</label><select class="fc" id="bkCust"><option value="">— keep —</option>${cs.map(c=>`<option>${E(c.name)}</option>`).join('')}</select></div>
+    </div>
+    <div class="fr">
+      <div class="fg"><label>Set Warranty</label><input class="fc" id="bkWr" placeholder="— keep —"></div>
+      <div class="fg"><label>Set Purchase / Rental</label><select class="fc" id="bkPR"><option value="">— keep —</option><option>Purchase</option><option>Rental</option></select></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn btn-p btn-sm" onclick="applyBulkEdit()">Apply to selected</button></div>
+  </div>`:''}
   <div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--bdr)">
     <button class="fc-chip${curMachCat==='all'?' active':''}" onclick="curMachCat='all';renderMachines()">All (${ms.length})</button>
     ${defCount?`<button class="fc-chip${curMachCat==='Defective'?' active':''}" onclick="curMachCat='Defective';renderMachines()" style="${curMachCat==='Defective'?'background:var(--er);border-color:var(--er)':''}">⚠ Defective (${defCount})</button>`:''}
@@ -3196,7 +3301,8 @@ function mCards(ms){
   if(!ms.length)return'<div class="es"><p>No machines found.</p></div>';
   return ms.map(m=>{
     const custExists=DB.custs.find(c=>c.name===m.customer);
-    return`<div class="rpt-card">
+    return`<div class="rpt-card"${bulkMode&&bulkSel.has(m.serial)?' style="box-shadow:inset 0 0 0 2px var(--ac)"':''}>
+    ${bulkMode?`<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;cursor:pointer"><input type="checkbox" ${bulkSel.has(m.serial)?'checked':''} onchange="toggleBulk('${E(m.serial)}')"> Select</label>`:''}
     <div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(m.serial)}</span><div style="display:flex;gap:6px;flex-wrap:wrap">${m.category?`<span class="bd bd-pu" style="font-size:10px">${E(m.category)}</span>`:''}<span class="bd ${(m.issues||[]).length?'bd-wn':'bd-ok'}">${(m.issues||[]).length?'Issues':'OK'}</span></div></div>
     <div class="rpt-card-row"><span class="rc-label">Model</span><span class="rc-val">${E(m.model)}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${custExists?`<button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="viewMachineCust('${E(m.customer)}')">${E(m.customer)} →</button>`:`${E(m.customer)}`}</span></div>
@@ -3261,7 +3367,7 @@ function openMachineModal(data){
     <input class="fc" id="mCatCustom" placeholder="Type new category..." style="display:none;margin-top:6px">
     </div>
     <div class="fr"><div class="fg"><label>Serial Number</label><input class="fc" id="mSr" value="${E(d.serial||'')}" ${d.serial?'readonly style="background:var(--bdr)"':''}></div><div class="fg"><label>Model</label><input class="fc" id="mMd" value="${E(d.model||'')}"></div></div>
-    <div class="fg"><label>Customer</label><select class="fc" id="mCu"><option value="">— Select —</option>${cs.map(c=>`<option${c.name===d.customer?' selected':''}>${E(c.name)}</option>`).join('')}</select></div>
+    <div class="fg"><label>Customer</label><select class="fc" id="mCu" onchange="onMachineCustChange()"><option value="">— Select —</option>${cs.map(c=>`<option${c.name===d.customer?' selected':''}>${E(c.name)}</option>`).join('')}</select></div>
     <div class="fg"><label>Location / Address</label><input class="fc" id="mLo" value="${E(d.location||'')}"></div>
     <div class="fr"><div class="fg"><label>Install Date</label><input class="fc" type="date" id="mDt" value="${E(d.installDate||'')}"></div><div class="fg"><label>Warranty</label><input class="fc" id="mWr" value="${E(d.warranty||'12 months')}"></div></div>
     <div class="fr"><div class="fg"><label>Purchase / Rental</label><select class="fc" id="mPR"><option${d.purchaseRental==='Purchase'?' selected':''}>Purchase</option><option${d.purchaseRental==='Rental'?' selected':''}>Rental</option></select></div><div class="fg"><label>Service Contract</label><input class="fc" id="mSC" value="${E(d.serviceContract||'Nil')}"></div></div>
@@ -3269,6 +3375,89 @@ function openMachineModal(data){
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveMachine()">Save</button>`);
   // Category custom toggle
   setTimeout(()=>{document.getElementById('mCat').onchange=function(){if(this.value==='__other__'){document.getElementById('mCatCustom').style.display='';document.getElementById('mCatCustom').focus();}else{document.getElementById('mCatCustom').style.display='none';}};},50);
+}
+
+// Auto-fill the machine's Location/Address from the selected customer (only if empty).
+function onMachineCustChange(){
+  const name=document.getElementById('mCu').value;
+  const c=DB.custs.find(x=>x.name===name)||getAllCusts().find(x=>x.name===name);
+  const lo=document.getElementById('mLo');
+  if(c&&lo&&!lo.value.trim())lo.value=c.address||'';
+}
+
+// Scan every service report and register any machine serial that isn't yet in
+// the registry (DB.machines). Report-only machines are derived by getAllMachinesDB.
+function scanRegisterMachines(){
+  const registered=new Set((DB.machines||[]).map(m=>m.serial));
+  const missing=getAllMachinesDB().filter(m=>m.serial&&!registered.has(m.serial));
+  if(!missing.length){toast('All machines from reports are already registered.','info');return;}
+  if(!confirm(`${missing.length} machine(s) appear in service reports but aren't in the registry.\n\nAdd them to the Machine Registry now?`))return;
+  if(!Array.isArray(DB.machines))DB.machines=[];
+  let added=0;
+  missing.forEach(m=>{
+    if(DB.machines.find(x=>x.serial===m.serial))return;
+    const c=DB.custs.find(x=>x.name===m.customer);
+    DB.machines.push({
+      id:DB.nM++,serial:m.serial,model:m.model||'',customer:m.customer||'',
+      location:m.location||(c&&c.address)||'',installDate:m.installDate||'',
+      warranty:m.warranty||'',purchaseRental:m.purchaseRental||'',
+      serviceContract:m.serviceContract||'',maintFrequency:m.maintFrequency||'',
+      category:m.category||''
+    });
+    added++;
+  });
+  saveDB();renderMachines();
+  if(document.getElementById('customersContent'))renderCusts();
+  toast(`Registered ${added} machine(s) from reports.`,'success');
+}
+
+// ---- Bulk edit machines ----
+let bulkMode=false;
+let bulkSel=new Set();
+function shownMachines(){
+  const ms=getAllMachinesDB();
+  if(curMachCat==='all')return ms;
+  if(curMachCat==='Defective')return ms.filter(m=>(m.issues||[]).length>0);
+  return ms.filter(m=>(m.category||'Uncategorized')===curMachCat);
+}
+function toggleBulkMode(){bulkMode=!bulkMode;if(!bulkMode)bulkSel.clear();renderMachines();}
+function toggleBulk(s){if(bulkSel.has(s))bulkSel.delete(s);else bulkSel.add(s);const el=document.getElementById('bulkCount');if(el)el.textContent=bulkSel.size;}
+function bulkSelectAll(){shownMachines().forEach(m=>bulkSel.add(m.serial));renderMachines();}
+function bulkClear(){bulkSel.clear();renderMachines();}
+function applyBulkEdit(){
+  if(!bulkSel.size){toast('No machines selected.','error');return;}
+  const cat=document.getElementById('bkCat').value;
+  const cust=document.getElementById('bkCust').value;
+  const wr=document.getElementById('bkWr').value.trim();
+  const pr=document.getElementById('bkPR').value;
+  if(!cat&&!cust&&!wr&&!pr){toast('Pick at least one field to change.','error');return;}
+  if(!confirm(`Apply changes to ${bulkSel.size} selected machine(s)?`))return;
+  if(!Array.isArray(DB.machines))DB.machines=[];
+  const changedReports=new Map();
+  let n=0;
+  bulkSel.forEach(serial=>{
+    const m=ensureMachineRecord(serial);
+    if(!m)return;
+    if(cat)m.category=cat;
+    if(wr)m.warranty=wr;
+    if(pr)m.purchaseRental=pr;
+    if(cust&&cust!==m.customer){
+      const oldCust=m.customer;
+      m.customer=cust;
+      const c=DB.custs.find(x=>x.name===cust);
+      if(c&&c.address&&!m.location)m.location=c.address;
+      // cascade the customer change to linked reports/jobs (saveDB won't write reports)
+      DB.reports.forEach(r=>{if(r.serial===serial&&r.customer===oldCust){r.customer=cust;changedReports.set(r.id,r);}});
+      DB.jobs.forEach(j=>{if(j.machine===serial&&j.customer===oldCust)j.customer=cust;});
+    }
+    n++;
+  });
+  changedReports.forEach(r=>_upsertReportAtomic(r));
+  saveDB();
+  bulkSel.clear();bulkMode=false;
+  renderMachines();
+  if(document.getElementById('customersContent'))renderCusts();
+  toast(`Updated ${n} machine(s).`,'success');
 }
 
 function getMachineCategories(){
@@ -4214,9 +4403,9 @@ function icsEsc(s){
 
 // ===== LIGHTBOX =====
 let lbP=[],lbI=0;
-function openLBx(photos,idx){lbP=photos;lbI=idx;document.getElementById('lbImg').src=photos[idx].dataUrl;document.getElementById('lbCaption').textContent=(photos[idx].caption||'')+(photos[idx].timestamp?' — '+photos[idx].timestamp:'');document.getElementById('lbCount').textContent=`${idx+1} / ${photos.length}`;document.getElementById('photoLB').classList.add('open');}
+function openLBx(photos,idx){lbP=photos;lbI=idx;document.getElementById('lbImg').src=photoSrc(photos[idx]);document.getElementById('lbCaption').textContent=(photos[idx].caption||'')+(photos[idx].timestamp?' — '+photos[idx].timestamp:'');document.getElementById('lbCount').textContent=`${idx+1} / ${photos.length}`;document.getElementById('photoLB').classList.add('open');}
 function closeLB(){document.getElementById('photoLB').classList.remove('open');}
-function lbNav(dir){lbI+=dir;if(lbI<0)lbI=lbP.length-1;if(lbI>=lbP.length)lbI=0;document.getElementById('lbImg').src=lbP[lbI].dataUrl;document.getElementById('lbCaption').textContent=(lbP[lbI].caption||'');document.getElementById('lbCount').textContent=`${lbI+1} / ${lbP.length}`;}
+function lbNav(dir){lbI+=dir;if(lbI<0)lbI=lbP.length-1;if(lbI>=lbP.length)lbI=0;document.getElementById('lbImg').src=photoSrc(lbP[lbI]);document.getElementById('lbCaption').textContent=(lbP[lbI].caption||'');document.getElementById('lbCount').textContent=`${lbI+1} / ${lbP.length}`;}
 
 // ===== AGENTS / COMPANIES =====
 function renderAgents(){
@@ -4968,26 +5157,39 @@ function autoSchedulePM(){
   if(created>0){saveDB();toast(`Auto-scheduled ${created} upcoming PM job(s).`,'info');}
 }
 
-// Compute PM status for a single machine. Returns {hasFreq, intervalMonths, lastDate, nextDue, daysUntil, statusLabel, statusColor}
+// Compute PM status for a single machine. Returns {hasFreq, manual, intervalMonths, lastDate, nextDue, daysUntil, statusLabel, statusColor}
+// A manual override (m.manualNextDue) always wins over the auto-calculated date.
 function getPMStatus(m){
-  const out={hasFreq:false,intervalMonths:0,lastDate:null,nextDue:null,daysUntil:null,statusLabel:'No schedule',statusColor:'var(--t3)'};
-  if(!m.maintFrequency)return out;
-  const freq=parseFloat(m.maintFrequency);if(!freq||freq<=0)return out;
-  out.hasFreq=true;
-  out.intervalMonths=Math.round(12/freq);
-  const lastRpt=DB.reports.filter(r=>r.serial===m.serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
-  const lastDate=lastRpt?lastRpt.date:(m.installDate||'');
-  if(!lastDate)return out;
-  out.lastDate=lastDate;
-  const ld=new Date(lastDate);if(isNaN(ld))return out;
-  const nd=new Date(ld);nd.setMonth(nd.getMonth()+out.intervalMonths);
-  const today=new Date();today.setHours(0,0,0,0);
-  out.nextDue=nd.toISOString().split('T')[0];
-  out.daysUntil=Math.round((nd-today)/86400000);
-  if(out.daysUntil<0){out.statusLabel='⚠ Overdue since '+out.nextDue;out.statusColor='var(--er)';}
-  else if(out.daysUntil<=14){out.statusLabel='Due in '+out.daysUntil+'d';out.statusColor='var(--wn)';}
-  else if(out.daysUntil<=30){out.statusLabel='Due in '+out.daysUntil+'d';out.statusColor='var(--ac)';}
-  else{out.statusLabel='OK ('+out.daysUntil+'d)';out.statusColor='var(--ok)';}
+  const out={hasFreq:false,manual:false,intervalMonths:0,lastDate:null,nextDue:null,daysUntil:null,statusLabel:'No schedule',statusColor:'var(--t3)'};
+  const freq=parseFloat(m.maintFrequency);
+  if(freq&&freq>0){
+    out.hasFreq=true;
+    out.intervalMonths=Math.round(12/freq);
+    const lastRpt=DB.reports.filter(r=>r.serial===m.serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+    const lastDate=lastRpt?lastRpt.date:(m.installDate||'');
+    if(lastDate){
+      const ld=new Date(lastDate);
+      if(!isNaN(ld)){
+        out.lastDate=lastDate;
+        const nd=new Date(ld);nd.setMonth(nd.getMonth()+out.intervalMonths);
+        out.nextDue=nd.toISOString().split('T')[0];
+      }
+    }
+  }
+  // Manual override wins — works even with no frequency set.
+  if(m.manualNextDue){out.nextDue=m.manualNextDue;out.manual=true;}
+  if(out.nextDue){
+    const nd=new Date(out.nextDue);
+    if(!isNaN(nd)){
+      const today=new Date();today.setHours(0,0,0,0);
+      out.daysUntil=Math.round((nd-today)/86400000);
+      const pfx=out.manual?'📌 ':'';
+      if(out.daysUntil<0){out.statusLabel=pfx+'⚠ Overdue since '+out.nextDue;out.statusColor='var(--er)';}
+      else if(out.daysUntil<=14){out.statusLabel=pfx+'Due in '+out.daysUntil+'d';out.statusColor='var(--wn)';}
+      else if(out.daysUntil<=30){out.statusLabel=pfx+'Due in '+out.daysUntil+'d';out.statusColor='var(--ac)';}
+      else{out.statusLabel=pfx+'OK ('+out.daysUntil+'d)';out.statusColor='var(--ok)';}
+    }
+  }
   return out;
 }
 
@@ -4998,8 +5200,9 @@ function renderPMSchedule(){
   const rows=machines.map(m=>({m,pm:getPMStatus(m)}));
   // Counts
   const cnt={all:rows.length,scheduled:0,overdue:0,dueSoon:0,unscheduled:0,ok:0};
+  const isSched=pm=>pm.hasFreq||pm.manual;   // has an auto frequency OR a manual due date
   rows.forEach(r=>{
-    if(!r.pm.hasFreq){cnt.unscheduled++;return;}
+    if(!isSched(r.pm)){cnt.unscheduled++;return;}
     cnt.scheduled++;
     if(r.pm.daysUntil==null)return;
     if(r.pm.daysUntil<0)cnt.overdue++;
@@ -5008,15 +5211,16 @@ function renderPMSchedule(){
   });
   // Filter
   let filtered=rows;
-  if(curPMFilter==='overdue')filtered=rows.filter(r=>r.pm.hasFreq&&r.pm.daysUntil!=null&&r.pm.daysUntil<0);
-  else if(curPMFilter==='due-soon')filtered=rows.filter(r=>r.pm.hasFreq&&r.pm.daysUntil!=null&&r.pm.daysUntil>=0&&r.pm.daysUntil<=14);
-  else if(curPMFilter==='scheduled')filtered=rows.filter(r=>r.pm.hasFreq);
-  else if(curPMFilter==='unscheduled')filtered=rows.filter(r=>!r.pm.hasFreq);
+  if(curPMFilter==='overdue')filtered=rows.filter(r=>isSched(r.pm)&&r.pm.daysUntil!=null&&r.pm.daysUntil<0);
+  else if(curPMFilter==='due-soon')filtered=rows.filter(r=>isSched(r.pm)&&r.pm.daysUntil!=null&&r.pm.daysUntil>=0&&r.pm.daysUntil<=14);
+  else if(curPMFilter==='scheduled')filtered=rows.filter(r=>isSched(r.pm));
+  else if(curPMFilter==='unscheduled')filtered=rows.filter(r=>!isSched(r.pm));
   // Sort: overdue first, then due-soon, then by daysUntil asc, unscheduled last
   filtered.sort((a,b)=>{
-    if(!a.pm.hasFreq&&!b.pm.hasFreq)return a.m.serial.localeCompare(b.m.serial);
-    if(!a.pm.hasFreq)return 1;
-    if(!b.pm.hasFreq)return -1;
+    const as=isSched(a.pm),bs=isSched(b.pm);
+    if(!as&&!bs)return a.m.serial.localeCompare(b.m.serial);
+    if(!as)return 1;
+    if(!bs)return -1;
     if(a.pm.daysUntil==null)return 1;
     if(b.pm.daysUntil==null)return -1;
     return a.pm.daysUntil-b.pm.daysUntil;
@@ -5050,12 +5254,15 @@ function renderPMSchedule(){
         ${pm.hasFreq?`
           <div class="rpt-card-row"><span class="rc-label">Frequency</span><span class="rc-val">${E(m.maintFrequency)} / year (every ${pm.intervalMonths} months)</span></div>
           <div class="rpt-card-row"><span class="rc-label">Last PM</span><span class="rc-val">${E(pm.lastDate||'(using install date)')}</span></div>
-          <div class="rpt-card-row"><span class="rc-label">Next Due</span><span class="rc-val" style="font-weight:700;color:${pm.statusColor}">${E(pm.nextDue||'—')}</span></div>
+        `:''}
+        ${pm.nextDue?`
+          <div class="rpt-card-row"><span class="rc-label">Next Due</span><span class="rc-val" style="font-weight:700;color:${pm.statusColor}">${E(pm.nextDue)}${pm.manual?' <span class="bd bd-pu" style="font-size:10px">manual</span>':''}</span></div>
           ${hasOpenJob?`<div class="rpt-card-row"><span class="rc-label">Open Job</span><span class="rc-val"><span class="bd bd-ac">JOB-${String(hasOpenJob.id).padStart(4,'0')}</span> ${E(hasOpenJob.date||'')}</span></div>`:''}
-        `:`<div class="rpt-card-row"><span class="rc-label">PM Setup</span><span class="rc-val" style="color:var(--t3);font-style:italic">No maintenance frequency set</span></div>`}
+        `:`<div class="rpt-card-row"><span class="rc-label">PM Setup</span><span class="rc-val" style="color:var(--t3);font-style:italic">No frequency or due date set</span></div>`}
         <div class="rpt-card-actions">
-          ${pm.hasFreq&&!hasOpenJob&&pm.daysUntil!=null&&pm.daysUntil<=30?`<button class="btn btn-sm btn-ok" onclick="createPMJobNow('${E(m.serial)}')">📅 Create PM Job Now</button>`:''}
+          ${pm.nextDue&&!hasOpenJob&&pm.daysUntil!=null&&pm.daysUntil<=30?`<button class="btn btn-sm btn-ok" onclick="createPMJobNow('${E(m.serial)}')">📅 Create PM Job Now</button>`:''}
           ${canEdit()?`<button class="btn btn-sm btn-s" onclick="openPMFreqModal('${E(m.serial)}')">⚙ ${pm.hasFreq?'Edit Frequency':'Set PM Frequency'}</button>`:''}
+          ${canEdit()?`<button class="btn btn-sm btn-s" onclick="openManualDueModal('${E(m.serial)}')">📌 ${pm.manual?'Edit':'Set'} Due Date</button>`:''}
           ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editMachine('${E(m.serial)}')">Edit Machine</button>`:''}
         </div>
       </div>`;
@@ -5091,6 +5298,50 @@ function savePMFreq(serial){
   saveDB();closeModal();renderPMSchedule();toast('PM schedule updated.','success');
 }
 
+// Manually set (or clear) the next PM due date for a machine, overriding the
+// auto-calculation. Works even when the machine has no frequency set, and
+// auto-registers report-only machines into DB.machines so the override can persist.
+function openManualDueModal(serial){
+  const dm=getAllMachinesDB().find(x=>x.serial===serial);
+  const m=(DB.machines||[]).find(x=>x.serial===serial)||dm;
+  if(!m){toast('Machine not found.','error');return;}
+  const pm=getPMStatus(m);
+  const autoNote=(pm.hasFreq&&pm.nextDue&&!m.manualNextDue)?` (auto-calculated: ${pm.nextDue})`:'';
+  openModal('Manual Next Due — '+E(m.model)+' ('+E(serial)+')',`
+    <p style="color:var(--t2);margin-bottom:14px">Manually assign the next PM due date. This overrides the auto-calculated schedule${autoNote} — useful when the system didn't capture it correctly.</p>
+    <div class="fg"><label>Next Due Date</label><input class="fc" type="date" id="pmMD" value="${E(m.manualNextDue||'')}"></div>
+    ${m.manualNextDue?'<p style="font-size:var(--fs-xs);color:var(--t3)">Tip: clear the field and Save, or press “Clear Override”, to revert to auto-calculation.</p>':''}
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button>${m.manualNextDue?`<button class="btn btn-d" onclick="clearManualDue('${E(serial)}')">Clear Override</button>`:''}<button class="btn btn-p" onclick="saveManualDue('${E(serial)}')">Save</button>`);
+}
+// Ensure a serial has a real DB.machines record (registering report-only machines
+// on demand), then return it. Shared by manual-due + bulk-edit.
+function ensureMachineRecord(serial){
+  let m=(DB.machines||[]).find(x=>x.serial===serial);
+  if(m)return m;
+  const dm=getAllMachinesDB().find(x=>x.serial===serial);
+  if(!dm)return null;
+  const c=DB.custs.find(x=>x.name===dm.customer);
+  m={id:DB.nM++,serial:dm.serial,model:dm.model||'',customer:dm.customer||'',
+     location:dm.location||(c&&c.address)||'',installDate:dm.installDate||'',warranty:dm.warranty||'',
+     purchaseRental:dm.purchaseRental||'',serviceContract:dm.serviceContract||'',
+     maintFrequency:dm.maintFrequency||'',category:dm.category||''};
+  if(!Array.isArray(DB.machines))DB.machines=[];
+  DB.machines.push(m);
+  return m;
+}
+function saveManualDue(serial){
+  const m=ensureMachineRecord(serial);
+  if(!m){toast('Machine not found.','error');return;}
+  const v=document.getElementById('pmMD').value;
+  if(v)m.manualNextDue=v;else delete m.manualNextDue;
+  saveDB();closeModal();renderPMSchedule();toast(v?'Next due date set.':'Reverted to auto-calculation.','success');
+}
+function clearManualDue(serial){
+  const m=(DB.machines||[]).find(x=>x.serial===serial);
+  if(m)delete m.manualNextDue;
+  saveDB();closeModal();renderPMSchedule();toast('Reverted to auto-calculation.','info');
+}
+
 function createPMJobNow(serial){
   const m=(DB.machines||[]).find(x=>x.serial===serial);if(!m)return;
   const pm=getPMStatus(m);
@@ -5110,7 +5361,7 @@ function createPMJobNow(serial){
     poNo:'',techIds:[],techId:null,
     type:'Preventive Maintenance',priority:pm.daysUntil<0?'High':'Medium',
     date:dueISO,time:'',
-    desc:`Preventive Maintenance.\nLast PM: ${lastRpt?lastRpt.date:'(install date)'}\nFrequency: ${m.maintFrequency}/year (every ${pm.intervalMonths} months)${pm.daysUntil<0?'\n⚠ Overdue since '+pm.nextDue:''}`,
+    desc:`Preventive Maintenance.\nLast PM: ${lastRpt?lastRpt.date:'(install date)'}\n${pm.hasFreq?`Frequency: ${m.maintFrequency}/year (every ${pm.intervalMonths} months)`:'Due date: manually set'}${pm.daysUntil<0?'\n⚠ Overdue since '+pm.nextDue:''}`,
     status:'Open',
     createdAt:new Date().toISOString(),
     waSent:false,startTime:null,endTime:null,followUp:'',
@@ -5167,7 +5418,16 @@ function renderDataMgmt(){
       </div>
       <div id="impPreview" style="display:none;margin-top:16px"></div>
     </div>
-    
+
+    <div class="oc"><h3>☁️ Cloud Photos</h3>
+      <p>Move report photos from inline storage into Firebase Storage to keep the local database small. New photos upload automatically on save; use this to migrate existing ones.</p>
+      <div id="photoMigStatus" style="margin:12px 0;font-size:var(--fs-sm);color:var(--t2)"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px">
+        <button class="btn btn-p btn-sm" onclick="migratePhotosToStorage()">☁️ Migrate photos to cloud</button>
+        <button class="btn btn-s btn-sm" onclick="renderPhotoMigStatus()">↻ Refresh status</button>
+      </div>
+    </div>
+
     <div class="oc"><h3>💾 Full Backup</h3><p>Export the entire database as a single JSON file for full backup and restore.</p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
         <button class="btn btn-p btn-sm" onclick="exportJSON()">📤 Export JSON Backup</button>
@@ -5198,7 +5458,51 @@ function renderDataMgmt(){
       </div>
     </div>
   </div>`;
+  renderPhotoMigStatus();
 }
+
+// Count how many report photos are still inline (base64) vs already in the cloud.
+function _photoStats(){
+  let inline=0,cloud=0,reports=0;
+  (DB.reports||[]).forEach(r=>{
+    const ps=r.photos||[];if(!ps.length)return;let has=false;
+    ps.forEach(p=>{if(p&&p.url)cloud++;else if(p&&p.dataUrl){inline++;has=true;}});
+    if(has)reports++;
+  });
+  return {inline,cloud,reports};
+}
+function renderPhotoMigStatus(){
+  const el=document.getElementById('photoMigStatus');if(!el)return;
+  const s=_photoStats();
+  const ready=fbStorage?(fbAuthReady?'<span style="color:var(--ok)">✅ Storage connected</span>':'<span style="color:var(--wn)">⚠ Storage loaded, waiting for anonymous sign-in (enable Anonymous Auth in Firebase)</span>'):'<span style="color:var(--er)">✕ Storage not available</span>';
+  el.innerHTML=`${ready}<br>Inline photos to migrate: <strong>${s.inline}</strong> (in ${s.reports} report${s.reports===1?'':'s'}) &nbsp;·&nbsp; already in cloud: <strong>${s.cloud}</strong>`;
+}
+
+// One-time migration: upload every inline (base64) report photo to Storage, replace
+// with a URL, and persist each changed report atomically. Safe to re-run — it skips
+// photos already uploaded, and any that fail stay inline for the next attempt.
+async function migratePhotosToStorage(){
+  if(!fbStorage){toast('Firebase Storage not available. Check setup.','error');return;}
+  if(!fbAuthReady){toast('Enable Anonymous Auth in Firebase & publish Storage rules first.','error');return;}
+  const targets=(DB.reports||[]).filter(r=>Array.isArray(r.photos)&&r.photos.some(p=>p&&!p.url&&p.dataUrl));
+  if(!targets.length){toast('No inline photos to migrate.','info');renderPhotoMigStatus();return;}
+  const total=targets.reduce((n,r)=>n+r.photos.filter(p=>p&&!p.url&&p.dataUrl).length,0);
+  if(!confirm(`Upload ${total} photo(s) from ${targets.length} report(s) to Firebase Storage?\n\nThis replaces the inline copies with cloud links and shrinks the local database.`))return;
+  toast(`Migrating ${total} photo(s)…`,'info');
+  let done=0,failed=0;
+  for(const r of targets){
+    const before=r.photos.filter(p=>p&&p.url).length;
+    await uploadReportPhotos(r);
+    const after=r.photos.filter(p=>p&&p.url).length;
+    const up=after-before;done+=up;
+    const still=r.photos.filter(p=>p&&!p.url&&p.dataUrl).length;failed+=still;
+    if(up>0){try{await _upsertReportAtomic(r);}catch(e){console.warn('migrate upsert failed',e);}}
+  }
+  _saveSideEffects();
+  renderPhotoMigStatus();
+  toast(`Migrated ${done} photo(s).${failed?' '+failed+' still inline (retry later).':''}`,failed?'info':'success');
+}
+
 function escCSV(v){
   if(v===null||v===undefined)return'';
   const s=String(v);
@@ -5225,7 +5529,7 @@ function exportCSV(table){
       headers=['id','name','address','contact','phone','email','agent'];
       rows=DB.custs;break;
     case 'machines':
-      headers=['id','serial','model','category','customer','location','installDate','warranty','purchaseRental','serviceContract','maintFrequency'];
+      headers=['id','serial','model','category','customer','location','installDate','warranty','purchaseRental','serviceContract','maintFrequency','manualNextDue'];
       rows=DB.machines||[];break;
     case 'reports':
       headers=['id','company','jobNo','date','customer','contact','contactNum','model','serial','machines','engineer','type','timeStart','timeEnd','remarks','recommendations','status','nextVisit','checklist','checklists'];
@@ -5269,7 +5573,7 @@ function downloadTemplate(){
   const type=document.getElementById('impType').value;
   const templates={
     customers:'id,name,address,contact,phone,email,agent\n,Example Corp,123 Main St,John Doe,+6512345678,john@example.com,Redbox Global Solutions Pte Ltd',
-    machines:'id,serial,model,category,customer,location,installDate,warranty,purchaseRental,serviceContract,maintFrequency\n,SN12345,ET300PPS,Stretch Wrapping Machines,Example Corp,123 Main St,2024-01-15,12 months,Purchase,Nil,',
+    machines:'id,serial,model,category,customer,location,installDate,warranty,purchaseRental,serviceContract,maintFrequency,manualNextDue\n,SN12345,ET300PPS,Stretch Wrapping Machines,Example Corp,123 Main St,2024-01-15,12 months,Purchase,Nil,,',
     reports:'id,company,jobNo,date,customer,contact,contactNum,model,serial,machines,engineer,type,timeStart,timeEnd,remarks,recommendations,status,nextVisit,checklist\n,octopack,SR-99999,2026-04-15,Example Corp,John,+65123,ET300PPS,SN12345,"[{""model"":""ET300PPS"",""serial"":""SN12345""}]",Colin Tan,Preventive Maintenance,09:00,11:00,Performed PM,All OK,Completed,,',
     jobs:'id,title,customer,machine,model,type,priority,date,time,status,desc\n,PM Service Example,Example Corp,SN12345,ET300PPS,Preventive Maintenance,Medium,2026-05-01,09:00,Open,Routine PM check',
     technicians:'id,name,phone,email,spec\n,New Tech,+6599999999,tech@company.com,General',
@@ -5342,8 +5646,8 @@ function importCSV(){
             if(!obj.serial)return;
             if(!Array.isArray(DB.machines))DB.machines=[];
             const existing=DB.machines.find(m=>m.serial===obj.serial);
-            if(existing){Object.assign(existing,{model:obj.model||existing.model,category:obj.category||existing.category,customer:obj.customer||existing.customer,location:obj.location||existing.location,installDate:obj.installdate||existing.installDate,warranty:obj.warranty||existing.warranty,purchaseRental:obj.purchaserental||existing.purchaseRental,serviceContract:obj.servicecontract||existing.serviceContract,maintFrequency:obj.maintfrequency||existing.maintFrequency});updated++;}
-            else{DB.machines.push({id:DB.nM++,serial:obj.serial,model:obj.model||'',category:obj.category||'',customer:obj.customer||'',location:obj.location||'',installDate:obj.installdate||'',warranty:obj.warranty||'12 months',purchaseRental:obj.purchaserental||'Purchase',serviceContract:obj.servicecontract||'Nil',maintFrequency:obj.maintfrequency||''});added++;}
+            if(existing){Object.assign(existing,{model:obj.model||existing.model,category:obj.category||existing.category,customer:obj.customer||existing.customer,location:obj.location||existing.location,installDate:obj.installdate||existing.installDate,warranty:obj.warranty||existing.warranty,purchaseRental:obj.purchaserental||existing.purchaseRental,serviceContract:obj.servicecontract||existing.serviceContract,maintFrequency:obj.maintfrequency||existing.maintFrequency,manualNextDue:obj.manualnextdue||existing.manualNextDue||''});updated++;}
+            else{DB.machines.push({id:DB.nM++,serial:obj.serial,model:obj.model||'',category:obj.category||'',customer:obj.customer||'',location:obj.location||'',installDate:obj.installdate||'',warranty:obj.warranty||'12 months',purchaseRental:obj.purchaserental||'Purchase',serviceContract:obj.servicecontract||'Nil',maintFrequency:obj.maintfrequency||'',manualNextDue:obj.manualnextdue||''});added++;}
             break;
           }
           case 'reports':{
@@ -5959,8 +6263,19 @@ setTimeout(()=>{try{autoSchedulePM();}catch(e){console.warn('autoSchedulePM err'
 document.getElementById('loginPass').addEventListener('keydown',e=>{if(e.key==='Enter')doLogin()});
 document.getElementById('loginUser').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('loginPass').focus()});
 
-// Firebase + PDF libraries
-if(USE_FB){const s1=document.createElement('script');s1.src='https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js';s1.onload=()=>{const s2=document.createElement('script');s2.src='https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js';s2.onload=()=>initFB();document.head.appendChild(s2)};document.head.appendChild(s1);}
+// Firebase + PDF libraries. Load app → database → storage → auth, then initFB.
+// Storage + Auth are needed for cloud photo hosting; if they fail to load the
+// app still runs (photo upload just falls back to inline base64).
+if(USE_FB){
+  const load=(src)=>new Promise((res,rej)=>{const s=document.createElement('script');s.src=src;s.onload=res;s.onerror=rej;document.head.appendChild(s);});
+  const V='https://www.gstatic.com/firebasejs/9.23.0/';
+  load(V+'firebase-app-compat.js')
+    .then(()=>load(V+'firebase-database-compat.js'))
+    .then(()=>load(V+'firebase-storage-compat.js').catch(()=>{}))   // optional
+    .then(()=>load(V+'firebase-auth-compat.js').catch(()=>{}))      // optional
+    .then(()=>initFB())
+    .catch(e=>console.warn('FB SDK load failed:',e));
+}
 
 // PDF libs loaded via script tags in <head>
 let pdfLibsReady=false;
@@ -6085,7 +6400,7 @@ function buildReportHTMLForPDF(r){
       <tr><th style="border:1px solid #c9d6ee;padding:10px;background:#f6f9ff;text-align:left;width:18%;vertical-align:top;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">ISSUES / WORK<br>DONE</th><td style="border:1px solid #c9d6ee;padding:10px;white-space:pre-line;min-height:120px;vertical-align:top">${E(r.remarks||'')}</td></tr>
       <tr><th style="border:1px solid #c9d6ee;padding:10px;background:#f6f9ff;text-align:left;vertical-align:top;color:#000;font-weight:700;font-size:9.5px;letter-spacing:0.5px">RECOMMENDATIONS /<br><br>FOLLOW-UP<br>ACTIONS</th><td style="border:1px solid #c9d6ee;padding:10px;white-space:pre-line;vertical-align:top">${E(r.recommendations||'')}</td></tr>
     </table>
-    ${photos.length?`<div style="margin-bottom:14px"><div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;letter-spacing:0.5px">PHOTOS</div><div style="border:1px solid #c9d6ee;border-top:none;padding:10px;display:flex;flex-wrap:wrap;gap:6px">${photos.map(p=>`<img src="${p.dataUrl}" style="width:140px;height:105px;object-fit:cover;border:1px solid #c9d6ee">`).join('')}</div></div>`:''}
+    ${photos.length?`<div style="margin-bottom:14px"><div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;letter-spacing:0.5px">PHOTOS</div><div style="border:1px solid #c9d6ee;border-top:none;padding:10px;display:flex;flex-wrap:wrap;gap:6px">${photos.map(p=>`<img src="${photoSrc(p)}" style="width:140px;height:105px;object-fit:cover;border:1px solid #c9d6ee">`).join('')}</div></div>`:''}
     <!-- SECTION 4 -->
     <div id="sigBlock" data-keep="true">
     <div style="background:#eef4ff;color:#000;font-size:10.5px;font-weight:700;padding:6px 10px;border:1px solid #c9d6ee;border-bottom:none;letter-spacing:0.5px">SECTION 4 — ACKNOWLEDGEMENT &amp; SIGNATURES</div>
@@ -6144,10 +6459,21 @@ async function generateReportPDF(reportData, download){
   
   toast('Generating PDF...','info');
   
+  // Cloud-hosted photos (URLs) can't be painted by html2canvas directly — resolve
+  // them to base64 data URLs first (needs bucket CORS). Failed fetches are dropped.
+  let _rd=reportData;
+  if(Array.isArray(reportData.photos)&&reportData.photos.some(p=>p&&p.url&&!p.dataUrl)){
+    const resolved=[];
+    for(const p of reportData.photos){
+      const du=await _photoToDataUrlForPdf(p);
+      if(du)resolved.push({caption:p.caption,timestamp:p.timestamp,dataUrl:du});
+    }
+    _rd={...reportData,photos:resolved};
+  }
   // Create a hidden container for rendering
   const container=document.createElement('div');
   container.style.cssText='position:fixed;left:-9999px;top:0;z-index:-1;';
-  container.innerHTML=buildReportHTMLForPDF(reportData);
+  container.innerHTML=buildReportHTMLForPDF(_rd);
   document.body.appendChild(container);
   
   try{
