@@ -4980,6 +4980,12 @@ function importPO(){
     fromPO:true
   };
   DB.jobs.push(j);
+  // Register/update the machine in the maintenance registry — same helper
+  // saveJob() already calls for manually-created jobs. Without this, a PO
+  // naming a machine (model/serial) created a job referencing it but the
+  // machine itself never entered DB.machines: no PM Schedule entry, no
+  // maintenance frequency, never picked up by autoSchedulePM().
+  syncJobMachineToRegistry(j);
   // Also store the PO record itself for tracking
   if(!Array.isArray(DB.pos))DB.pos=[];
   if(!DB.nPO)DB.nPO=1;
