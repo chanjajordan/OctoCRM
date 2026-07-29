@@ -431,11 +431,38 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
 const FB_CFG={apiKey:"AIzaSyCSQAS7mFBlTfmz0FVWaSLgI-Puk1Y3sN4",authDomain:"octocrm1.firebaseapp.com",databaseURL:"https://octocrm1-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"octocrm1",storageBucket:"octocrm1.firebasestorage.app",messagingSenderId:"212247591529",appId:"1:212247591529:web:4a076e40a71b59646b00f8"};
 const USE_FB=true;let fbDB=null,fbOK=false;
 
+// ===== STARTUP WRITE QUEUE =====
+// On a fresh device, the Firebase SDK scripts + initFB() can take a real few
+// seconds to come up (no cached SDK/auth, often a weak field connection).
+// saveDB()/_saveSideEffects()/_upsertReportAtomic()/_deleteReportAtomic() only
+// check `if(USE_FB&&fbDB)` — if fbDB is still null when the user saves
+// something, that write was previously just SKIPPED, no error, no retry. Then
+// initFB()'s first cloud snapshot arrives and does `DB=d`, wholesale
+// replacing the in-memory (and then re-persisted-to-localStorage) DB with the
+// cloud version — silently erasing whatever was created in that window.
+// Fix: queue those writes instead of dropping them, and flush the queue the
+// moment fbDB becomes available — BEFORE the first cloud snapshot listener
+// attaches — so the queued writes land in Firebase first and the incoming
+// snapshot already reflects them.
+let _pendingSideEffectsSync=false;
+let _pendingReportWrites=[];
+function _queueSideEffectsSync(){_pendingSideEffectsSync=true;}
+function _queueReportWrite(fn){_pendingReportWrites.push(fn);}
+function _flushPendingFbWrites(){
+  if(_pendingSideEffectsSync){
+    _pendingSideEffectsSync=false;
+    fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
+  }
+  const q=_pendingReportWrites;_pendingReportWrites=[];
+  q.forEach(fn=>{try{fn();}catch(e){}});
+}
+
 function initFB(){
   if(!USE_FB)return;
   try{
     if(!firebase.apps.length)firebase.initializeApp(FB_CFG);
     fbDB=firebase.database();
+    _flushPendingFbWrites();
     fbDB.ref('.info/connected').on('value',s=>{fbOK=s.val()===true;updSync();});
     fbDB.ref('octoCRM_v4').on('value',s=>{
       const d=s.val();
@@ -753,6 +780,8 @@ function saveDB(){
   if(USE_FB&&fbDB){
     // update() merges at the top level — leaves octoCRM_v4/reports & /nR untouched.
     fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
+  }else if(USE_FB){
+    _queueSideEffectsSync(); // fbDB not connected yet — flush once it is (see initFB)
   }
 }
 
@@ -791,6 +820,15 @@ async function _upsertReportAtomic(rpt,_skipLocalSave){
         return arr;
       });
     }catch(e){}
+  }else if(USE_FB){
+    // fbDB not connected yet — queue the same upsert to replay once it is,
+    // instead of silently dropping this report (see initFB / _flushPendingFbWrites).
+    _queueReportWrite(()=>fbDB.ref('octoCRM_v4/reports').transaction(arr=>{
+      if(!Array.isArray(arr))arr=[];
+      const k=arr.findIndex(x=>x&&x.id===rpt.id);
+      if(k>=0)arr[k]=rpt;else arr.push(rpt);
+      return arr;
+    }).catch(()=>{}));
   }
 }
 // Atomically remove a single report by id from the cloud array, so a delete
@@ -805,6 +843,11 @@ async function _deleteReportAtomic(id){
         return arr.filter(x=>x&&x.id!==id);
       });
     }catch(e){}
+  }else if(USE_FB){
+    _queueReportWrite(()=>fbDB.ref('octoCRM_v4/reports').transaction(arr=>{
+      if(!Array.isArray(arr))return arr;
+      return arr.filter(x=>x&&x.id!==id);
+    }).catch(()=>{}));
   }
 }
 // Push side-effect collection changes (everything EXCEPT reports) WITHOUT
@@ -813,6 +856,8 @@ function _saveSideEffects(){
   try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
   if(USE_FB&&fbDB){
     fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
+  }else if(USE_FB){
+    _queueSideEffectsSync();
   }
 }
 
@@ -1541,14 +1586,16 @@ function syncJobMachineToRegistry(d){
 // Register every machine on a report (primary + extras) into DB.machines.
 // Mirrors syncJobMachineToRegistry but handles the report machines[] array,
 // so machines entered during report creation show up in the Machine list.
-function syncReportMachinesToRegistry(d){
+// silent=true suppresses the per-call toast and just returns addedNames[] —
+// used by rescanReportsForMachines() to bulk-scan every report without
+// firing one toast per report.
+function syncReportMachinesToRegistry(d,silent){
   if(!Array.isArray(DB.machines))DB.machines=[];
   const cust=(d.customer||'').trim();
   // Collect every (serial,model) pair on the report: primary + extras + machines[]
   const list=[];
   if(d.serial||d.model)list.push({serial:(d.serial||'').trim(),model:(d.model||'').trim()});
   (d.machines||[]).forEach(m=>{const s=(m.serial||'').trim(),mo=(m.model||'').trim();if(s||mo)list.push({serial:s,model:mo});});
-  let addedAny=false;
   const addedNames=[];
   const seen=new Set();
   list.forEach(item=>{
@@ -1558,10 +1605,8 @@ function syncReportMachinesToRegistry(d){
     const existing=DB.machines.find(m=>m.serial===serial);
     if(existing){
       // Backfill any missing identifying fields so the machine shows up correctly
-      let ch=false;
-      if((!existing.customer||!existing.customer.trim())&&cust){existing.customer=cust;ch=true;}
-      if((!existing.model||!existing.model.trim())&&item.model){existing.model=item.model;ch=true;}
-      if(ch)addedAny=true;
+      if((!existing.customer||!existing.customer.trim())&&cust)existing.customer=cust;
+      if((!existing.model||!existing.model.trim())&&item.model)existing.model=item.model;
       return;
     }
     if(!DB.nM)DB.nM=200;
@@ -1570,10 +1615,27 @@ function syncReportMachinesToRegistry(d){
       customer:cust,location:'',installDate:'',
       warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''
     });
-    addedAny=true;addedNames.push(serial);
+    addedNames.push(serial);
   });
-  if(addedNames.length)toast('Registered to machine list: '+addedNames.join(', '),'success');
-  return addedNames.length>0;
+  if(addedNames.length&&!silent)toast('Registered to machine list: '+addedNames.join(', '),'success');
+  return addedNames;
+}
+
+// Bulk-reconcile: scan EVERY service report for machine serials that never
+// made it into the registry (e.g. reports saved before a past sync bug was
+// fixed, or CSV-imported reports) and register them. Reuses the exact same
+// per-report logic saveCR/saveEditReport already call — just looped silently
+// across all reports with one summary toast instead of one per report.
+function rescanReportsForMachines(){
+  if(!confirm(`Scan all ${DB.reports.length} service report(s) for machine serial numbers missing from the registry, and add them?\n\nExisting machines will also get blank customer/model fields backfilled from reports.`))return;
+  const allAdded=new Set();
+  DB.reports.forEach(r=>{
+    syncReportMachinesToRegistry(r,true).forEach(s=>allAdded.add(s));
+  });
+  saveDB();
+  renderMachines();
+  if(allAdded.size)toast(`Scan complete: ${allAdded.size} new machine(s) added — ${[...allAdded].join(', ')}`,'success');
+  else toast('Scan complete: no missing machines found. Registry is up to date.','info');
 }
 
 // Sync contact person + phone from job form into the linked customer record
@@ -1856,9 +1918,28 @@ function saveEditReport(){
   syncExtraMachinesFromDOM('er');
   const erPrimaryModel=document.getElementById('erMd').value.trim();
   const erPrimarySerial=document.getElementById('erSr').value.trim();
+  // Guard: model but no serial → can't register, warn user. Create-report
+  // (saveCR) already had this for the primary field; edit mode never did —
+  // a model typed with no serial here just saved silently, never registered.
+  if(erPrimaryModel&&!erPrimarySerial){
+    if(!confirm('You entered a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
+  }
   const erMachines=[];
+  // Same "needs a serial to register" rule getCRData() uses for extras —
+  // previously this filter was more permissive (model OR serial) than
+  // create's (serial required), so a model-only extra row here silently
+  // saved a phantom {model,serial:''} entry that could never be registered,
+  // with no warning telling the user their 2nd/3rd machine wasn't tracked.
+  const erDroppedExtraModels=[];
   if(erPrimaryModel||erPrimarySerial)erMachines.push({model:erPrimaryModel,serial:erPrimarySerial});
-  (window._erExtraMachines||[]).forEach(m=>{if(m.model||m.serial)erMachines.push({model:m.model||'',serial:m.serial||''});});
+  (window._erExtraMachines||[]).forEach(m=>{
+    const s=(m.serial||'').trim();
+    if(s)erMachines.push({model:m.model||'',serial:s});
+    else if((m.model||'').trim())erDroppedExtraModels.push(m.model.trim());
+  });
+  if(erDroppedExtraModels.length){
+    if(!confirm(`Additional machine(s) "${erDroppedExtraModels.join('", "')}" have no serial number and will NOT be saved on this report or added to the registry.\n\nSave anyway?`))return;
+  }
   DB.reports[i]={...DB.reports[i],
     company:document.getElementById('erCo').value,
     jobNo:document.getElementById('erJN').value.trim(),
@@ -3062,8 +3143,16 @@ function getCRData(){
   // otherwise create a phantom empty-serial entry.
   syncExtraMachinesFromDOM('cr');
   const machines=[];
+  // Extra rows with a model but no serial can't be registered (same rule as
+  // the primary field) — track them so the caller can warn before silently
+  // dropping the row, instead of the machine just vanishing with no notice.
+  const droppedExtraModels=[];
   if(primarySerial)machines.push({model:primaryModel,serial:primarySerial});
-  (crExtraMachines||[]).forEach(m=>{const s=(m.serial||'').trim();if(s)machines.push({model:m.model||'',serial:s});});
+  (crExtraMachines||[]).forEach(m=>{
+    const s=(m.serial||'').trim();
+    if(s)machines.push({model:m.model||'',serial:s});
+    else if((m.model||'').trim())droppedExtraModels.push(m.model.trim());
+  });
   return{
     company:document.getElementById('crCo').value,
     jobNo:document.getElementById('crJN').value.trim(),
@@ -3075,6 +3164,7 @@ function getCRData(){
     model:primaryModel,
     serial:primarySerial,
     machines:machines,
+    droppedExtraModels:droppedExtraModels, // transient — caller warns then strips before persisting
     engineer:engineers.join(', '),
     engineers:engineers,
     type:document.getElementById('crTy').value,
@@ -3128,6 +3218,13 @@ async function saveCR(){
     if(d.model&&!d.serial){
       if(!confirm('You selected a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
     }
+    // Same guard for additional machine rows — without this, a model typed
+    // with no serial on an extra machine just vanishes (not saved on the
+    // report, not registered) with zero indication anything was dropped.
+    if(d.droppedExtraModels&&d.droppedExtraModels.length){
+      if(!confirm(`Additional machine(s) "${d.droppedExtraModels.join('", "')}" have no serial number and will NOT be saved on this report or added to the registry.\n\nSave the report anyway?`))return;
+    }
+    delete d.droppedExtraModels; // transient warning-only field — don't persist it
     // 1. Atomically claim a unique report id from cloud (prevents duplicate SR numbers)
     const claimed=await _claimNextReportNum();
     // 2. If user kept the auto-prefilled SR-NNNNN format, sync it to the actually-claimed number
@@ -3185,6 +3282,16 @@ async function saveAndEmailCR(){
     if(!d.jobNo){toast('Job No. required.','error');return;}
     const em=document.getElementById('crEml')?.value;
     if(!em){toast('Enter customer email.','error');return;}
+    // Same guards saveCR() applies — this path skipped them entirely before,
+    // so a model-with-no-serial (primary OR extra machine row) saved with no
+    // warning at all here.
+    if(d.model&&!d.serial){
+      if(!confirm('You selected a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
+    }
+    if(d.droppedExtraModels&&d.droppedExtraModels.length){
+      if(!confirm(`Additional machine(s) "${d.droppedExtraModels.join('", "')}" have no serial number and will NOT be saved on this report or added to the registry.\n\nSave the report anyway?`))return;
+    }
+    delete d.droppedExtraModels; // transient warning-only field — don't persist it
     // Save report — atomic claim + atomic upsert (multi-user safe, no clobber).
     const _claimed=await _claimNextReportNum();
     if(/^SR-\d{5}$/i.test(d.jobNo)){d.jobNo='SR-'+String(_claimed).padStart(5,'0');}
@@ -3254,7 +3361,7 @@ function renderMachines(){
   ms.forEach(m=>{const c=m.category||'Uncategorized';catCounts[c]=(catCounts[c]||0)+1;});
   const defCount=ms.filter(m=>(m.issues||[]).length>0).length;
   const filtered=curMachCat==='all'?ms:curMachCat==='Defective'?ms.filter(m=>(m.issues||[]).length>0):ms.filter(m=>(m.category||'Uncategorized')===curMachCat);
-  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-sm btn-s" onclick="openManualMerge(\'machines\')">⇄ Merge</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
+  document.getElementById('machinesContent').innerHTML=`<div class="tw"><div class="th"><h3>Machine Registry (${ms.length})</h3><div style="display:flex;gap:8px;flex-wrap:wrap"><div class="sx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search..." id="mSrch" oninput="filterMachines()"></div>${canEdit()?'<button class="btn btn-sm btn-s" onclick="rescanReportsForMachines()" title="Scan all service reports for machine serials missing from this registry">🔄 Scan Reports</button><button class="btn btn-sm btn-s" onclick="showDuplicateCheck()">🔍</button><button class="btn btn-sm btn-s" onclick="openManualMerge(\'machines\')">⇄ Merge</button><button class="btn btn-p btn-sm" onclick="openMachineModal()">+ Add</button>':''}</div></div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;padding:12px 20px;border-bottom:1px solid var(--bdr)">
     <button class="fc-chip${curMachCat==='all'?' active':''}" onclick="curMachCat='all';renderMachines()">All (${ms.length})</button>
     ${defCount?`<button class="fc-chip${curMachCat==='Defective'?' active':''}" onclick="curMachCat='Defective';renderMachines()" style="${curMachCat==='Defective'?'background:var(--er);border-color:var(--er)':''}">⚠ Defective (${defCount})</button>`:''}
@@ -3333,7 +3440,7 @@ function openMachineModal(data){
     <input class="fc" id="mCatCustom" placeholder="Type new category..." style="display:none;margin-top:6px">
     </div>
     <div class="fr"><div class="fg"><label>Serial Number</label><input class="fc" id="mSr" value="${E(d.serial||'')}" ${d.serial?'readonly style="background:var(--bdr)"':''}></div><div class="fg"><label>Model</label><input class="fc" id="mMd" value="${E(d.model||'')}"></div></div>
-    <div class="fg"><label>Customer</label><select class="fc" id="mCu"><option value="">— Select —</option>${cs.map(c=>`<option${c.name===d.customer?' selected':''}>${E(c.name)}</option>`).join('')}</select></div>
+    <div class="fg"><label>Customer</label><select class="fc" id="mCu" onchange="onMachineCustChange()"><option value="">— Select —</option>${cs.map(c=>`<option${c.name===d.customer?' selected':''}>${E(c.name)}</option>`).join('')}</select></div>
     <div class="fg"><label>Location / Address</label><input class="fc" id="mLo" value="${E(d.location||'')}"></div>
     <div class="fr"><div class="fg"><label>Install Date</label><input class="fc" type="date" id="mDt" value="${E(d.installDate||'')}"></div><div class="fg"><label>Warranty</label><input class="fc" id="mWr" value="${E(d.warranty||'12 months')}"></div></div>
     <div class="fr"><div class="fg"><label>Purchase / Rental</label><select class="fc" id="mPR"><option${d.purchaseRental==='Purchase'?' selected':''}>Purchase</option><option${d.purchaseRental==='Rental'?' selected':''}>Rental</option></select></div><div class="fg"><label>Service Contract</label><input class="fc" id="mSC" value="${E(d.serviceContract||'Nil')}"></div></div>
@@ -3341,6 +3448,18 @@ function openMachineModal(data){
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveMachine()">Save</button>`);
   // Category custom toggle
   setTimeout(()=>{document.getElementById('mCat').onchange=function(){if(this.value==='__other__'){document.getElementById('mCatCustom').style.display='';document.getElementById('mCatCustom').focus();}else{document.getElementById('mCatCustom').style.display='none';}};},50);
+}
+
+// Pull the selected customer's registered address into Location — only when
+// Location is currently blank, so it never clobbers a location someone
+// already typed (same "backfill only if blank" rule syncJobMachineToRegistry
+// and syncJobContactToCustomer already use elsewhere in this app).
+function onMachineCustChange(){
+  const custName=document.getElementById('mCu')?.value;
+  const locInput=document.getElementById('mLo');
+  if(!locInput||!custName||locInput.value.trim())return;
+  const c=getAllCusts().find(x=>x.name===custName);
+  if(c&&c.address)locInput.value=c.address;
 }
 
 function getMachineCategories(){
