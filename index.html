@@ -5988,7 +5988,7 @@ function renderDataMgmt(){
       </div>
     </div>
     <div class="oc" style="border-left:4px solid var(--ok)"><h3>🛟 Auto-Backups (safety net)</h3>
-      <p>The app keeps the last 10 cloud snapshots locally on this device. If reports ever go missing, restore a snapshot from before the loss.</p>
+      <p>The app keeps the last ${_BK_MAX} cloud snapshots <b>plus a daily full-data snapshot for the last ${_DAYBK_DAYS} days</b> locally on this device. If reports ever go missing, restore a snapshot from before the loss.</p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
         <button class="btn btn-s btn-sm" onclick="openAutoBackups()">🛟 View / Restore Backups</button>
       </div>
@@ -6298,6 +6298,23 @@ function exportJSON(){
   toast('Full backup exported.','success');
 }
 
+// Full REPLACE of the entire database from a backup object (JSON import OR an
+// auto-backup snapshot). Sets DB, normalizes arrays/counters, persists non-report
+// keys via saveDB()'s shallow update(), then pushes every report atomically (saveDB
+// never writes 'reports', so without this the restore reverts on next cloud sync).
+// Note: 'reports' array is replaced wholesale, not merged — this is a REPLACE, not
+// a "add back missing" merge. reportsArchive is untouched (not in the snapshot).
+function _applyFullRestore(data){
+  if(!data||(!data.reports&&!data.custs&&!data.techs))throw new Error('invalid backup (no reports/custs/techs)');
+  DB=data;
+  if(!Array.isArray(DB.users)||!DB.users.length){DB.users=[{id:1,username:'admin',password:'admin123',name:'Administrator',role:'admin'}];DB.nU=2;}
+  // Normalize arrays/counters — older backups may predate parts/leaves/pos keys;
+  // without this, DB.parts.push etc. crash after a restore.
+  ['reports','jobs','techs','custs','machines','agents','deletedCusts','deletedMachines','parts','partsStock','pos','leaves'].forEach(k=>{if(!Array.isArray(DB[k]))DB[k]=[];});
+  if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;if(!DB.nPO)DB.nPO=1;if(!DB.nL)DB.nL=1;
+  saveDB();
+  (DB.reports||[]).slice().forEach(r=>{if(r&&r.id!=null)_upsertReportAtomic(r,true);});
+}
 function importJSON(file){
   if(!file)return;
   if(!confirm('This will REPLACE your entire database with the uploaded backup.\n\nAre you sure?'))return;
@@ -6305,20 +6322,10 @@ function importJSON(file){
   reader.onload=function(e){
     try{
       const data=JSON.parse(e.target.result);
-      if(!data.reports&&!data.custs&&!data.techs){toast('Invalid backup file.','error');return;}
-      DB=data;
-      if(!Array.isArray(DB.users)||!DB.users.length){DB.users=[{id:1,username:'admin',password:'admin123',name:'Administrator',role:'admin'}];DB.nU=2;}
-      // Normalize arrays/counters — older backups may predate parts/leaves/pos
-      // keys; without this, DB.parts.push etc. crash after a restore.
-      ['reports','jobs','techs','custs','machines','agents','deletedCusts','deletedMachines','parts','partsStock','pos','leaves'].forEach(k=>{if(!Array.isArray(DB[k]))DB[k]=[];});
-      if(!DB.nR)DB.nR=1;if(!DB.nJ)DB.nJ=1;if(!DB.nT)DB.nT=1;if(!DB.nC)DB.nC=1;if(!DB.nU)DB.nU=1;if(!DB.nM)DB.nM=200;if(!DB.nA)DB.nA=1;if(!DB.nP)DB.nP=1;if(!DB.nPS)DB.nPS=1;if(!DB.nPO)DB.nPO=1;if(!DB.nL)DB.nL=1;
-      saveDB();
-      // saveDB() skips 'reports' — push each restored report atomically or the
-      // restore silently reverts on the next cloud sync.
-      (DB.reports||[]).slice().forEach(r=>{if(r&&r.id!=null)_upsertReportAtomic(r,true);});
+      _applyFullRestore(data);
       toast('Database restored from backup!','success');
       renderDataMgmt();
-    }catch(err){toast('Invalid JSON file: '+err.message,'error');}
+    }catch(err){toast('Restore failed: '+err.message,'error');}
   };
   reader.readAsText(file);
 }
@@ -6642,6 +6649,10 @@ function _idbDel(key){return _idbOpen().then(db=>new Promise((res)=>{const tx=db
 // the last 10. If a clobber ever drops reports again, the previous snapshot here
 // still holds them — recoverable via restoreAutoBackup(). Throttled to 1/2min.
 const _BK_PREFIX='ocrm_autobak_',_BK_MAX=10;let _lastBkTs=0;
+// Daily tier: ONE full-data snapshot per calendar day, retained for the last
+// _DAYBK_DAYS days — a rolling week of restore points on this device. Same-day
+// syncs overwrite the day's key so it always holds that day's latest data.
+const _DAYBK_PREFIX='ocrm_daybak_',_DAYBK_DAYS=7;
 function autoBackupSnapshot(){
   try{
     const now=Date.now();
@@ -6650,18 +6661,27 @@ function autoBackupSnapshot(){
     if(!DB||!Array.isArray(DB.reports))return;
     const snap={ts:now,reportCount:DB.reports.length,jobCount:(DB.jobs||[]).length,nR:DB.nR,data:JSON.parse(JSON.stringify(DB))};
     _idbPut(_BK_PREFIX+now,snap).then(()=>_pruneAutoBackups()).catch(()=>{});
+    _dailyBackupSnapshot(snap); // reuse the same snapshot for the daily tier
   }catch(e){}
 }
-function _bkKeys(){return _idbOpen().then(db=>new Promise(res=>{
+// YYYY-MM-DD (local) — day-keys sort chronologically as strings so prune is trivial.
+function _dayKey(ts){const d=new Date(ts);const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`;}
+function _dailyBackupSnapshot(snap){
+  try{_idbPut(_DAYBK_PREFIX+_dayKey(snap.ts),snap).then(()=>_pruneDailyBackups()).catch(()=>{});}catch(e){}
+}
+// Enumerate IDB keys for a backup tier (defaults to the rolling-recent prefix).
+function _bkKeys(prefix){prefix=prefix||_BK_PREFIX;return _idbOpen().then(db=>new Promise(res=>{
   const tx=db.transaction(_IDB_STORE,'readonly');const st=tx.objectStore(_IDB_STORE);
   const keys=[];const rq=st.openKeyCursor?st.openKeyCursor():st.getAllKeys();
-  if(st.openKeyCursor){rq.onsuccess=()=>{const c=rq.result;if(c){if(String(c.key).indexOf(_BK_PREFIX)===0)keys.push(c.key);c.continue();}else{db.close();res(keys.sort());}};rq.onerror=()=>{db.close();res(keys);};}
-  else{rq.onsuccess=()=>{db.close();res((rq.result||[]).filter(k=>String(k).indexOf(_BK_PREFIX)===0).sort());};rq.onerror=()=>{db.close();res([]);};}
+  if(st.openKeyCursor){rq.onsuccess=()=>{const c=rq.result;if(c){if(String(c.key).indexOf(prefix)===0)keys.push(c.key);c.continue();}else{db.close();res(keys.sort());}};rq.onerror=()=>{db.close();res(keys);};}
+  else{rq.onsuccess=()=>{db.close();res((rq.result||[]).filter(k=>String(k).indexOf(prefix)===0).sort());};rq.onerror=()=>{db.close();res([]);};}
 }));}
 function _pruneAutoBackups(){return _bkKeys().then(keys=>{const extra=keys.length-_BK_MAX;for(let i=0;i<extra;i++)_idbDel(keys[i]);});}
+function _pruneDailyBackups(){return _bkKeys(_DAYBK_PREFIX).then(keys=>{const extra=keys.length-_DAYBK_DAYS;for(let i=0;i<extra;i++)_idbDel(keys[i]);});}
 async function listAutoBackups(){
-  const keys=await _bkKeys();const out=[];
-  for(const k of keys){try{const v=await _idbGet(k);if(v)out.push({key:k,ts:v.ts,reportCount:v.reportCount,jobCount:v.jobCount,nR:v.nR});}catch(e){}}
+  const out=[];
+  for(const k of await _bkKeys()){try{const v=await _idbGet(k);if(v)out.push({key:k,ts:v.ts,reportCount:v.reportCount,jobCount:v.jobCount,nR:v.nR,daily:false});}catch(e){}}
+  for(const k of await _bkKeys(_DAYBK_PREFIX)){try{const v=await _idbGet(k);if(v)out.push({key:k,ts:v.ts,reportCount:v.reportCount,jobCount:v.jobCount,nR:v.nR,daily:true,day:String(k).slice(_DAYBK_PREFIX.length)});}catch(e){}}
   return out.sort((a,b)=>b.ts-a.ts);
 }
 async function restoreAutoBackup(key){
@@ -6674,15 +6694,32 @@ async function openAutoBackups(){
   const body=document.getElementById('globalModalContent').querySelector('.mb');
   if(!list.length){body.innerHTML='<div class="es" style="padding:16px"><p>No auto-backups yet. They are created automatically when the app syncs with the cloud.</p></div>';return;}
   const curR=(DB.reports||[]).length;
-  body.innerHTML=`<p style="color:var(--t2);margin-bottom:12px">Current device has <strong>${curR}</strong> report(s). Pick a snapshot to compare/restore. Restore only <strong>adds back missing reports by ID</strong> — it never deletes or overwrites what you have now.</p>`+
+  body.innerHTML=`<p style="color:var(--t2);margin-bottom:12px">Current device has <strong>${curR}</strong> report(s). Recent snapshots (last ${_BK_MAX}) plus one <strong>daily</strong> snapshot per day for the last ${_DAYBK_DAYS} days are kept on this device. Each snapshot holds the <strong>full database</strong>. Two restore modes:<br>• <strong>Restore missing reports</strong> — safe merge: only adds back reports you don't have (never deletes/overwrites).<br>• <strong>Full restore</strong> — REPLACES the entire database (all customers, machines, jobs, reports, etc.) with the snapshot.</p>`+
     list.map(b=>{
       let when='';try{when=new Date(b.ts).toLocaleString('en-SG');}catch(e){when=String(b.ts);}
       const more=b.reportCount>curR?`<span class="bd bd-ok">+${b.reportCount-curR} more reports</span>`:`<span class="bd">${b.reportCount} reports</span>`;
-      return `<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${when}</span>${more}</div>
+      const tier=b.daily?`<span class="bd bd-ac" title="Daily snapshot (${E(b.day||'')})">📅 Daily</span>`:'';
+      return `<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${when}</span><span style="display:flex;gap:6px;flex-wrap:wrap">${tier}${more}</span></div>
         <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val">${b.reportCount}</span></div>
         <div class="rpt-card-row"><span class="rc-label">Jobs</span><span class="rc-val">${b.jobCount}</span></div>
-        <div class="rpt-card-actions"><button class="btn btn-sm btn-p" onclick="doRestoreAutoBackup('${b.key}')">Restore missing reports</button></div></div>`;
+        <div class="rpt-card-actions"><button class="btn btn-sm btn-p" onclick="doRestoreAutoBackup('${b.key}')">Restore missing reports</button><button class="btn btn-sm btn-d" onclick="doFullRestoreAutoBackup('${b.key}')">⟲ Full restore</button></div></div>`;
     }).join('');
+}
+// Full REPLACE of the entire database from an auto-backup snapshot. Destructive:
+// double-confirmed. Reuses the JSON-import restore path so cloud + local end up
+// consistent (non-report keys via update(), reports pushed atomically).
+async function doFullRestoreAutoBackup(key){
+  const v=await _idbGet(key);
+  if(!v||!v.data){toast('Backup not found.','error');return;}
+  let when='';try{when=new Date(v.ts).toLocaleString('en-SG');}catch(e){when=String(v.ts);}
+  const curR=(DB.reports||[]).length;
+  if(!confirm(`FULL RESTORE from ${when}?\n\nThis REPLACES the ENTIRE database on this device AND the cloud with this snapshot (${v.reportCount} reports, ${v.jobCount} jobs). Any current data NOT in this snapshot will be lost.\n\nYou currently have ${curR} report(s).\n\nProceed?`))return;
+  if(!confirm('Final confirmation: overwrite everything with this snapshot?'))return;
+  try{
+    _applyFullRestore(JSON.parse(JSON.stringify(v.data)));
+    closeModal();renderDataMgmt();
+    toast('Full database restored from snapshot.','success');
+  }catch(e){toast('Restore failed: '+e.message,'error');}
 }
 async function doRestoreAutoBackup(key){
   try{
