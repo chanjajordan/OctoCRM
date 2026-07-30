@@ -1751,9 +1751,18 @@ function editReport(id){
     <input type="hidden" id="erId" value="${r.id}">
     <div class="fr"><div class="fg"><label>Company</label><select class="fc" id="erCo"><option value="octopack"${r.company==='octopack'?' selected':''}>Octopack SEA</option><option value="jw"${r.company==='jw'?' selected':''}>JW Supplies</option><option value="redbox"${r.company==='redbox'?' selected':''}>Redbox Global</option></select></div><div class="fg"><label>Job No.</label><input class="fc" id="erJN" value="${E(r.jobNo)}"></div></div>
     <div class="fr"><div class="fg"><label>Date</label><input class="fc" type="date" id="erDt" value="${E(r.date)}"></div><div class="fg"><label>Status</label><select class="fc" id="erSt">${statuses.map(s=>`<option${s===r.status?' selected':''}>${s}</option>`).join('')}</select></div></div>
-    <div class="fr"><div class="fg"><label>Customer</label><input class="fc" id="erCu" list="erCuL" value="${E(r.customer)}"><datalist id="erCuL">${cs.map(c=>`<option value="${E(c.name)}">`).join('')}</datalist></div><div class="fg"><label>Contact</label><input class="fc" id="erCn" value="${E(r.contact||'')}"></div></div>
+    <div class="fr"><div class="fg"><label>Customer</label><input class="fc" id="erCu" list="erCuL" value="${E(r.customer)}" onchange="onERCustChange()"><datalist id="erCuL">${cs.map(c=>`<option value="${E(c.name)}">`).join('')}</datalist></div><div class="fg"><label>Contact</label><input class="fc" id="erCn" value="${E(r.contact||'')}"></div></div>
     <div class="fr"><div class="fg"><label>Contact Number</label><input class="fc" id="erCp" value="${E(r.contactNum||'')}"></div><div class="fg"><label>PO No.</label><input class="fc" id="erPO" value="${E(r.poNo||'')}"></div></div>
-    <div class="fr"><div class="fg"><label>Model</label><input class="fc" id="erMd" value="${E(r.model||'')}"></div><div class="fg"><label>Serial</label><input class="fc" id="erSr" value="${E(r.serial||'')}"></div></div>
+    <div class="fr">
+      <div class="fg"><label>Model</label>
+        <select class="fc" id="erMd" onchange="onERModelChange()"><option value="">— Select model —</option></select>
+        <input class="fc" id="erMdCustom" placeholder="Or type model" style="display:none;margin-top:6px">
+      </div>
+      <div class="fg"><label>Serial</label>
+        <select class="fc" id="erSr" onchange="onERSerialChange()"><option value="">— Select model first —</option></select>
+        <input class="fc" id="erSrCustom" placeholder="Or type serial" style="display:none;margin-top:6px">
+      </div>
+    </div>
     <div class="fg"><label>Machine Category (optional)</label>
       <select class="fc" id="erCat" onchange="onERCatChange()">
         <option value=""${!erCurCat?' selected':''}>— Select —</option>
@@ -1823,8 +1832,75 @@ function editReport(id){
     if(window._erCustSig)_paintSigCanvas('erSigC',sigSrc(window._erCustSig));
     if(window._erEngSig)_paintSigCanvas('erSigE',sigSrc(window._erEngSig));
     updErPhGrid();erRenderChecklists();
+    _erInitMachineFields(r.model||'',r.serial||'');
     renderExtraMachList('er');
   },80);
+}
+
+// ===== Edit-report primary machine model/serial dropdowns =====
+// Mirrors the Create Report linked dropdowns (crMd/crSr) but scoped to the edit
+// modal's er* fields. Options come from the report customer's machines (registry
+// + past reports); an existing value not in that list opens the "type custom"
+// input prefilled, so nothing is lost.
+function _erModelOptionsHTML(models,cur){
+  return '<option value="">— Select model —</option>'
+    +models.map(m=>`<option value="${E(m)}"${m===cur?' selected':''}>${E(m)}</option>`).join('')
+    +'<option value="__custom__">✏ Type custom model...</option>';
+}
+function _erSerialOptionsHTML(serials,cur){
+  return '<option value="">— Select serial —</option>'
+    +serials.map(s=>`<option value="${E(s)}"${s===cur?' selected':''}>${E(s)}</option>`).join('')
+    +'<option value="__custom__">✏ Type custom serial...</option>';
+}
+function _erInitMachineFields(curModel,curSerial){
+  const custName=document.getElementById('erCu')?.value||'';
+  const {models,serials}=getCustomerMachineOptions(custName);
+  const mdSel=document.getElementById('erMd'),mdCustom=document.getElementById('erMdCustom');
+  const srSel=document.getElementById('erSr'),srCustom=document.getElementById('erSrCustom');
+  if(!mdSel||!srSel)return;
+  const modelKnown=curModel&&models.includes(curModel);
+  mdSel.innerHTML=_erModelOptionsHTML(models,modelKnown?curModel:'');
+  if(curModel&&!modelKnown){mdSel.value='__custom__';mdCustom.style.display='';mdCustom.value=curModel;}
+  else{mdCustom.style.display='none';mdCustom.value='';}
+  // Serials for the current model (fall back to the model's own list, else empty)
+  const modelSerials=curModel&&serials[curModel]?[...serials[curModel]]:[];
+  const serialKnown=curSerial&&modelSerials.includes(curSerial);
+  srSel.innerHTML=_erSerialOptionsHTML(modelSerials,serialKnown?curSerial:'');
+  if(curSerial&&!serialKnown){srSel.value='__custom__';srCustom.style.display='';srCustom.value=curSerial;}
+  else{srCustom.style.display='none';srCustom.value='';}
+}
+// Customer changed → repopulate models (keep current typed values as custom).
+function onERCustChange(){
+  const curModel=getFieldVal('erMd','erMdCustom');
+  const curSerial=getFieldVal('erSr','erSrCustom');
+  _erInitMachineFields(curModel,curSerial);
+  renderExtraMachList('er'); // extra-machine dropdowns reflect the new customer too
+}
+function onERModelChange(){
+  const sel=document.getElementById('erMd'),custom=document.getElementById('erMdCustom');
+  if(!sel)return;
+  if(sel.value==='__custom__'){custom.style.display='';custom.focus();
+    // custom model → serial can only be typed
+    const srSel=document.getElementById('erSr');
+    srSel.innerHTML=_erSerialOptionsHTML([],'');
+    document.getElementById('erSrCustom').style.display='';document.getElementById('erSrCustom').value='';
+    return;
+  }
+  custom.style.display='none';custom.value='';
+  // Repopulate serials for the picked model, none preselected.
+  const custName=document.getElementById('erCu')?.value||'';
+  const {serials}=getCustomerMachineOptions(custName);
+  const modelSerials=serials[sel.value]?[...serials[sel.value]]:[];
+  const srSel=document.getElementById('erSr'),srCustom=document.getElementById('erSrCustom');
+  srSel.innerHTML=_erSerialOptionsHTML(modelSerials,'');
+  srSel.style.display='';srCustom.style.display='none';srCustom.value='';
+  if(modelSerials.length===1){srSel.value=modelSerials[0];}
+}
+function onERSerialChange(){
+  const sel=document.getElementById('erSr'),custom=document.getElementById('erSrCustom');
+  if(!sel)return;
+  if(sel.value==='__custom__'){custom.style.display='';custom.focus();}
+  else{custom.style.display='none';custom.value='';}
 }
 
 // Edit-report extra-machines helper
@@ -1930,8 +2006,10 @@ async function saveEditReport(){
   const newEngSig=se&&se._drawn?se.toDataURL():(window._erEngSig||'');
   const cls=Array.isArray(window._erChecklists)?window._erChecklists:[];
   syncExtraMachinesFromDOM('er');
-  const erPrimaryModel=document.getElementById('erMd').value.trim();
-  const erPrimarySerial=document.getElementById('erSr').value.trim();
+  // Model/serial are now select-or-custom dropdowns (like create) — read via
+  // getFieldVal so a typed custom value wins over the dropdown selection.
+  const erPrimaryModel=getFieldVal('erMd','erMdCustom');
+  const erPrimarySerial=getFieldVal('erSr','erSrCustom');
   // Guard: primary model but no serial → can't register, warn user (create had
   // this; edit didn't).
   if(erPrimaryModel&&!erPrimarySerial){
