@@ -1607,11 +1607,15 @@ function syncReportMachinesToRegistry(d){
     if(seen.has(serial))return;seen.add(serial);
     const existing=DB.machines.find(m=>m.serial===serial);
     if(existing){
-      // Backfill any missing identifying fields so the machine shows up correctly
+      // Backfill any missing identifying fields so the machine shows up correctly.
       let ch=false;
       if((!existing.customer||!existing.customer.trim())&&cust){existing.customer=cust;ch=true;}
       if((!existing.model||!existing.model.trim())&&item.model){existing.model=item.model;ch=true;}
-      if((!existing.category||!existing.category.trim())&&item.category){existing.category=item.category;ch=true;}
+      // Category is AUTHORITATIVE: a non-empty category explicitly chosen on the
+      // report updates the registry even if the machine already had one (only the
+      // primary item carries `category`; extras don't, so they never touch it). An
+      // empty selection never clobbers an existing category.
+      if(item.category&&existing.category!==item.category){existing.category=item.category;ch=true;}
       if(ch)addedAny=true;
       return;
     }
@@ -1976,13 +1980,7 @@ async function saveEditReport(){
     checklist:cls.length?JSON.parse(JSON.stringify(cls[0])):null,
     checklists:cls.length?JSON.parse(JSON.stringify(cls)):[]
   };
-  syncReportMachinesToRegistry(DB.reports[i]);
-  // Edit is authoritative for the primary machine's category: if the user set a
-  // (non-empty) category here, apply it to the registered machine even if it
-  // already had one — syncReportMachinesToRegistry only BACKFILLS blank fields,
-  // so without this an edit couldn't CHANGE an existing category.
-  const _erCat=(DB.reports[i].machineCategory||'').trim();
-  if(_erCat&&erPrimarySerial){const _pm=DB.machines.find(m=>m.serial===erPrimarySerial);if(_pm)_pm.category=_erCat;}
+  syncReportMachinesToRegistry(DB.reports[i]); // now authoritative for category (see helper)
   await uploadReportPhotos(DB.reports[i]);
   await uploadReportSignatures(DB.reports[i]);
   _upsertReportAtomic(DB.reports[i]);
