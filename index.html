@@ -430,6 +430,11 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
 // ===== FIREBASE =====
 const FB_CFG={apiKey:"AIzaSyCSQAS7mFBlTfmz0FVWaSLgI-Puk1Y3sN4",authDomain:"octocrm1.firebaseapp.com",databaseURL:"https://octocrm1-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"octocrm1",storageBucket:"octocrm1.firebasestorage.app",messagingSenderId:"212247591529",appId:"1:212247591529:web:4a076e40a71b59646b00f8"};
 const USE_FB=true;let fbDB=null,fbOK=false,fbStorage=null,fbAuthReady=false;
+// Data-loss guard: true once we've received the FIRST cloud snapshot. Cloud
+// writes (saveDB/_saveSideEffects) are suppressed until then, so a freshly-opened
+// device that still holds SEED data can never overwrite real cloud data before
+// it has synced down the latest. "Never write before you've read."
+let _cloudSynced=false;
 
 function initFB(){
   if(!USE_FB)return;
@@ -447,6 +452,8 @@ function initFB(){
     fbDB.ref('.info/connected').on('value',s=>{fbOK=s.val()===true;updSync();});
     fbDB.ref('octoCRM_v4').on('value',s=>{
       const d=s.val();
+      const firstSync=!_cloudSynced;
+      _cloudSynced=true;   // we've now read cloud state → cloud writes are safe
       if(d){
         DB=d;
         // Always ensure users exist (Firebase data may not have them)
@@ -464,12 +471,17 @@ function initFB(){
         }
         try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
         autoBackupSnapshot();
+        setTimeout(()=>{try{primeRecentMedia();}catch(e){}},1500);   // cache recent media for offline
         notifyDiffFromCloud();
         // Don't blow away an in-progress create/edit form when another user's
         // change arrives. DB is already updated above; defer the visual
         // re-render until the user leaves the form (see _isUserBusyEditing).
         if(_isUserBusyEditing())_pendingRefresh=true;
         else refreshPage();
+      }else if(firstSync){
+        // Cloud is empty (brand-new project) — initialize it ONCE with our local
+        // seed. Only happens when there is genuinely no cloud data to clobber.
+        _saveSideEffects();
       }
     });
   }catch(e){console.warn('FB err:',e)}
@@ -758,8 +770,9 @@ function _nonReportPayload(){
 }
 function saveDB(){
   try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
-  if(USE_FB&&fbDB){
+  if(USE_FB&&fbDB&&_cloudSynced){
     // update() merges at the top level — leaves octoCRM_v4/reports & /nR untouched.
+    // Gated on _cloudSynced so a not-yet-synced (seeded) device can't clobber cloud.
     fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
   }
 }
@@ -819,7 +832,7 @@ async function _deleteReportAtomic(id){
 // clobbering the cloud reports list. Uses shallow update().
 function _saveSideEffects(){
   try{localStorage.setItem('ocrm4',JSON.stringify(DB))}catch(e){}
-  if(USE_FB&&fbDB){
+  if(USE_FB&&fbDB&&_cloudSynced){
     fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
   }
 }
@@ -1013,6 +1026,29 @@ function doGlobalSearch(q){
 }
 function jsBadgeTxt(s){return s||'';}
 
+// Local memory gauge — tracks the localStorage 'ocrm4' payload against the
+// tightest browser cap (~5 MB on mobile), the real constraint for this app.
+function _memGaugeHTML(){
+  let bytes=0;
+  try{bytes=new Blob([localStorage.getItem('ocrm4')||'']).size;}catch(e){try{bytes=new Blob([JSON.stringify(DB)]).size;}catch(_){bytes=0;}}
+  const capMB=5, cap=capMB*1048576;
+  const pct=Math.min(100,Math.round(bytes/cap*100));
+  const mb=(bytes/1048576).toFixed(2);
+  const col=pct<60?'var(--ok)':pct<85?'var(--wn)':'var(--er)';
+  const nRep=(DB.reports||[]).length;
+  const cloudNote=fbStorage?'photos & signatures in cloud':'photos & signatures inline';
+  return `<div class="tw" style="margin-bottom:16px">
+    <div class="th"><h3>💾 Local Memory</h3><button class="btn btn-sm btn-s" onclick="showPage('data-mgmt')">Manage →</button></div>
+    <div style="padding:14px 20px">
+      <div style="height:14px;border-radius:8px;background:var(--bg2);overflow:hidden;border:1px solid var(--bdr)"><div style="height:100%;width:${pct}%;background:${col};transition:width .4s"></div></div>
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;margin-top:8px;font-size:var(--fs-sm);color:var(--t2)">
+        <span style="color:${col};font-weight:700">${mb} MB / ${capMB} MB &nbsp;(${pct}%)</span>
+        <span>${nRep} report${nRep===1?'':'s'} · ${cloudNote}</span>
+      </div>
+      ${pct>=85?'<div style="margin-top:8px;font-size:var(--fs-xs);color:var(--er)">⚠ Near the local limit — migrate media to cloud or archive old reports.</div>':''}
+    </div></div>`;
+}
+
 function renderDash(){
   const aj=DB.jobs.filter(j=>j.status!=='Completed'),ms=getMachs(),cs=getAllCusts();
   const outstandingRpts=DB.reports.filter(r=>r.status!=='Completed');
@@ -1046,6 +1082,7 @@ function renderDash(){
       <div class="sc" onclick="curMachCat='Defective';showPage('machines')" style="cursor:pointer"><div class="si" style="background:var(--ers);color:var(--er)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg></div><div class="sv" style="color:var(--er)">${defectiveMachines.length}</div><div class="sl">Defective Machines</div></div>
       <div class="sc" onclick="showPage('parts')" style="cursor:pointer"><div class="si" style="background:var(--pus);color:var(--pu)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg></div><div class="sv" style="color:${lowStock.length?'var(--er)':'var(--pu)'}">${lowStock.length}</div><div class="sl">Low Stock</div></div>
     </div>
+    ${_memGaugeHTML()}
     ${followUpJobs.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--wn)"><div class="th"><h3 style="color:var(--wn)">📌 To Follow-Up</h3><button class="btn btn-sm btn-s" onclick="curJF='Follow-Up';showPage('jobs')">View All →</button></div>
     ${followUpJobs.slice(0,5).map(j=>`<div class="rpt-card" onclick="showJobById(${j.id})" style="cursor:pointer"><div class="rpt-card-top"><span style="font-weight:700">${E(j.title)}</span><span class="bd bd-wn">JOB-${String(j.id).padStart(4,'0')}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(j.customer||'')}</span></div><div class="rpt-card-row"><span class="rc-label">Follow-up</span><span class="rc-val" style="max-width:65%">${E((j.followUp||'').substring(0,120))}</span></div></div>`).join('')}</div>`:''}
     ${overduePM.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--er)"><div class="th"><h3 style="color:var(--er)">🚨 Overdue PM (no job created yet)</h3><button class="btn btn-sm btn-s" onclick="showPage('pm-schedule')">View All →</button></div>
@@ -1759,8 +1796,8 @@ function editReport(id){
 
   setTimeout(()=>{
     initSig('erSigC');initSig('erSigE');
-    if(window._erCustSig)_paintSigCanvas('erSigC',window._erCustSig);
-    if(window._erEngSig)_paintSigCanvas('erSigE',window._erEngSig);
+    if(window._erCustSig)_paintSigCanvas('erSigC',sigSrc(window._erCustSig));
+    if(window._erEngSig)_paintSigCanvas('erSigE',sigSrc(window._erEngSig));
     updErPhGrid();erRenderChecklists();
     renderExtraMachList('er');
   },80);
@@ -1773,11 +1810,18 @@ function erAddExtraMachine(){
   renderExtraMachList('er');
 }
 
-function _paintSigCanvas(cid,dataUrl){
-  const c=document.getElementById(cid);if(!c||!dataUrl)return;
+function _paintSigCanvas(cid,src){
+  const c=document.getElementById(cid);if(!c||!src)return;
   const ctx=c.getContext('2d');const img=new Image();
-  img.onload=function(){ctx.clearRect(0,0,c.width,c.height);ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);ctx.drawImage(img,0,0,c.width,c.height);c._drawn=true;};
-  img.src=dataUrl;
+  // Cloud (https) signatures: load CORS-clean so a later redraw+toDataURL won't
+  // hit a tainted canvas. (Harmless for data: URLs.)
+  if(/^https?:/i.test(src))img.crossOrigin='anonymous';
+  img.onload=function(){ctx.clearRect(0,0,c.width,c.height);ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);ctx.drawImage(img,0,0,c.width,c.height);
+    // NOT "drawn" — user hasn't changed it. Keeps the existing value (URL/base64)
+    // on save instead of re-encoding it to a fresh base64 every edit.
+    c._drawn=false;};
+  img.onerror=function(){/* leave blank; existing value preserved via _erCustSig/_erEngSig */};
+  img.src=src;
 }
 
 function addErPhotos(files){if(!files)return;Array.from(files).forEach(f=>{if(window._erPhotos.length>=10)return;const r=new FileReader();r.onload=e=>{compImg(e.target.result,800,.7,d=>{window._erPhotos.push({dataUrl:d,caption:'Photo '+(window._erPhotos.length+1),timestamp:new Date().toLocaleString()});updErPhGrid();});};r.readAsDataURL(f);});}
@@ -1897,6 +1941,7 @@ async function saveEditReport(){
   };
   syncReportMachinesToRegistry(DB.reports[i]);
   await uploadReportPhotos(DB.reports[i]);
+  await uploadReportSignatures(DB.reports[i]);
   _upsertReportAtomic(DB.reports[i]);
   // Persist side-effects (new machines, bumped nM, customer backfills) to the
   // cloud. Without this, machines registered during an edit live only in memory
@@ -1925,7 +1970,7 @@ function viewRptPreview(id){
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Status</th><td style="border:1px solid #ccc;padding:8px;font-weight:700">${E(r.status)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Next Visit</th><td style="border:1px solid #ccc;padding:8px">${E(r.nextVisit||'—')}</td></tr></table>
     ${(()=>{const arr=Array.isArray(r.checklists)&&r.checklists.length?r.checklists:(r.checklist&&r.checklist.tplId?[r.checklist]:[]);if(!arr.length)return'';const tot=arr.reduce((a,c)=>{a.ok+=(c.items||[]).filter(i=>i.status==='OK').length;a.ng+=(c.items||[]).filter(i=>i.status==='NG').length;a.na+=(c.items||[]).filter(i=>i.status==='NA').length;a.n+=(c.items||[]).length;return a;},{ok:0,ng:0,na:0,n:0});return `<div style="margin-top:16px;padding:10px 12px;background:#eef4ff;border:1px solid #c9d6ee;border-radius:6px;font-size:12px"><strong>✅ PM Checklist${arr.length>1?'s':''} Attached:</strong> ${arr.map(c=>E(PM_CHECKLISTS[c.tplId]?.name||c.tplId)+(c.serial?' (S/N: '+E(c.serial)+')':'')).join(', ')} — ${tot.ok} OK / ${tot.ng} NG / ${tot.na} NA out of ${tot.n} items. <em>Full checklist included in PDF export.</em></div>`;})()}
     ${photos.length?`<div style="margin-top:16px;padding-top:12px;border-top:1px solid #ddd"><strong>📸 Photos (${photos.length})</strong><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${photos.map((p,i)=>`<img src="${photoSrc(p)}" style="width:100px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #ccc;cursor:pointer" onclick="openLBx(DB.reports.find(x=>x.id===${id}).photos,${i})">`).join('')}</div></div>`:''}
-    ${r.engSig||r.custSig?`<div style="display:flex;justify-content:space-between;margin-top:20px;padding-top:16px;border-top:2px solid #333"><div style="text-align:center;width:45%">${r.engSig?`<img src="${r.engSig}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">ENGINEER</div></div><div style="text-align:center;width:45%">${r.custSig?`<img src="${r.custSig}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">${E(r.sigName||'CUSTOMER')}</div></div></div>`:''}
+    ${r.engSig||r.custSig?`<div style="display:flex;justify-content:space-between;margin-top:20px;padding-top:16px;border-top:2px solid #333"><div style="text-align:center;width:45%">${r.engSig?`<img src="${sigSrc(r.engSig)}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">ENGINEER</div></div><div style="text-align:center;width:45%">${r.custSig?`<img src="${sigSrc(r.custSig)}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">${E(r.sigName||'CUSTOMER')}</div></div></div>`:''}
   </div>`;
   openModal('Report Preview — '+r.jobNo,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>${canEdit()?`<button class="btn btn-s" onclick="closeModal();editReport(${r.id})">✏ Edit</button>`:''}<button class="btn btn-s" onclick="downloadReportPDF(${r.id})">📥 PDF</button><button class="btn btn-p" onclick="emailReportPDF(${r.id})">📧 Email PDF</button>`);
 }
@@ -3001,8 +3046,11 @@ function clrSig(cid){const c=document.getElementById(cid);if(!c)return;const ctx
 // as a fallback, so nothing is ever lost and the app behaves like before.
 // A photo object is one of: {dataUrl,...} (not uploaded) or {url,path,...} (uploaded).
 
-// Resolve the best <img src> for a photo object — URL if uploaded, else inline base64.
-function photoSrc(p){return (p&&(p.url||p.dataUrl))||'';}
+// Resolve the best <img src> for a photo object. Prefers inline base64 (offline-new),
+// else the cloud URL routed through the offline blob cache (mediaUrl).
+function photoSrc(p){return (p&&(p.dataUrl||mediaUrl(p.url)))||'';}
+// Same for a signature value (base64 or cloud URL).
+function sigSrc(v){return !v?'':(_isDataUrl(v)?v:mediaUrl(v));}
 
 // Upload a single base64 data URL to Storage; returns {url, path}.
 async function _uploadPhotoDataUrl(reportId,dataUrl,idx){
@@ -3040,10 +3088,129 @@ async function _photoToDataUrlForPdf(p){
   if(p.dataUrl)return p.dataUrl;
   if(!p.url)return '';
   try{
-    const resp=await fetch(p.url,{mode:'cors'});
+    const resp=await fetch(mediaUrl(p.url),{mode:'cors'});   // cached blob: if offline-primed, else cloud URL
     const blob=await resp.blob();
     return await new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob);});
   }catch(e){console.warn('PDF photo fetch failed (needs bucket CORS):',e&&e.message||e);return '';}
+}
+
+// ----- Signatures to cloud (same idea as photos) -----
+// Signatures live directly on the report as r.custSig / r.engSig. The value is
+// EITHER a base64 data URL (freshly drawn / not uploaded) or a cloud https URL.
+// Because both work as an <img src>, all display/PDF markup is unchanged.
+function _isDataUrl(v){return typeof v==='string'&&v.slice(0,5)==='data:';}
+async function _uploadSig(reportId,name,dataUrl){
+  if(!fbStorage)throw new Error('storage-unavailable');
+  const path=`reports/${reportId}/sig_${name}.png`;
+  const ref=fbStorage.ref().child(path);
+  await ref.putString(dataUrl,'data_url',{contentType:'image/png'});
+  return await ref.getDownloadURL();
+}
+// Upload a report's inline (base64) signatures, replacing each with its URL.
+// Failures keep the base64 inline (offline fallback). Returns count uploaded.
+async function uploadReportSignatures(rpt){
+  if(!rpt||!fbStorage||!fbAuthReady)return 0;
+  let n=0;
+  for(const [field,name] of [['custSig','cust'],['engSig','eng']]){
+    if(_isDataUrl(rpt[field])){
+      try{rpt[field]=await _uploadSig(rpt.id,name,rpt[field]);n++;}
+      catch(e){console.warn('signature upload failed (kept inline):',e&&e.code||e);}
+    }
+  }
+  return n;
+}
+
+// ===== OFFLINE MEDIA CACHE (IndexedDB) =====
+// Caches photos + signatures for the most-recent N reports as blobs in IndexedDB
+// (NOT localStorage — huge quota, keeps ocrm4 tiny). Lets recent reports show their
+// media, and export PDFs, with no network. Cloud URLs are routed through mediaUrl():
+// if we hold a cached blob, we serve a local blob: URL (works offline), else the URL.
+// How many of the most-recent reports keep their photos/signatures cached locally
+// for offline use. Per-device setting (localStorage), changeable in Data Import/Export.
+let _MEDIA_RECENT_N=(()=>{const v=parseInt(localStorage.getItem('ocrm_media_recent_n'),10);return (Number.isFinite(v)&&v>=0)?v:20;})();
+const _MEDIA_PREFIX='media:';
+let _mediaBlobUrls={};   // cloudUrl -> local blob: objectURL
+let _lastPrime=0;
+
+function mediaUrl(u){return (u&&_mediaBlobUrls[u])||u||'';}
+
+// List IDB keys under the media: prefix (mirrors _bkKeys).
+function _mediaKeys(){return _idbOpen().then(db=>new Promise(res=>{
+  const tx=db.transaction(_IDB_STORE,'readonly');const st=tx.objectStore(_IDB_STORE);
+  const keys=[];const rq=st.openKeyCursor?st.openKeyCursor():st.getAllKeys();
+  if(st.openKeyCursor){rq.onsuccess=()=>{const c=rq.result;if(c){if(String(c.key).indexOf(_MEDIA_PREFIX)===0)keys.push(c.key);c.continue();}else{db.close();res(keys);}};rq.onerror=()=>{db.close();res(keys);};}
+  else{rq.onsuccess=()=>{db.close();res((rq.result||[]).filter(k=>String(k).indexOf(_MEDIA_PREFIX)===0));};rq.onerror=()=>{db.close();res([]);};}
+}));}
+
+// The set of cloud media URLs belonging to the N most-recent reports.
+function _recentMediaUrls(){
+  const reps=(DB.reports||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')).slice(0,_MEDIA_RECENT_N);
+  const urls=new Set();
+  reps.forEach(r=>{
+    (r.photos||[]).forEach(p=>{if(p&&typeof p.url==='string'&&/^https?:/i.test(p.url))urls.add(p.url);});
+    ['custSig','engSig'].forEach(k=>{const v=r[k];if(typeof v==='string'&&/^https?:/i.test(v))urls.add(v);});
+  });
+  return urls;
+}
+
+// Ensure a URL's blob is cached (IDB + in-memory objectURL). Reuses an existing
+// IDB blob when present (so this works offline after a prior online prime).
+async function _cacheMediaUrl(u){
+  if(!u||_mediaBlobUrls[u])return false;
+  try{
+    let blob=await _idbGet(_MEDIA_PREFIX+u);
+    if(!blob){
+      if(!navigator.onLine)return false;
+      const r=await fetch(u,{mode:'cors'});
+      if(!r.ok)return false;
+      blob=await r.blob();
+      try{await _idbPut(_MEDIA_PREFIX+u,blob);}catch(e){}
+    }
+    _mediaBlobUrls[u]=URL.createObjectURL(blob);
+    return true;
+  }catch(e){return false;}
+}
+
+// On startup: rebuild in-memory objectURLs from whatever's already cached in IDB,
+// so recent media displays offline before any network. Refreshes the view after.
+async function loadCachedMediaFromIDB(){
+  try{
+    const keys=await _mediaKeys();
+    for(const k of keys){
+      const blob=await _idbGet(k);
+      if(blob)_mediaBlobUrls[k.slice(_MEDIA_PREFIX.length)]=URL.createObjectURL(blob);
+    }
+    if(keys.length&&CUR_USER){try{refreshPage();}catch(e){}}
+  }catch(e){}
+}
+
+// Cache the recent-N reports' media (when online) and evict anything outside that
+// window. Throttled so it doesn't re-run on every cloud snapshot.
+async function primeRecentMedia(force){
+  const now=Date.now();
+  if(!force&&now-_lastPrime<30000)return;
+  _lastPrime=now;
+  const want=_recentMediaUrls();
+  if(navigator.onLine){for(const u of want)await _cacheMediaUrl(u);}
+  // Evict in-memory + IDB entries no longer in the recent window.
+  for(const u of Object.keys(_mediaBlobUrls)){
+    if(!want.has(u)){try{URL.revokeObjectURL(_mediaBlobUrls[u]);}catch(e){}delete _mediaBlobUrls[u];_idbDel(_MEDIA_PREFIX+u);}
+  }
+  try{const keys=await _mediaKeys();for(const k of keys){const u=k.slice(_MEDIA_PREFIX.length);if(!want.has(u))_idbDel(k);}}catch(e){}
+}
+
+// Change how many recent reports keep media cached offline (device setting).
+function setMediaRecentN(){
+  const el=document.getElementById('mediaRecentN');
+  let v=parseInt(el&&el.value,10);
+  if(!Number.isFinite(v)||v<0)v=0;
+  if(v>500)v=500;
+  _MEDIA_RECENT_N=v;
+  if(el)el.value=v;
+  try{localStorage.setItem('ocrm_media_recent_n',String(v));}catch(e){}
+  primeRecentMedia(true);          // re-cache / evict to the new window
+  renderPhotoMigStatus();
+  toast(v===0?'Offline media caching turned off (cloud-only).':`Keeping the ${v} most-recent report(s)' media offline.`,'success');
 }
 
 function getFieldVal(selId,customId){
@@ -3155,8 +3322,9 @@ async function saveCR(){
   d.id=claimed;
   d.scannedAt=new Date().toISOString();
   if(window._linkedJobId)d.jobId=window._linkedJobId;
-  // 2b. Upload photos to cloud storage (replaces base64 w/ URL; keeps base64 if offline)
+  // 2b. Upload photos + signatures to cloud (replaces base64 w/ URL; keeps base64 if offline)
   await uploadReportPhotos(d);
+  await uploadReportSignatures(d);
   // 3. Atomically append to cloud reports array — concurrent saves both survive
   await _appendReportAtomic(d);
   // 4. Side effects (new cust / parts / job link)
@@ -3214,6 +3382,7 @@ async function saveAndEmailCR(){
   linkReportToJob(d);savePartsFromCR();
   syncReportMachinesToRegistry(d);
   await uploadReportPhotos(d);
+  await uploadReportSignatures(d);
   await _upsertReportAtomic(d);
   _saveSideEffects();toast('Report saved!','success');window._linkedJobId=null;
   // Generate PDF and email
@@ -5419,11 +5588,19 @@ function renderDataMgmt(){
       <div id="impPreview" style="display:none;margin-top:16px"></div>
     </div>
 
-    <div class="oc"><h3>☁️ Cloud Photos</h3>
-      <p>Move report photos from inline storage into Firebase Storage to keep the local database small. New photos upload automatically on save; use this to migrate existing ones.</p>
+    <div class="oc"><h3>☁️ Cloud Photos &amp; Signatures</h3>
+      <p>Move report photos and signatures from inline storage into Firebase Storage to keep the local database small. New ones upload automatically on save; use this to migrate existing ones.</p>
       <div id="photoMigStatus" style="margin:12px 0;font-size:var(--fs-sm);color:var(--t2)"></div>
+      <div class="fg" style="max-width:360px;margin:6px 0 14px">
+        <label>Keep media offline for the most recent N reports</label>
+        <div style="display:flex;gap:8px">
+          <input class="fc" type="number" min="0" max="500" id="mediaRecentN" value="${_MEDIA_RECENT_N}" style="max-width:120px">
+          <button class="btn btn-s btn-sm" onclick="setMediaRecentN()">Save</button>
+        </div>
+        <span style="font-size:var(--fs-xs);color:var(--t3)">0 = cloud-only (no offline media). Higher = more reports available offline, more device storage. This device only.</span>
+      </div>
       <div style="display:flex;flex-wrap:wrap;gap:8px">
-        <button class="btn btn-p btn-sm" onclick="migratePhotosToStorage()">☁️ Migrate photos to cloud</button>
+        <button class="btn btn-p btn-sm" onclick="migratePhotosToStorage()">☁️ Migrate photos &amp; signatures</button>
         <button class="btn btn-s btn-sm" onclick="renderPhotoMigStatus()">↻ Refresh status</button>
       </div>
     </div>
@@ -5463,19 +5640,20 @@ function renderDataMgmt(){
 
 // Count how many report photos are still inline (base64) vs already in the cloud.
 function _photoStats(){
-  let inline=0,cloud=0,reports=0;
+  let inline=0,cloud=0,reports=0,sigInline=0,sigCloud=0;
   (DB.reports||[]).forEach(r=>{
-    const ps=r.photos||[];if(!ps.length)return;let has=false;
+    const ps=r.photos||[];let has=false;
     ps.forEach(p=>{if(p&&p.url)cloud++;else if(p&&p.dataUrl){inline++;has=true;}});
+    ['custSig','engSig'].forEach(k=>{const v=r[k];if(_isDataUrl(v)){sigInline++;has=true;}else if(typeof v==='string'&&/^https?:/i.test(v))sigCloud++;});
     if(has)reports++;
   });
-  return {inline,cloud,reports};
+  return {inline,cloud,reports,sigInline,sigCloud};
 }
 function renderPhotoMigStatus(){
   const el=document.getElementById('photoMigStatus');if(!el)return;
   const s=_photoStats();
   const ready=fbStorage?(fbAuthReady?'<span style="color:var(--ok)">✅ Storage connected</span>':'<span style="color:var(--wn)">⚠ Storage loaded, waiting for anonymous sign-in (enable Anonymous Auth in Firebase)</span>'):'<span style="color:var(--er)">✕ Storage not available</span>';
-  el.innerHTML=`${ready}<br>Inline photos to migrate: <strong>${s.inline}</strong> (in ${s.reports} report${s.reports===1?'':'s'}) &nbsp;·&nbsp; already in cloud: <strong>${s.cloud}</strong>`;
+  el.innerHTML=`${ready}<br>Inline photos: <strong>${s.inline}</strong> · signatures: <strong>${s.sigInline}</strong> &nbsp;→&nbsp; to migrate in ${s.reports} report${s.reports===1?'':'s'}<br>Already in cloud — photos: <strong>${s.cloud}</strong> · signatures: <strong>${s.sigCloud}</strong>`;
 }
 
 // One-time migration: upload every inline (base64) report photo to Storage, replace
@@ -5484,23 +5662,24 @@ function renderPhotoMigStatus(){
 async function migratePhotosToStorage(){
   if(!fbStorage){toast('Firebase Storage not available. Check setup.','error');return;}
   if(!fbAuthReady){toast('Enable Anonymous Auth in Firebase & publish Storage rules first.','error');return;}
-  const targets=(DB.reports||[]).filter(r=>Array.isArray(r.photos)&&r.photos.some(p=>p&&!p.url&&p.dataUrl));
-  if(!targets.length){toast('No inline photos to migrate.','info');renderPhotoMigStatus();return;}
-  const total=targets.reduce((n,r)=>n+r.photos.filter(p=>p&&!p.url&&p.dataUrl).length,0);
-  if(!confirm(`Upload ${total} photo(s) from ${targets.length} report(s) to Firebase Storage?\n\nThis replaces the inline copies with cloud links and shrinks the local database.`))return;
-  toast(`Migrating ${total} photo(s)…`,'info');
+  const hasInline=r=>(Array.isArray(r.photos)&&r.photos.some(p=>p&&!p.url&&p.dataUrl))||_isDataUrl(r.custSig)||_isDataUrl(r.engSig);
+  const targets=(DB.reports||[]).filter(hasInline);
+  if(!targets.length){toast('Nothing inline to migrate.','info');renderPhotoMigStatus();return;}
+  const s=_photoStats();
+  const total=s.inline+s.sigInline;
+  if(!confirm(`Upload ${s.inline} photo(s) + ${s.sigInline} signature(s) from ${targets.length} report(s) to Firebase Storage?\n\nThis replaces the inline copies with cloud links and shrinks the local database.`))return;
+  toast(`Migrating ${total} item(s)…`,'info');
   let done=0,failed=0;
   for(const r of targets){
-    const before=r.photos.filter(p=>p&&p.url).length;
-    await uploadReportPhotos(r);
-    const after=r.photos.filter(p=>p&&p.url).length;
-    const up=after-before;done+=up;
-    const still=r.photos.filter(p=>p&&!p.url&&p.dataUrl).length;failed+=still;
+    const up=(await uploadReportPhotos(r))+(await uploadReportSignatures(r));
+    done+=up;
+    const still=(r.photos||[]).filter(p=>p&&!p.url&&p.dataUrl).length+(_isDataUrl(r.custSig)?1:0)+(_isDataUrl(r.engSig)?1:0);
+    failed+=still;
     if(up>0){try{await _upsertReportAtomic(r);}catch(e){console.warn('migrate upsert failed',e);}}
   }
   _saveSideEffects();
   renderPhotoMigStatus();
-  toast(`Migrated ${done} photo(s).${failed?' '+failed+' still inline (retry later).':''}`,failed?'info':'success');
+  toast(`Migrated ${done} item(s).${failed?' '+failed+' still inline (retry later).':''}`,failed?'info':'success');
 }
 
 function escCSV(v){
@@ -6256,6 +6435,10 @@ function resetAllData(){
 // ===== INIT =====
 loadDB();
 tryAutoLogin();
+// Rebuild the offline media cache (recent reports' photos/signatures) so they
+// display even with no network; re-prime when connectivity returns.
+loadCachedMediaFromIDB();
+window.addEventListener('online',()=>{try{primeRecentMedia(true);}catch(e){}});
 // Auto-schedule PM jobs 2 weeks before due
 setTimeout(()=>{try{autoSchedulePM();}catch(e){console.warn('autoSchedulePM err',e);}},800);
 
@@ -6409,13 +6592,13 @@ function buildReportHTMLForPDF(r){
       <table style="width:100%;border-collapse:collapse">
         <tr>
           <td style="width:50%;padding:8px 16px 4px;vertical-align:bottom;text-align:center;border-right:1px solid #c9d6ee">
-            <div style="height:60px;display:flex;align-items:flex-end;justify-content:center">${r.engSig?`<img src="${r.engSig}" style="max-height:60px">`:''}</div>
+            <div style="height:60px;display:flex;align-items:flex-end;justify-content:center">${r.engSig?`<img src="${sigSrc(r.engSig)}" style="max-height:60px">`:''}</div>
             <div style="border-top:1px solid #333;margin-top:4px;padding-top:6px;font-size:10px"><strong>${E(engineers||'________________')}</strong></div>
             <div style="font-size:9px;color:#666;margin-top:2px">Service Engineer — ${co.name}</div>
             <div style="font-size:9px;color:#666">Date: ${E(r.date||'')}</div>
           </td>
           <td style="width:50%;padding:8px 16px 4px;vertical-align:bottom;text-align:center">
-            <div style="height:60px;display:flex;align-items:flex-end;justify-content:center">${r.custSig?`<img src="${r.custSig}" style="max-height:60px">`:''}</div>
+            <div style="height:60px;display:flex;align-items:flex-end;justify-content:center">${r.custSig?`<img src="${sigSrc(r.custSig)}" style="max-height:60px">`:''}</div>
             <div style="border-top:1px solid #333;margin-top:4px;padding-top:6px;font-size:10px"><strong>${E(r.sigName||'________________')}</strong></div>
             <div style="font-size:9px;color:#666;margin-top:2px">Customer Representative — ${E(r.customer||'')}</div>
             <div style="font-size:9px;color:#666">Date: ${E(r.date||'')}</div>
@@ -6459,16 +6642,29 @@ async function generateReportPDF(reportData, download){
   
   toast('Generating PDF...','info');
   
-  // Cloud-hosted photos (URLs) can't be painted by html2canvas directly — resolve
-  // them to base64 data URLs first (needs bucket CORS). Failed fetches are dropped.
+  // Cloud-hosted photos & signatures (URLs) can't be painted by html2canvas
+  // directly — resolve them to base64 data URLs first (needs bucket CORS).
+  const _needPhoto=Array.isArray(reportData.photos)&&reportData.photos.some(p=>p&&p.url&&!p.dataUrl);
+  const _needSig=['custSig','engSig'].some(k=>typeof reportData[k]==='string'&&/^https?:/i.test(reportData[k]));
   let _rd=reportData;
-  if(Array.isArray(reportData.photos)&&reportData.photos.some(p=>p&&p.url&&!p.dataUrl)){
-    const resolved=[];
-    for(const p of reportData.photos){
-      const du=await _photoToDataUrlForPdf(p);
-      if(du)resolved.push({caption:p.caption,timestamp:p.timestamp,dataUrl:du});
+  if(_needPhoto||_needSig){
+    _rd={...reportData};
+    if(_needPhoto){
+      const resolved=[];
+      for(const p of reportData.photos){
+        const du=await _photoToDataUrlForPdf(p);
+        if(du)resolved.push({caption:p.caption,timestamp:p.timestamp,dataUrl:du});
+      }
+      _rd.photos=resolved;
     }
-    _rd={...reportData,photos:resolved};
+    if(_needSig){
+      for(const k of ['custSig','engSig']){
+        if(typeof _rd[k]==='string'&&/^https?:/i.test(_rd[k])){
+          const du=await _photoToDataUrlForPdf({url:_rd[k]});
+          if(du)_rd[k]=du;   // else keep URL — html2canvas useCORS may still fetch it
+        }
+      }
+    }
   }
   // Create a hidden container for rendering
   const container=document.createElement('div');
