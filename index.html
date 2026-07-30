@@ -455,6 +455,9 @@ function initFB(){
       const firstSync=!_cloudSynced;
       _cloudSynced=true;   // we've now read cloud state → cloud writes are safe
       if(d){
+        // The 3-year archive lives in the cloud only — never let it into DB or
+        // localStorage (keeps the active DB small; see archiveOldReports).
+        if(d.reportsArchive!==undefined)delete d.reportsArchive;
         DB=d;
         // Always ensure users exist (Firebase data may not have them)
         if(!DB.users||!DB.users.length){DB.users=DEF_USERS;DB.nU=4;}
@@ -835,6 +838,132 @@ function _saveSideEffects(){
   if(USE_FB&&fbDB&&_cloudSynced){
     fbDB.ref('octoCRM_v4').update(_nonReportPayload()).catch(()=>{});
   }
+}
+
+// ===== 3-YEAR REPORT ARCHIVE =====
+// Reports older than _ARCHIVE_YEARS are moved OUT of the live octoCRM_v4/reports
+// list into octoCRM_v4/reportsArchive so the active DB (and localStorage) stays
+// small forever (~300 reports/yr cap). The archive is NEVER loaded into DB at
+// startup: the main value-listener (initFB) STRIPS reportsArchive from every
+// snapshot, so it never enters DB or localStorage — zero local cost. Search
+// loads it on demand into _archiveCache (see loadArchive/searchArchive).
+// NOTE: because the archive lives UNDER octoCRM_v4, the parent value-listener
+// still transfers it over the wire on each sync; local cost is zero, but if the
+// archive ever grows huge, promote it to a top-level node with its own listener.
+const _ARCHIVE_YEARS=3;                 // tunable retention window (years)
+let _archiveCache=null;                 // lazily fetched archived reports (session only)
+
+// Reports dated strictly before this Date go to the archive.
+function _archiveCutoff(){
+  const d=new Date();d.setHours(0,0,0,0);
+  d.setFullYear(d.getFullYear()-_ARCHIVE_YEARS);
+  return d;
+}
+// Old enough to archive? Undated / unparseable-date reports are NEVER archived
+// (kept active) — we only move reports we can positively age.
+function _isArchivable(r){
+  if(!r||!r.date)return false;
+  const d=new Date(r.date);
+  if(isNaN(d.getTime()))return false;
+  return d<_archiveCutoff();
+}
+// Look a report up in the live list first, then the loaded archive cache — so
+// view/PDF works for an archived report while its search results are on screen.
+function _rptById(id){
+  return (DB.reports||[]).find(x=>x&&x.id===id)||(_archiveCache||[]).find(x=>x&&x.id===id);
+}
+// Atomically upsert one report into the cloud archive node by id (mirrors
+// _upsertReportAtomic but targets reportsArchive). Idempotent → safe to re-run.
+async function _upsertArchiveAtomic(rpt){
+  if(USE_FB&&fbDB){
+    await fbDB.ref('octoCRM_v4/reportsArchive').transaction(arr=>{
+      if(!Array.isArray(arr))arr=[];
+      const k=arr.findIndex(x=>x&&x.id===rpt.id);
+      if(k>=0)arr[k]=rpt;else arr.push(rpt);
+      return arr;
+    });
+  }
+}
+// Atomically remove one report from the cloud archive node by id.
+async function _deleteArchiveAtomic(id){
+  if(USE_FB&&fbDB){
+    await fbDB.ref('octoCRM_v4/reportsArchive').transaction(arr=>{
+      if(!Array.isArray(arr))return arr;
+      return arr.filter(x=>x&&x.id!==id);
+    });
+  }
+}
+// Fetch the archive once into _archiveCache (force=re-fetch). RTDB may store the
+// array as an object with numeric keys — normalize either shape to an array.
+async function loadArchive(force){
+  if(_archiveCache&&!force)return _archiveCache;
+  if(!USE_FB||!fbDB){_archiveCache=[];return _archiveCache;}
+  const snap=await fbDB.ref('octoCRM_v4/reportsArchive').once('value');
+  const v=snap.val();
+  _archiveCache=Array.isArray(v)?v.filter(Boolean):(v&&typeof v==='object'?Object.values(v).filter(Boolean):[]);
+  return _archiveCache;
+}
+// Move every report older than _ARCHIVE_YEARS into the cloud archive. Copies to
+// the archive FIRST (idempotent), then removes from the active list, so a crash
+// mid-run can only leave a report in BOTH places (recoverable), never lost.
+async function archiveOldReports(){
+  if(!USE_FB||!fbDB||!_cloudSynced){toast('Wait for cloud sync before archiving.','error');return;}
+  const old=(DB.reports||[]).filter(_isArchivable);
+  if(!old.length){toast(`No reports older than ${_ARCHIVE_YEARS} years.`,'info');return;}
+  if(!confirm(`Archive ${old.length} report(s) older than ${_ARCHIVE_YEARS} years?\n\nThey move to a separate cloud archive (still searchable & restorable) and leave the active list. A JSON backup downloads first.`))return;
+  // Safety net: full JSON backup BEFORE moving production data.
+  try{exportJSON();}catch(e){}
+  let done=0,fail=0;
+  for(const r of old){
+    try{
+      await _upsertArchiveAtomic(r);    // 1) copy into archive (idempotent)
+      await _deleteReportAtomic(r.id);  // 2) remove from active (updates DB.reports + localStorage)
+      done++;
+    }catch(e){console.warn('archive failed',r&&r.id,e);fail++;}
+  }
+  _archiveCache=null;                   // invalidate any loaded archive view
+  toast(`Archived ${done} report(s)${fail?`, ${fail} failed`:''}.`,fail?'error':'success');
+  if(document.getElementById('archiveResults'))renderDataMgmt();
+}
+// Restore one archived report back into the active list (reverse of archiving).
+async function restoreArchivedReport(id){
+  const r=(_archiveCache||[]).find(x=>x&&x.id===id);
+  if(!r){toast('Report not in loaded archive — search again.','error');return;}
+  if(!confirm(`Restore ${r.jobNo||('#'+id)} to the active reports list?`))return;
+  try{
+    await _upsertReportAtomic(r);   // back into active (updates DB.reports + localStorage)
+    await _deleteArchiveAtomic(id); // remove from archive
+    _archiveCache=(_archiveCache||[]).filter(x=>x&&x.id!==id);
+    toast(`Restored ${r.jobNo||('#'+id)}.`,'success');
+    searchArchive();
+  }catch(e){toast('Restore failed.','error');}
+}
+// Load (on demand) + filter the archive, render matches with View/PDF/Restore.
+async function searchArchive(){
+  const out=document.getElementById('archiveResults');if(!out)return;
+  const q=(document.getElementById('archSrch')?.value||'').trim().toLowerCase();
+  out.innerHTML='<div style="padding:12px;color:var(--t2)">Loading archive…</div>';
+  let arr;
+  try{arr=await loadArchive(true);}catch(e){out.innerHTML='<div style="color:var(--er);padding:12px">Failed to load archive.</div>';return;}
+  const matched=(q?arr.filter(x=>((x.jobNo||'')+(x.customer||'')+(x.serial||'')+(x.model||'')+(x.company||'')+(x.engineer||'')+(x.date||'')).toLowerCase().includes(q)):arr.slice()).sort((a,b)=>(b.id||0)-(a.id||0));
+  out.innerHTML=`<div style="margin:10px 0;color:var(--t2);font-size:var(--fs-sm)">${matched.length} of ${arr.length} archived report(s)${q?` matching “${E(q)}”`:''}</div>`+_archiveCards(matched);
+}
+function _archiveCards(reps){
+  if(!reps.length)return'<div class="es" style="padding:20px"><p>No archived reports found.</p></div>';
+  return reps.map(x=>{
+    const co=CO[x.company]||CO.octopack;const pc=(x.photos||[]).length;
+    return`<div class="rpt-card">
+      <div class="rpt-card-top"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="rpt-card-jobno">${E(x.jobNo)}</span><span class="bd" style="background:${co.color}10;color:${co.color};font-size:11px">${E(x.company)}</span>${pc?`<span class="bd bd-ac" style="font-size:10px">📷 ${pc}</span>`:''}</div><span style="font-size:var(--fs-xs);color:var(--t3)">${E(x.date)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(x.customer)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(x.model)} / ${E(x.serial)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Type</span><span class="rc-val">${E(x.type||'—')}</span></div>
+      <div class="rpt-card-actions">
+        <button class="btn btn-sm btn-p" onclick="viewRptPreview(${x.id})">👁 View</button>
+        <button class="btn btn-sm btn-s" onclick="downloadReportPDF(${x.id})">📥 PDF</button>
+        ${canEdit()?`<button class="btn btn-sm btn-ok" onclick="restoreArchivedReport(${x.id})">♻ Restore</button>`:''}
+      </div>
+    </div>`;
+  }).join('');
 }
 
 // ===== AUTH =====
@@ -2073,7 +2202,7 @@ async function saveEditReport(){
 }
 
 function viewRptPreview(id){
-  const r=DB.reports.find(x=>x.id===id);if(!r)return;
+  const r=_rptById(id);if(!r)return;
   const co=CO[r.company]||CO.octopack;const photos=r.photos||[];
   const html=`<div style="background:#fff;color:#000;padding:24px;border-radius:var(--r);font-family:Arial,sans-serif;font-size:13px">
     <div style="display:flex;justify-content:space-between;border-bottom:2px solid #333;padding-bottom:16px;margin-bottom:16px;flex-wrap:wrap;gap:12px">
@@ -2088,7 +2217,7 @@ function viewRptPreview(id){
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Recommendations</th><td colspan="3" style="border:1px solid #ccc;padding:8px;white-space:pre-line">${E(r.recommendations)}</td></tr>
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Status</th><td style="border:1px solid #ccc;padding:8px;font-weight:700">${E(r.status)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Next Visit</th><td style="border:1px solid #ccc;padding:8px">${E(r.nextVisit||'—')}</td></tr></table>
     ${(()=>{const arr=Array.isArray(r.checklists)&&r.checklists.length?r.checklists:(r.checklist&&r.checklist.tplId?[r.checklist]:[]);if(!arr.length)return'';const tot=arr.reduce((a,c)=>{a.ok+=(c.items||[]).filter(i=>i.status==='OK').length;a.ng+=(c.items||[]).filter(i=>i.status==='NG').length;a.na+=(c.items||[]).filter(i=>i.status==='NA').length;a.n+=(c.items||[]).length;return a;},{ok:0,ng:0,na:0,n:0});return `<div style="margin-top:16px;padding:10px 12px;background:#eef4ff;border:1px solid #c9d6ee;border-radius:6px;font-size:12px"><strong>✅ PM Checklist${arr.length>1?'s':''} Attached:</strong> ${arr.map(c=>E(PM_CHECKLISTS[c.tplId]?.name||c.tplId)+(c.serial?' (S/N: '+E(c.serial)+')':'')).join(', ')} — ${tot.ok} OK / ${tot.ng} NG / ${tot.na} NA out of ${tot.n} items. <em>Full checklist included in PDF export.</em></div>`;})()}
-    ${photos.length?`<div style="margin-top:16px;padding-top:12px;border-top:1px solid #ddd"><strong>📸 Photos (${photos.length})</strong><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${photos.map((p,i)=>`<img src="${photoSrc(p)}" style="width:100px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #ccc;cursor:pointer" onclick="openLBx(DB.reports.find(x=>x.id===${id}).photos,${i})">`).join('')}</div></div>`:''}
+    ${photos.length?`<div style="margin-top:16px;padding-top:12px;border-top:1px solid #ddd"><strong>📸 Photos (${photos.length})</strong><div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">${photos.map((p,i)=>`<img src="${photoSrc(p)}" style="width:100px;height:75px;object-fit:cover;border-radius:6px;border:1px solid #ccc;cursor:pointer" onclick="openLBx(_rptById(${id}).photos,${i})">`).join('')}</div></div>`:''}
     ${r.engSig||r.custSig?`<div style="display:flex;justify-content:space-between;margin-top:20px;padding-top:16px;border-top:2px solid #333"><div style="text-align:center;width:45%">${r.engSig?`<img src="${sigSrc(r.engSig)}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">ENGINEER</div></div><div style="text-align:center;width:45%">${r.custSig?`<img src="${sigSrc(r.custSig)}" style="max-height:50px">`:''}<div style="border-top:1px solid #333;padding-top:4px;font-size:11px;color:#666">${E(r.sigName||'CUSTOMER')}</div></div></div>`:''}
   </div>`;
   openModal('Report Preview — '+r.jobNo,html,`<button class="btn btn-s" onclick="closeModal()">Close</button>${canEdit()?`<button class="btn btn-s" onclick="closeModal();editReport(${r.id})">✏ Edit</button>`:''}<button class="btn btn-s" onclick="downloadReportPDF(${r.id})">📥 PDF</button><button class="btn btn-p" onclick="emailReportPDF(${r.id})">📧 Email PDF</button>`);
@@ -5830,6 +5959,19 @@ function renderDataMgmt(){
       </div>
     </div>
 
+    <div class="oc" style="border-left:4px solid var(--ac)"><h3>🗄 ${_ARCHIVE_YEARS}-Year Report Archive</h3>
+      <p>Keep the active list small forever. Reports older than <b>${_ARCHIVE_YEARS} years</b> move to a separate cloud archive that is <b>not</b> loaded at startup, so this device stays fast. Archived reports remain fully searchable and restorable below. A JSON backup downloads automatically before anything moves.</p>
+      <div id="archiveStatus" style="margin:10px 0;font-size:var(--fs-sm);color:var(--t2)"></div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
+        <button class="btn btn-p btn-sm" onclick="archiveOldReports()">🗄 Archive reports &gt;${_ARCHIVE_YEARS} yrs</button>
+      </div>
+      <div class="sx" style="margin-top:14px;max-width:420px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg><input placeholder="Search archived reports…" id="archSrch" onkeydown="if(event.key==='Enter')searchArchive()"></div>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button class="btn btn-s btn-sm" onclick="searchArchive()">🔍 Search archive</button>
+      </div>
+      <div id="archiveResults" style="margin-top:12px"></div>
+    </div>
+
     <div class="oc" style="border-left:4px solid var(--ok)"><h3>🌱 Seed Data (Stable Baseline)</h3>
       <p>Save current data as a stable baseline. When you reset the app, it will reload from this seed instead of starting empty. Seeds are stored in your browser's IndexedDB, which holds the <b>full database including all photos &amp; signatures</b> (no 5 MB limit).</p>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">
@@ -5853,6 +5995,15 @@ function renderDataMgmt(){
     </div>
   </div>`;
   renderPhotoMigStatus();
+  renderArchiveStatus();
+}
+
+// Show how many active reports are old enough to archive (>_ARCHIVE_YEARS).
+function renderArchiveStatus(){
+  const el=document.getElementById('archiveStatus');if(!el)return;
+  const n=(DB.reports||[]).filter(_isArchivable).length;
+  const cut=_archiveCutoff().toISOString().slice(0,10);
+  el.innerHTML=n?`<span style="color:var(--wn)">⏳ <strong>${n}</strong> active report${n===1?'':'s'} dated before <strong>${cut}</strong> ready to archive.</span>`:`<span style="color:var(--ok)">✅ No active reports older than ${_ARCHIVE_YEARS} years.</span>`;
 }
 
 // Count how many report photos are still inline (base64) vs already in the cloud.
@@ -6973,13 +7124,13 @@ async function generateReportPDF(reportData, download){
 }
 
 async function downloadReportPDF(id){
-  const r=DB.reports.find(x=>x.id===id);
+  const r=_rptById(id);
   if(!r){toast('Report not found.','error');return;}
   await generateReportPDF(r,true);
 }
 
 async function emailReportPDF(id){
-  const r=DB.reports.find(x=>x.id===id);
+  const r=_rptById(id);
   if(!r){toast('Report not found.','error');return;}
   
   const result=await generateReportPDF(r,true);
