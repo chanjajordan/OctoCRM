@@ -1908,9 +1908,25 @@ async function saveEditReport(){
   syncExtraMachinesFromDOM('er');
   const erPrimaryModel=document.getElementById('erMd').value.trim();
   const erPrimarySerial=document.getElementById('erSr').value.trim();
+  // Guard: primary model but no serial → can't register, warn user (create had
+  // this; edit didn't).
+  if(erPrimaryModel&&!erPrimarySerial){
+    if(!confirm('You entered a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
+  }
   const erMachines=[];
+  // Require a serial to keep an extra machine (matches getCRData). Previously
+  // this filter used (model OR serial), so a model-only row saved a phantom
+  // {model,serial:''} that could never be registered and showed as an orphan.
+  const erDroppedExtraModels=[];
   if(erPrimaryModel||erPrimarySerial)erMachines.push({model:erPrimaryModel,serial:erPrimarySerial});
-  (window._erExtraMachines||[]).forEach(m=>{if(m.model||m.serial)erMachines.push({model:m.model||'',serial:m.serial||''});});
+  (window._erExtraMachines||[]).forEach(m=>{
+    const s=(m.serial||'').trim();
+    if(s)erMachines.push({model:m.model||'',serial:s});
+    else if((m.model||'').trim())erDroppedExtraModels.push(m.model.trim());
+  });
+  if(erDroppedExtraModels.length){
+    if(!confirm(`Additional machine(s) "${erDroppedExtraModels.join('", "')}" have no serial number and will NOT be saved on this report or added to the registry.\n\nSave anyway?`))return;
+  }
   DB.reports[i]={...DB.reports[i],
     company:document.getElementById('erCo').value,
     jobNo:document.getElementById('erJN').value.trim(),
@@ -2103,6 +2119,56 @@ const PM_CHECKLISTS={
     readings:[
       {label:'Battery DC (Vac/Vdc)',unit:'V'},
       {label:'Battery Charger (Vdc, if any)',unit:'V'}
+    ]
+  },
+  strapping_machine:{
+    name:'Automatic / Semi-Auto Strapping Machine',
+    company:'octopack',
+    sections:[
+      {title:'1. Strap Feed & Path',items:[
+        'Check strap reel dispenser and reel brake',
+        'Inspect strap guide chute / arch track for wear or debris',
+        'Check feed and eject roller condition and grip',
+        'Verify strap-width setting matches installed strap',
+        'Clear strap path — remove jammed strap, dust, offcuts',
+        'Check strap coil core holder and tension arm'
+      ]},
+      {title:'2. Sealing / Welding Head',items:[
+        'Inspect heater blade / welding element',
+        'Test cooling fan operation',
+        'Clean sealing plate, gripper and slider',
+        'Check cutter blade sharpness — replace if worn',
+        'Inspect sealing cam and slider for wear',
+        'Verify seal / weld strength on a test strap'
+      ]},
+      {title:'3. Tension & Drive',items:[
+        'Check tension motor and belt',
+        'Verify tension setting accuracy against gauge',
+        'Lubricate cams, gears and sliders',
+        'Check main drive belt tension and wear',
+        'Listen for abnormal motor noise / vibration'
+      ]},
+      {title:'4. Electrical & Controls',items:[
+        'Test control panel buttons and display',
+        'Check micro-switches and limit switches',
+        'Inspect wiring, terminations and connectors',
+        'Test foot pedal / auto-cycle trigger',
+        'Verify photo sensors (auto models)',
+        'Test emergency stop function'
+      ]},
+      {title:'5. Mechanical / Frame',items:[
+        'Tighten all bolts and fasteners',
+        'Check table / arch alignment',
+        'Inspect castors / levelling feet',
+        'Check guards and covers in place',
+        'Clean machine body and work surface'
+      ]},
+      {title:'6. Final Test',items:[
+        'Run full strap cycle — verify seal and tension',
+        'Confirm cycle time within spec',
+        'Check no alarms or fault codes',
+        'Verify all safety features operate'
+      ]}
     ]
   },
   air_cushion:{
@@ -3240,8 +3306,16 @@ function getCRData(){
   // otherwise create a phantom empty-serial entry.
   syncExtraMachinesFromDOM('cr');
   const machines=[];
+  // Extra rows with a model but no serial can't be registered (same rule as the
+  // primary field) — track them so the caller can warn before silently dropping
+  // the row, instead of the machine just vanishing with no notice.
+  const droppedExtraModels=[];
   if(primarySerial)machines.push({model:primaryModel,serial:primarySerial});
-  (crExtraMachines||[]).forEach(m=>{const s=(m.serial||'').trim();if(s)machines.push({model:m.model||'',serial:s});});
+  (crExtraMachines||[]).forEach(m=>{
+    const s=(m.serial||'').trim();
+    if(s)machines.push({model:m.model||'',serial:s});
+    else if((m.model||'').trim())droppedExtraModels.push(m.model.trim());
+  });
   return{
     company:document.getElementById('crCo').value,
     jobNo:document.getElementById('crJN').value.trim(),
@@ -3253,6 +3327,7 @@ function getCRData(){
     model:primaryModel,
     serial:primarySerial,
     machines:machines,
+    droppedExtraModels:droppedExtraModels, // transient — caller warns then strips before persisting
     engineer:engineers.join(', '),
     engineers:engineers,
     type:document.getElementById('crTy').value,
@@ -3309,6 +3384,13 @@ async function saveCR(){
   if(d.model&&!d.serial){
     if(!confirm('You selected a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
   }
+  // Same guard for additional machine rows — without this, a model typed with no
+  // serial on an extra machine just vanishes (not saved on the report, not
+  // registered) with zero indication anything was dropped.
+  if(d.droppedExtraModels&&d.droppedExtraModels.length){
+    if(!confirm(`Additional machine(s) "${d.droppedExtraModels.join('", "')}" have no serial number and will NOT be saved on this report or added to the registry.\n\nSave the report anyway?`))return;
+  }
+  delete d.droppedExtraModels; // transient warning-only field — don't persist it
   _setCRSaving(true);
   try{
   // 1. Atomically claim a unique report id from cloud (prevents duplicate SR numbers)
@@ -3368,6 +3450,14 @@ async function saveAndEmailCR(){
   if(!d.jobNo){toast('Job No. required.','error');return;}
   const em=document.getElementById('crEml')?.value;
   if(!em){toast('Enter customer email.','error');return;}
+  // Same machine-serial guards saveCR applies (this path skipped them before).
+  if(d.model&&!d.serial){
+    if(!confirm('You selected a model but no serial number. The machine will NOT be added to the registry without a serial.\n\nSave the report anyway?'))return;
+  }
+  if(d.droppedExtraModels&&d.droppedExtraModels.length){
+    if(!confirm(`Additional machine(s) "${d.droppedExtraModels.join('", "')}" have no serial number and will NOT be saved on this report or added to the registry.\n\nSave the report anyway?`))return;
+  }
+  delete d.droppedExtraModels; // transient warning-only field — don't persist it
   _setCRSaving(true);
   try{
   // Save report — atomic claim + atomic upsert (multi-user safe, no clobber).
