@@ -1225,7 +1225,7 @@ function renderDash(){
     ${lowStock.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--er)"><div class="th"><h3 style="color:var(--er)">⚠ Low Stock Parts</h3><button class="btn btn-sm btn-s" onclick="curPartsTab='stock';showPage('parts')">View All →</button></div>
     ${lowStock.slice(0,5).map(s=>`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(s.name)}</span><span class="bd bd-er">${s.qty} in stock</span></div><div class="rpt-card-row"><span class="rc-label">Reorder at</span><span class="rc-val">${s.reorderAt}</span></div></div>`).join('')}</div>`:''}
     ${outstandingRpts.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--er)"><div class="th"><h3 style="color:var(--er)">⚠ Outstanding Reports</h3><button class="btn btn-sm btn-s" onclick="showPage('reports')">View All →</button></div>
-    ${outstandingRpts.slice(0,5).map(r=>`<div class="rpt-card"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span>${stBd(r.status)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(r.model)} / ${E(r.serial)}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(r.date)}</span></div></div>`).join('')}</div>`:''}
+    ${outstandingRpts.slice(0,5).map(r=>`<div class="rpt-card"><div class="rpt-card-top"><span class="rpt-card-jobno">${E(r.jobNo)}</span>${stBd(r.status)}</div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(r.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(r.model)} / ${E(r.serial)}</span></div><div class="rpt-card-row"><span class="rc-label">Date</span><span class="rc-val">${E(reportDatesText(r))}</span></div></div>`).join('')}</div>`:''}
     ${defectiveMachines.length?`<div class="tw" style="margin-bottom:16px;border-left:4px solid var(--wn)"><div class="th"><h3 style="color:var(--wn)">🔧 Defective Machines</h3><button class="btn btn-sm btn-s" onclick="showPage('machines')">View All →</button></div>
     ${defectiveMachines.slice(0,5).map(m=>`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700">${E(m.serial)}</span><span class="bd bd-er">${(m.issues||[]).length} issue(s)</span></div><div class="rpt-card-row"><span class="rc-label">Model</span><span class="rc-val">${E(m.model)}</span></div><div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(m.customer)}</span></div><div class="rpt-card-row"><span class="rc-label">Last Issue</span><span class="rc-val">${E(m.issues[m.issues.length-1]?.status||'')}</span></div></div>`).join('')}</div>`:''}
     <div class="tw" style="margin-bottom:16px"><div class="th"><h3>Active Jobs</h3><button class="btn btn-sm btn-s" onclick="showPage('jobs')">View All →</button></div>
@@ -1891,7 +1891,7 @@ function editReport(id){
   openModal('Edit Report — '+r.jobNo,`
     <input type="hidden" id="erId" value="${r.id}">
     <div class="fr"><div class="fg"><label>Company</label><select class="fc" id="erCo"><option value="octopack"${r.company==='octopack'?' selected':''}>Octopack SEA</option><option value="jw"${r.company==='jw'?' selected':''}>JW Supplies</option><option value="redbox"${r.company==='redbox'?' selected':''}>Redbox Global</option></select></div><div class="fg"><label>Job No.</label><input class="fc" id="erJN" value="${E(r.jobNo)}"></div></div>
-    <div class="fr"><div class="fg"><label>Date</label><input class="fc" type="date" id="erDt" value="${E(r.date)}"></div><div class="fg"><label>Status</label><select class="fc" id="erSt">${statuses.map(s=>`<option${s===r.status?' selected':''}>${s}</option>`).join('')}</select></div></div>
+    <div class="fr"><div class="fg"><label>Service Date(s)</label><input class="fc" type="date" id="erDt" value="${E((r.dates&&r.dates[0])||r.date||'')}"><div id="erDatesExtra">${((r.dates&&r.dates.length>1)?r.dates.slice(1):[]).map(dt=>`<div style="display:flex;gap:6px;margin-top:6px"><input class="fc" type="date" data-datescope="er" value="${E(dt)}"><button type="button" class="btn btn-d btn-sm" title="Remove day" onclick="this.parentNode.remove()">✕</button></div>`).join('')}</div><button type="button" class="btn btn-s btn-sm" style="margin-top:6px" onclick="addServiceDate('er')">+ Add another day</button></div><div class="fg"><label>Status</label><select class="fc" id="erSt">${statuses.map(s=>`<option${s===r.status?' selected':''}>${s}</option>`).join('')}</select></div></div>
     <div class="fr"><div class="fg"><label>Customer</label><input class="fc" id="erCu" list="erCuL" value="${E(r.customer)}" onchange="onERCustChange()"><datalist id="erCuL">${cs.map(c=>`<option value="${E(c.name)}">`).join('')}</datalist></div><div class="fg"><label>Contact</label><input class="fc" id="erCn" value="${E(r.contact||'')}"></div></div>
     <div class="fr"><div class="fg"><label>Contact Number</label><input class="fc" id="erCp" value="${E(r.contactNum||'')}"></div><div class="fg"><label>PO No.</label><input class="fc" id="erPO" value="${E(r.poNo||'')}"></div></div>
     <div class="fr">
@@ -2173,7 +2173,8 @@ async function saveEditReport(){
   DB.reports[i]={...DB.reports[i],
     company:document.getElementById('erCo').value,
     jobNo:document.getElementById('erJN').value.trim(),
-    date:document.getElementById('erDt').value,
+    date:(collectServiceDates('er')[0]||document.getElementById('erDt').value),
+    dates:collectServiceDates('er'),
     status:document.getElementById('erSt').value,
     customer:document.getElementById('erCu').value.trim(),
     contact:document.getElementById('erCn').value.trim(),
@@ -2222,7 +2223,7 @@ function viewRptPreview(id){
       <div style="text-align:right"><div style="font-size:16px;font-weight:700">FIELD SERVICE REPORT</div><div style="font-size:14px;margin-top:4px"><strong>${E(r.jobNo)}</strong></div></div>
     </div>
     <table style="width:100%;border-collapse:collapse;font-size:13px"><tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;width:25%">Customer</th><td style="border:1px solid #ccc;padding:8px">${E(r.customer)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;width:20%">Contact</th><td style="border:1px solid #ccc;padding:8px">${E(r.contact)} ${E(r.contactNum)}</td></tr>
-    <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Date</th><td style="border:1px solid #ccc;padding:8px">${E(r.date)}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Engineer</th><td style="border:1px solid #ccc;padding:8px">${E(r.engineer)}</td></tr>
+    <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Date</th><td style="border:1px solid #ccc;padding:8px">${E(reportDatesText(r))}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Engineer</th><td style="border:1px solid #ccc;padding:8px">${E(r.engineer)}</td></tr>
     ${(()=>{const ms=Array.isArray(r.machines)&&r.machines.length?r.machines:(r.model||r.serial?[{model:r.model,serial:r.serial}]:[]);if(!ms.length)return'';if(ms.length===1)return `<tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Model</th><td style="border:1px solid #ccc;padding:8px">${E(ms[0].model||'')}</td><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Serial</th><td style="border:1px solid #ccc;padding:8px;font-weight:700">${E(ms[0].serial||'')}</td></tr>`;return `<tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Machines (${ms.length})</th><td colspan="3" style="border:1px solid #ccc;padding:0"><table style="width:100%;border-collapse:collapse"><tr><th style="padding:6px 8px;background:#f5f5f5;text-align:left;border-bottom:1px solid #ddd;font-size:11px">#</th><th style="padding:6px 8px;background:#f5f5f5;text-align:left;border-bottom:1px solid #ddd;font-size:11px">Model</th><th style="padding:6px 8px;background:#f5f5f5;text-align:left;border-bottom:1px solid #ddd;font-size:11px">Serial</th></tr>${ms.map((mm,k)=>`<tr><td style="padding:6px 8px;border-bottom:1px solid #eee">${k+1}</td><td style="padding:6px 8px;border-bottom:1px solid #eee">${E(mm.model||'')}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-weight:700">${E(mm.serial||'')}</td></tr>`).join('')}</table></td></tr>`;})()}
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left">Type</th><td colspan="3" style="border:1px solid #ccc;padding:8px;font-weight:600">${E(r.type)}</td></tr>
     <tr><th style="border:1px solid #ccc;padding:8px;background:#f5f5f5;text-align:left;vertical-align:top">Issues/Remarks</th><td colspan="3" style="border:1px solid #ccc;padding:8px;white-space:pre-line">${E(r.remarks)}</td></tr>
@@ -2924,7 +2925,7 @@ function renderCreateReport(){
       </div>
 
       <div class="fg"><label>Company</label><select class="fc" id="crCo"><option value="octopack">Octopack SEA</option><option value="jw">JW Supplies & Works</option><option value="redbox">Redbox Global Solutions</option></select></div>
-      <div class="fr"><div class="fg"><label>Job No.</label><input class="fc" id="crJN" value="SR-${String(DB.nR).padStart(5,'0')}"></div><div class="fg"><label>Date</label><input class="fc" type="date" id="crDt" value="${new Date().toISOString().split('T')[0]}"></div></div>
+      <div class="fr"><div class="fg"><label>Job No.</label><input class="fc" id="crJN" value="SR-${String(DB.nR).padStart(5,'0')}"></div><div class="fg"><label>Service Date(s)</label><input class="fc" type="date" id="crDt" value="${new Date().toISOString().split('T')[0]}"><div id="crDatesExtra"></div><button type="button" class="btn btn-s btn-sm" style="margin-top:6px" onclick="addServiceDate('cr')">+ Add another day</button></div></div>
       
       <div class="fg"><label>Customer</label>
         <select class="fc" id="crCu" onchange="onCustChange()">
@@ -3563,6 +3564,26 @@ function getSelectedEngineers(){
   if(custom)checked.push(custom);
   return checked;
 }
+// ---- Multi-day service dates ------------------------------------------------
+// A report's PRIMARY date (r.date) stays the EARLIEST service day — all sorting,
+// PM last-service, archive cutoff and the calendar use it. r.dates[] holds every
+// day worked (multi-day jobs). Old reports without r.dates fall back to [r.date].
+function addServiceDate(scope,val){
+  const wrap=document.getElementById(scope+'DatesExtra');if(!wrap)return;
+  const div=document.createElement('div');
+  div.style.cssText='display:flex;gap:6px;margin-top:6px';
+  div.innerHTML='<input class="fc" type="date" data-datescope="'+scope+'" value="'+(val||'')+'"><button type="button" class="btn btn-d btn-sm" title="Remove day" onclick="this.parentNode.remove()">✕</button>';
+  wrap.appendChild(div);
+}
+function collectServiceDates(scope){
+  const first=(document.getElementById(scope+'Dt')||{}).value||'';
+  const extra=[...document.querySelectorAll('[data-datescope="'+scope+'"]')].map(i=>i.value).filter(Boolean);
+  return [...new Set([first,...extra].filter(Boolean))].sort();
+}
+function reportDatesText(r){
+  const ds=(Array.isArray(r.dates)&&r.dates.length?r.dates:(r.date?[r.date]:[]));
+  return ds.join(', ');
+}
 function getCRData(){
   const sc=document.getElementById('sigC'),se=document.getElementById('sigE');
   const engineers=getSelectedEngineers();
@@ -3586,7 +3607,8 @@ function getCRData(){
   return{
     company:document.getElementById('crCo').value,
     jobNo:document.getElementById('crJN').value.trim(),
-    date:document.getElementById('crDt').value,
+    date:(collectServiceDates('cr')[0]||document.getElementById('crDt').value),
+    dates:collectServiceDates('cr'),
     customer:getFieldVal('crCu','crCuCustom'),
     contact:getFieldVal('crCn','crCnCustom'),
     contactNum:getFieldVal('crCp','crCpCustom'),
@@ -3748,7 +3770,7 @@ async function saveAndEmailCR(){
   const co=CO[d.company]||CO.octopack;
   const cc=document.getElementById('crCC')?.value||'';
   const subj=`Service Report ${d.jobNo} — ${d.type} — ${co.name}`;
-  const body=`Dear ${d.contact||'Customer'},\n\nPlease find attached the signed service report.\n\nJob No.: ${d.jobNo}\nDate: ${d.date}\nEquipment: ${d.model} (S/N: ${d.serial})\nType: ${d.type}\nStatus: ${d.status}\n\nRegards,\n${d.engineer||''}\n${co.name}`;
+  const body=`Dear ${d.contact||'Customer'},\n\nPlease find attached the signed service report.\n\nJob No.: ${d.jobNo}\nDate: ${reportDatesText(d)}\nEquipment: ${d.model} (S/N: ${d.serial})\nType: ${d.type}\nStatus: ${d.status}\n\nRegards,\n${d.engineer||''}\n${co.name}`;
   // Try native share (mobile can attach PDF directly)
   if(result&&navigator.share&&navigator.canShare){
     try{
@@ -3811,7 +3833,9 @@ function getAllMachinesDB(){
       if(r.status!=='Completed')m[key].issues.push(r);
     });
   });
-  return Object.values(m);
+  // Auto-sort A–Z + natural numeric (so "2" < "10") by serial, tie-break by model.
+  const _nat=(a,b)=>String(a||'').localeCompare(String(b||''),undefined,{numeric:true,sensitivity:'base'});
+  return Object.values(m).sort((a,b)=>_nat(a.serial,b.serial)||_nat(a.model,b.model));
 }
 let curMachCat='all';
 function renderMachines(){
@@ -6989,7 +7013,7 @@ function _buildSingleChecklistHTML(cl,r,co,clIdx,total){
       <tr style="background:#f6f9ff">
         <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Job No.:</strong> ${E(r.jobNo||'')}</td>
         <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Customer:</strong> ${E(r.customer||'')}</td>
-        <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Date:</strong> ${E(r.date||'')}</td>
+        <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Date:</strong> ${E(reportDatesText(r))}</td>
       </tr>
       <tr style="background:#f6f9ff">
         <td style="border:1px solid #c9d6ee;padding:6px 10px"><strong>Machine:</strong> ${E(r.model||'')}</td>
@@ -7028,7 +7052,7 @@ function buildReportHTMLForPDF(r){
     <table style="width:100%;border-collapse:collapse;font-size:10.5px;margin-bottom:14px;border-top:2px solid ${co.color}">
       <tr style="background:#eef4ff">
         <td style="border:1px solid #c9d6ee;padding:7px 10px;width:34%"><strong>Document No.:</strong> ${E(r.jobNo||'')}</td>
-        <td style="border:1px solid #c9d6ee;padding:7px 10px;width:33%"><strong>Date of Service:</strong> ${E(r.date||'')}</td>
+        <td style="border:1px solid #c9d6ee;padding:7px 10px;width:33%"><strong>Date of Service:</strong> ${E(reportDatesText(r))}</td>
         <td style="border:1px solid #c9d6ee;padding:7px 10px;width:33%"><strong>PO No.:</strong> ${E(r.poNo||'N/A')}</td>
       </tr>
     </table>
@@ -7065,13 +7089,13 @@ function buildReportHTMLForPDF(r){
             <div style="height:60px;display:flex;align-items:flex-end;justify-content:center">${r.engSig?`<img src="${sigSrc(r.engSig)}" style="max-height:60px">`:''}</div>
             <div style="border-top:1px solid #333;margin-top:4px;padding-top:6px;font-size:10px"><strong>${E(engineers||'________________')}</strong></div>
             <div style="font-size:9px;color:#666;margin-top:2px">Service Engineer — ${co.name}</div>
-            <div style="font-size:9px;color:#666">Date: ${E(r.date||'')}</div>
+            <div style="font-size:9px;color:#666">Date: ${E(reportDatesText(r))}</div>
           </td>
           <td style="width:50%;padding:8px 16px 4px;vertical-align:bottom;text-align:center">
             <div style="height:60px;display:flex;align-items:flex-end;justify-content:center">${r.custSig?`<img src="${sigSrc(r.custSig)}" style="max-height:60px">`:''}</div>
             <div style="border-top:1px solid #333;margin-top:4px;padding-top:6px;font-size:10px"><strong>${E(r.sigName||'________________')}</strong></div>
             <div style="font-size:9px;color:#666;margin-top:2px">Customer Representative — ${E(r.customer||'')}</div>
-            <div style="font-size:9px;color:#666">Date: ${E(r.date||'')}</div>
+            <div style="font-size:9px;color:#666">Date: ${E(reportDatesText(r))}</div>
           </td>
         </tr>
       </table>
@@ -7243,7 +7267,7 @@ async function emailReportPDF(id){
   const cust=DB.custs.find(c=>c.name===r.customer);
   const toEmail=cust?.email||'';
   const subj=`Service Report ${r.jobNo} — ${r.type} — ${co.name}`;
-  const body=`Dear ${r.contact||'Customer'},\n\nPlease find attached the service report PDF.\n\nJob No.: ${r.jobNo}\nDate: ${r.date}\nEquipment: ${r.model} (S/N: ${r.serial})\nType: ${r.type}\nStatus: ${r.status}\n\nRegards,\n${r.engineer||''}\n${co.name}`;
+  const body=`Dear ${r.contact||'Customer'},\n\nPlease find attached the service report PDF.\n\nJob No.: ${r.jobNo}\nDate: ${reportDatesText(r)}\nEquipment: ${r.model} (S/N: ${r.serial})\nType: ${r.type}\nStatus: ${r.status}\n\nRegards,\n${r.engineer||''}\n${co.name}`;
   
   // Try Web Share API first (mobile — can share PDF directly)
   if(navigator.share&&navigator.canShare){
