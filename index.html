@@ -3580,9 +3580,14 @@ function collectServiceDates(scope){
   const extra=[...document.querySelectorAll('[data-datescope="'+scope+'"]')].map(i=>i.value).filter(Boolean);
   return [...new Set([first,...extra].filter(Boolean))].sort();
 }
+// ISO 'YYYY-MM-DD' → 'DD/MM/YYYY' for report display/PDF. Non-ISO passes through.
+function fmtDMY(iso){
+  const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m?`${m[3]}/${m[2]}/${m[1]}`:String(iso||'');
+}
 function reportDatesText(r){
   const ds=(Array.isArray(r.dates)&&r.dates.length?r.dates:(r.date?[r.date]:[]));
-  return ds.join(', ');
+  return ds.map(fmtDMY).join(', ');
 }
 function getCRData(){
   const sc=document.getElementById('sigC'),se=document.getElementById('sigE');
