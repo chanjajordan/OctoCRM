@@ -1689,7 +1689,11 @@ function syncJobMachineToRegistry(d){
   if(!d.machine)return; // no serial = nothing to register
   if(!Array.isArray(DB.machines))DB.machines=[];
   const serial=d.machine;
-  const existing=DB.machines.find(m=>m.serial===serial);
+  // Identity is serial+model: a named model matches its exact entry, a new model
+  // on an existing serial creates a new machine; blank model backfills same-serial.
+  const existing=d.model
+    ? DB.machines.find(m=>m.serial===serial&&(m.model||'')===d.model)
+    : DB.machines.find(m=>m.serial===serial);
   if(existing){
     let changed=false;
     if(!existing.customer&&d.customer){existing.customer=d.customer;changed=true;}
@@ -1713,6 +1717,7 @@ function syncJobMachineToRegistry(d){
     serviceContract:'Nil',
     maintFrequency:''
   });
+  _unblockMachine(serial,d.model||'');
   toast(`New machine "${serial}" added to registry.`,'info');
 }
 
@@ -1733,8 +1738,14 @@ function syncReportMachinesToRegistry(d){
   list.forEach(item=>{
     const serial=item.serial;
     if(!serial)return; // need a serial to register
-    if(seen.has(serial))return;seen.add(serial);
-    const existing=DB.machines.find(m=>m.serial===serial);
+    const skey=serial+_MKS+(item.model||'');
+    if(seen.has(skey))return;seen.add(skey);
+    // Identity is serial+model. A named model matches only its exact registry
+    // entry (a new model on an existing serial → a NEW machine). A blank model
+    // backfills any existing same-serial entry instead of making a phantom dup.
+    const existing=item.model
+      ? DB.machines.find(m=>m.serial===serial&&(m.model||'')===item.model)
+      : DB.machines.find(m=>m.serial===serial);
     if(existing){
       // Backfill any missing identifying fields so the machine shows up correctly.
       let ch=false;
@@ -1754,6 +1765,7 @@ function syncReportMachinesToRegistry(d){
       customer:cust,location:'',installDate:'',
       warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''
     });
+    _unblockMachine(serial,item.model||'');
     addedAny=true;addedNames.push(serial);
   });
   if(addedNames.length)toast('Registered to machine list: '+addedNames.join(', '),'success');
@@ -3755,25 +3767,48 @@ async function saveAndEmailCR(){
 function previewCR(){const d=getCRData();const fakeId=Date.now();DB.reports.push({...d,id:fakeId});viewRptPreview(fakeId);DB.reports=DB.reports.filter(r=>r.id!==fakeId);}
 
 // ===== MACHINES (from DB.machines + report history) =====
+// Machine identity is COMPOSITE: (serial, model). The registry MAY hold two
+// entries with the same serial but different models — they are distinct machines.
+const _MKS='␟';                                   // unit separator for composite keys
+function mKeyOf(serial,model){return (serial||'')+_MKS+(model||'');}
+function mSame(m,serial,model){return (m.serial||'')===(serial||'')&&(m.model||'')===(model||'');}
+// Clear any delete-block (composite key OR legacy bare serial) for a machine that
+// is being (re)added, so a stale entry can never hide a record that now exists.
+function _unblockMachine(serial,model){
+  if(!Array.isArray(DB.deletedMachines)||!DB.deletedMachines.length)return;
+  const k=mKeyOf(serial,model),s=String(serial||'');
+  DB.deletedMachines=DB.deletedMachines.filter(x=>x!==k&&x!==s);
+}
 function getAllMachinesDB(){
-  const blocked=new Set(DB.deletedMachines||[]);
+  const del=new Set(DB.deletedMachines||[]);
+  const legacyDel=new Set([...del].filter(x=>String(x).indexOf(_MKS)<0)); // pre-change serial-only deletes
+  const isBlocked=(s,mo)=>del.has(mKeyOf(s,mo))||legacyDel.has(s);
   const m={};
-  (DB.machines||[]).forEach(mc=>{if(!blocked.has(mc.serial))m[mc.serial]={...mc,reports:[],lastService:'',issues:[]};});
+  // Registry machines (explicitly in DB.machines) are ALWAYS shown — deletedMachines
+  // only suppresses report-DERIVED phantoms, never a record that actually exists.
+  // (A stale block from a delete + later re-add otherwise hides a live machine.)
+  (DB.machines||[]).forEach(mc=>{m[mKeyOf(mc.serial,mc.model)]={...mc,reports:[],lastService:'',issues:[]};});
+  // Registry entries grouped by serial — for the blank-model report fallback.
+  const regBySerial={};
+  Object.values(m).forEach(x=>{(regBySerial[x.serial]=regBySerial[x.serial]||[]).push(x);});
   DB.reports.forEach(r=>{
-    // Link the report to EVERY serial it references: primary r.serial + all r.machines[]
-    const serials=[];
-    if(r.serial)serials.push(r.serial);
-    if(Array.isArray(r.machines))r.machines.forEach(mm=>{if(mm&&mm.serial)serials.push(mm.serial);});
-    const uniq=[...new Set(serials)];
-    uniq.forEach(s=>{
-      if(!s||blocked.has(s))return;
-      if(!m[s]){
-        const mm=Array.isArray(r.machines)?r.machines.find(x=>x&&x.serial===s):null;
-        m[s]={serial:s,model:(mm&&mm.model)||(s===r.serial?r.model:'')||'',customer:r.customer,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:'',maintFrequency:'',category:'',reports:[],lastService:'',issues:[]};
+    // Every (serial,model) pair this report references: primary + all machines[].
+    const pairs=[];
+    if(r.serial)pairs.push([r.serial,(r.model||'')]);
+    if(Array.isArray(r.machines))r.machines.forEach(mm=>{if(mm&&mm.serial)pairs.push([mm.serial,(mm.model||'')]);});
+    const seen=new Set();
+    pairs.forEach(([s,mo])=>{
+      if(!s||isBlocked(s,mo))return;
+      const dk=s+_MKS+mo; if(seen.has(dk))return; seen.add(dk);
+      let key=mKeyOf(s,mo);
+      // Blank/unknown model → attach to an existing serial-only registry entry if any.
+      if(!m[key]&&!mo&&regBySerial[s]&&regBySerial[s].length){const t=regBySerial[s][0];key=mKeyOf(t.serial,t.model);}
+      if(!m[key]){
+        m[key]={serial:s,model:mo,customer:r.customer,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:'',maintFrequency:'',category:'',reports:[],lastService:'',issues:[]};
       }
-      m[s].reports.push(r);
-      if(!m[s].lastService||r.date>m[s].lastService)m[s].lastService=r.date;
-      if(r.status!=='Completed')m[s].issues.push(r);
+      m[key].reports.push(r);
+      if(!m[key].lastService||r.date>m[key].lastService)m[key].lastService=r.date;
+      if(r.status!=='Completed')m[key].issues.push(r);
     });
   });
   return Object.values(m);
@@ -3816,8 +3851,9 @@ function mCards(ms){
   if(!ms.length)return'<div class="es"><p>No machines found.</p></div>';
   return ms.map(m=>{
     const custExists=DB.custs.find(c=>c.name===m.customer);
-    return`<div class="rpt-card"${bulkMode&&bulkSel.has(m.serial)?' style="box-shadow:inset 0 0 0 2px var(--ac)"':''}>
-    ${bulkMode?`<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;cursor:pointer"><input type="checkbox" ${bulkSel.has(m.serial)?'checked':''} onchange="toggleBulk('${E(m.serial)}')"> Select</label>`:''}
+    const _mk=mKeyOf(m.serial,m.model);
+    return`<div class="rpt-card"${bulkMode&&bulkSel.has(_mk)?' style="box-shadow:inset 0 0 0 2px var(--ac)"':''}>
+    ${bulkMode?`<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;cursor:pointer"><input type="checkbox" ${bulkSel.has(_mk)?'checked':''} onchange="toggleBulk('${jsq(m.serial)}','${jsq(m.model)}')"> Select</label>`:''}
     <div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(m.serial)}</span><div style="display:flex;gap:6px;flex-wrap:wrap">${m.category?`<span class="bd bd-pu" style="font-size:10px">${E(m.category)}</span>`:''}<span class="bd ${(m.issues||[]).length?'bd-wn':'bd-ok'}">${(m.issues||[]).length?'Issues':'OK'}</span></div></div>
     <div class="rpt-card-row"><span class="rc-label">Model</span><span class="rc-val">${E(m.model)}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${custExists?`<button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="viewMachineCust('${E(m.customer)}')">${E(m.customer)} →</button>`:`${E(m.customer)}`}</span></div>
@@ -3827,23 +3863,32 @@ function mCards(ms){
     <div class="rpt-card-row"><span class="rc-label">Type</span><span class="rc-val">${E(m.purchaseRental||'—')}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Contract</span><span class="rc-val">${E(m.serviceContract||'—')}</span></div>
     ${m.lastService?`<div class="rpt-card-row"><span class="rc-label">Last Service</span><span class="rc-val">${E(m.lastService)}</span></div>`:''}
-    <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val" style="text-align:right">${(m.reports||[]).length?`<button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="openMachineReports('${E(m.serial).replace(/'/g,'&#39;')}')">📋 ${(m.reports||[]).length} report${m.reports.length>1?'s':''} →</button>`:'<em style="color:var(--t3)">0</em>'}</span></div>
+    <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val" style="text-align:right">${(m.reports||[]).length?`<button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="openMachineReports('${jsq(m.serial)}','${jsq(m.model)}')">📋 ${(m.reports||[]).length} report${m.reports.length>1?'s':''} →</button>`:'<em style="color:var(--t3)">0</em>'}</span></div>
     <div class="rpt-card-actions">
-      ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editMachine('${E(m.serial)}')">Edit</button>`:''}
-      ${canEdit()?`<button class="btn btn-sm btn-s" onclick="copyMachine('${E(m.serial)}')">📑 Copy</button>`:''}
-      ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delMachine('${E(m.serial)}')">Delete</button>`:''}
+      ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editMachine('${jsq(m.serial)}','${jsq(m.model)}')">Edit</button>`:''}
+      ${canEdit()?`<button class="btn btn-sm btn-s" onclick="copyMachine('${jsq(m.serial)}','${jsq(m.model)}')">📑 Copy</button>`:''}
+      ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delMachine('${jsq(m.serial)}','${jsq(m.model)}')">Delete</button>`:''}
     </div>
   </div>`;}).join('');
 }
 
 // Open a modal listing all service reports for a given machine serial.
 // Click any report to open the report preview.
-function openMachineReports(serial){
+function openMachineReports(serial,model){
   if(!serial)return;
   const decoded=serial.replace(/&#39;/g,"'");
-  const reports=DB.reports.filter(r=>r.serial===decoded || (Array.isArray(r.machines)&&r.machines.some(mm=>mm.serial===decoded)))
-    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
-  if(!reports.length){toast('No reports for this serial.','info');return;}
+  // If a model is given, use the SAME serial+model attach logic as getAllMachinesDB
+  // so the popup matches the card's report count exactly. Model omitted (e.g. from
+  // global search) → show every report for the serial.
+  let reports;
+  if(model!=null&&model!==''){
+    const mm=getAllMachinesDB().find(x=>mSame(x,decoded,model));
+    reports=(mm&&mm.reports||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  }else{
+    reports=DB.reports.filter(r=>r.serial===decoded || (Array.isArray(r.machines)&&r.machines.some(mm=>mm.serial===decoded)))
+      .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  }
+  if(!reports.length){toast('No reports for this machine.','info');return;}
   const html=reports.map(r=>{
     const typeBadge=tyBd(r.type||'');
     const stColor=r.status==='Completed'?'var(--ok)':r.status==='In Progress'?'var(--wn)':'var(--ac)';
@@ -3874,6 +3919,7 @@ function openMachineModal(data){
   const cats=getMachineCategories();
   openModal(d.serial?'Edit Machine':'Add Machine',`
     <input type="hidden" id="eMSerial" value="${E(d.serial||'')}">
+    <input type="hidden" id="eMModel" value="${E(d.model||'')}">
     <div class="fg"><label>Machine Category</label><select class="fc" id="mCat">
       <option value="">— Select —</option>
       ${cats.map(c=>`<option${c===d.category?' selected':''}>${E(c)}</option>`).join('')}
@@ -3903,14 +3949,14 @@ function onMachineCustChange(){
 // Scan every service report and register any machine serial that isn't yet in
 // the registry (DB.machines). Report-only machines are derived by getAllMachinesDB.
 function scanRegisterMachines(){
-  const registered=new Set((DB.machines||[]).map(m=>m.serial));
-  const missing=getAllMachinesDB().filter(m=>m.serial&&!registered.has(m.serial));
+  const registered=new Set((DB.machines||[]).map(m=>mKeyOf(m.serial,m.model)));
+  const missing=getAllMachinesDB().filter(m=>m.serial&&!registered.has(mKeyOf(m.serial,m.model)));
   if(!missing.length){toast('All machines from reports are already registered.','info');return;}
   if(!confirm(`${missing.length} machine(s) appear in service reports but aren't in the registry.\n\nAdd them to the Machine Registry now?`))return;
   if(!Array.isArray(DB.machines))DB.machines=[];
   let added=0;
   missing.forEach(m=>{
-    if(DB.machines.find(x=>x.serial===m.serial))return;
+    if(DB.machines.find(x=>mSame(x,m.serial,m.model)))return;
     const c=DB.custs.find(x=>x.name===m.customer);
     DB.machines.push({
       id:DB.nM++,serial:m.serial,model:m.model||'',customer:m.customer||'',
@@ -3919,6 +3965,7 @@ function scanRegisterMachines(){
       serviceContract:m.serviceContract||'',maintFrequency:m.maintFrequency||'',
       category:m.category||''
     });
+    _unblockMachine(m.serial,m.model||'');
     added++;
   });
   saveDB();renderMachines();
@@ -3936,8 +3983,8 @@ function shownMachines(){
   return ms.filter(m=>(m.category||'Uncategorized')===curMachCat);
 }
 function toggleBulkMode(){bulkMode=!bulkMode;if(!bulkMode)bulkSel.clear();renderMachines();}
-function toggleBulk(s){if(bulkSel.has(s))bulkSel.delete(s);else bulkSel.add(s);const el=document.getElementById('bulkCount');if(el)el.textContent=bulkSel.size;}
-function bulkSelectAll(){shownMachines().forEach(m=>bulkSel.add(m.serial));renderMachines();}
+function toggleBulk(s,mo){const k=mKeyOf(s,mo);if(bulkSel.has(k))bulkSel.delete(k);else bulkSel.add(k);const el=document.getElementById('bulkCount');if(el)el.textContent=bulkSel.size;}
+function bulkSelectAll(){shownMachines().forEach(m=>bulkSel.add(mKeyOf(m.serial,m.model)));renderMachines();}
 function bulkClear(){bulkSel.clear();renderMachines();}
 function applyBulkEdit(){
   if(!bulkSel.size){toast('No machines selected.','error');return;}
@@ -3950,8 +3997,9 @@ function applyBulkEdit(){
   if(!Array.isArray(DB.machines))DB.machines=[];
   const changedReports=new Map();
   let n=0;
-  bulkSel.forEach(serial=>{
-    const m=ensureMachineRecord(serial);
+  bulkSel.forEach(key=>{
+    const [serial,model]=String(key).split(_MKS);
+    const m=ensureMachineRecord(serial,model);
     if(!m)return;
     if(cat)m.category=cat;
     if(wr)m.warranty=wr;
@@ -3961,8 +4009,9 @@ function applyBulkEdit(){
       m.customer=cust;
       const c=DB.custs.find(x=>x.name===cust);
       if(c&&c.address&&!m.location)m.location=c.address;
-      // cascade the customer change to linked reports/jobs (saveDB won't write reports)
-      DB.reports.forEach(r=>{if(r.serial===serial&&r.customer===oldCust){r.customer=cust;changedReports.set(r.id,r);}});
+      // cascade the customer change to linked reports/jobs (saveDB won't write reports).
+      // Match this machine's serial AND model (blank model → any same-serial report).
+      DB.reports.forEach(r=>{if(r.serial===serial&&r.customer===oldCust&&(!model||(r.model||'')===model)){r.customer=cust;changedReports.set(r.id,r);}});
       DB.jobs.forEach(j=>{if(j.machine===serial&&j.customer===oldCust)j.customer=cust;});
     }
     n++;
@@ -3982,17 +4031,18 @@ function getMachineCategories(){
   return[...fromDB].sort();
 }
 
-function editMachine(serial){
-  const m=(DB.machines||[]).find(x=>x.serial===serial);
+function editMachine(serial,model){
+  const m=(DB.machines||[]).find(x=>mSame(x,serial,model))
+        ||getAllMachinesDB().find(x=>mSame(x,serial,model));
   if(m)openMachineModal(m);
-  else openMachineModal({serial});
+  else openMachineModal({serial,model});
 }
 
 // Copy a machine: opens Add Machine pre-filled with the same customer/model/
 // category/warranty/etc., but with a BLANK editable serial. User just types
 // the new serial — fast way to register multiple identical units.
-function copyMachine(serial){
-  const m=(DB.machines||[]).find(x=>x.serial===serial);
+function copyMachine(serial,model){
+  const m=(DB.machines||[]).find(x=>mSame(x,serial,model))||getAllMachinesDB().find(x=>mSame(x,serial,model));
   if(!m){toast('Machine not found.','error');return;}
   const copy={...m};
   delete copy.serial;   // blank serial → modal treats it as a NEW machine (editable serial, required)
@@ -4026,6 +4076,7 @@ function cascadeSerialChange(oldSerial,newSerial){
 
 function saveMachine(){
   const origSerial=document.getElementById('eMSerial')?.value||'';
+  const origModel=document.getElementById('eMModel')?.value||'';
   const catSel=document.getElementById('mCat').value;
   const catCustom=document.getElementById('mCatCustom')?.value.trim()||'';
   const category=(catSel==='__other__'&&catCustom)?catCustom:(catSel||'');
@@ -4047,19 +4098,24 @@ function saveMachine(){
   if(!Array.isArray(DB.machines))DB.machines=[];
   
   if(origSerial){
-    // Editing existing
-    const i=DB.machines.findIndex(m=>m.serial===origSerial);
+    // Editing existing — identity is (serial, model). Serial is read-only in the
+    // edit form, so only the model (and other fields) can change here.
+    const i=DB.machines.findIndex(m=>mSame(m,origSerial,origModel));
     if(i>=0){
       const changedReports=new Map(); // id -> report (dedupe)
-      // If serial changed, check duplicate + cascade ALL references
+      // Block a collision with a DIFFERENT existing machine sharing serial+model.
+      if((origSerial!==d.serial||origModel!==d.model)&&DB.machines.some((m,idx)=>idx!==i&&mSame(m,d.serial,d.model))){
+        toast('A machine with that serial + model already exists.','error');return;
+      }
+      // If serial changed (rare — serial is read-only), cascade ALL references.
       if(origSerial!==d.serial){
-        if(DB.machines.find(m=>m.serial===d.serial)){toast('That serial already exists on another machine.','error');return;}
         cascadeSerialChange(origSerial,d.serial).forEach(r=>changedReports.set(r.id,r));
       }
-      // If customer changed, update the link to all linked reports too
+      // If customer changed, update the link on this machine's reports too
+      // (match serial AND model; blank model → any same-serial report).
       const oldCust=DB.machines[i].customer;
       if(oldCust!==d.customer){
-        DB.reports.forEach(r=>{if(r.serial===d.serial&&r.customer===oldCust){r.customer=d.customer;changedReports.set(r.id,r);}});
+        DB.reports.forEach(r=>{if(r.serial===d.serial&&r.customer===oldCust&&(!d.model||(r.model||'')===d.model)){r.customer=d.customer;changedReports.set(r.id,r);}});
         DB.jobs.forEach(j=>{if(j.machine===d.serial&&j.customer===oldCust)j.customer=d.customer;});
       }
       DB.machines[i]={...DB.machines[i],...d};
@@ -4070,22 +4126,28 @@ function saveMachine(){
       d.id=DB.nM++;DB.machines.push(d);
     }
   }else{
-    // Check duplicate serial
-    if(DB.machines.find(m=>m.serial===d.serial)){toast('Serial already exists.','error');return;}
+    // Check duplicate serial + model (same serial with a DIFFERENT model is allowed)
+    if(DB.machines.find(m=>mSame(m,d.serial,d.model))){toast('A machine with that serial + model already exists.','error');return;}
     d.id=DB.nM++;DB.machines.push(d);
   }
+  _unblockMachine(d.serial,d.model);   // a re-added machine must not stay hidden by a stale delete-block
   saveDB();closeModal();renderMachines();
   // Also refresh customers page so machine counts stay accurate
   if(document.getElementById('customersContent'))renderCusts();
   toast('Machine saved.','success');
 }
 
-function delMachine(serial){
-  const rptCount=DB.reports.filter(r=>r.serial===serial).length;
-  if(!confirm(`Delete machine "${serial}"?${rptCount?'\n\n⚠ '+rptCount+' report(s) reference this machine. Reports will be kept for records.':''}`))return;
-  DB.machines=(DB.machines||[]).filter(m=>m.serial!==serial);
+function delMachine(serial,model){
+  const label=serial+(model?' / '+model:'');
+  const rptCount=DB.reports.filter(r=>r.serial===serial&&(!model||(r.model||'')===model)).length;
+  if(!confirm(`Delete machine "${label}"?${rptCount?'\n\n⚠ '+rptCount+' report(s) reference this machine. Reports will be kept for records.':''}`))return;
+  // Remove ONLY the matching serial+model entry (a same-serial/different-model
+  // machine must survive), and block it by composite key so a report-derived
+  // copy doesn't immediately reappear.
+  DB.machines=(DB.machines||[]).filter(m=>!mSame(m,serial,model));
   if(!Array.isArray(DB.deletedMachines))DB.deletedMachines=[];
-  if(!DB.deletedMachines.includes(serial))DB.deletedMachines.push(serial);
+  const dkey=mKeyOf(serial,model);
+  if(!DB.deletedMachines.includes(dkey))DB.deletedMachines.push(dkey);
   saveDB();renderMachines();renderDash();
   // Also refresh customers page so machine counts stay accurate
   if(document.getElementById('customersContent'))renderCusts();
@@ -5830,10 +5892,12 @@ function openManualDueModal(serial){
 }
 // Ensure a serial has a real DB.machines record (registering report-only machines
 // on demand), then return it. Shared by manual-due + bulk-edit.
-function ensureMachineRecord(serial){
-  let m=(DB.machines||[]).find(x=>x.serial===serial);
+function ensureMachineRecord(serial,model){
+  // model optional: when given, match serial+model exactly; otherwise serial-only.
+  const has=model!=null&&model!=='';
+  let m=(DB.machines||[]).find(x=>has?mSame(x,serial,model):x.serial===serial);
   if(m)return m;
-  const dm=getAllMachinesDB().find(x=>x.serial===serial);
+  const dm=getAllMachinesDB().find(x=>has?mSame(x,serial,model):x.serial===serial);
   if(!dm)return null;
   const c=DB.custs.find(x=>x.name===dm.customer);
   m={id:DB.nM++,serial:dm.serial,model:dm.model||'',customer:dm.customer||'',
@@ -5842,6 +5906,7 @@ function ensureMachineRecord(serial){
      maintFrequency:dm.maintFrequency||'',category:dm.category||''};
   if(!Array.isArray(DB.machines))DB.machines=[];
   DB.machines.push(m);
+  _unblockMachine(m.serial,m.model);
   return m;
 }
 function saveManualDue(serial){
