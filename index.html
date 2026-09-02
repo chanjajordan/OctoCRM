@@ -5791,8 +5791,10 @@ function autoSchedulePM(){
     const diffDays=Math.round((nextDue-today)/(1000*60*60*24));
     if(diffDays<0||diffDays>horizonDays)return;
     const dueISO=nextDue.toISOString().split('T')[0];
-    // already covered by a PM job on that date?
-    if(DB.jobs.find(j=>jobCoversSerial(j,m.serial)&&j.type==='Preventive Maintenance'&&j.date===dueISO&&j.status!=='Completed'))return;
+    // Skip if this machine already has ANY open PM job (any date) — an existing
+    // manual/planned PM job must NOT be duplicated just because the auto-computed
+    // due date differs by a day.
+    if(_hasOpenPMJob(m.serial))return;
     const key=(m.customer||'(no customer)')+'␟'+(m.category||'Uncategorized')+'␟'+dueISO;
     (groups[key]=groups[key]||{customer:m.customer,category:m.category||'',dueISO,machines:[]}).machines.push(m);
   });
