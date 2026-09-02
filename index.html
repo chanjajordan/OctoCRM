@@ -4256,16 +4256,16 @@ function filterCusts(){const s=(document.getElementById('cSrch')?.value||'').toL
 function renderCustCards(cs){
   return cs.map(c=>{
     const reps=DB.reports.filter(r=>r.customer===c.name);
-    const custMachines=(DB.machines||[]).filter(m=>m.customer===c.name);
-    const rptSerials=[...new Set(reps.filter(r=>r.serial).map(r=>r.serial))];
-    const allSerials=[...new Set([...custMachines.map(m=>m.serial),...rptSerials])];
+    // Machine count comes from the registry (getAllMachinesDB) so it matches the
+    // Machines page exactly (composite identity + report-linked machines[]).
+    const custMachines=getAllMachinesDB().filter(m=>m.customer===c.name);
     return`<div class="rpt-card"><div class="rpt-card-top"><span style="font-weight:700;font-size:var(--fs)">${E(c.name)}</span><div style="display:flex;gap:6px">${canEdit()?`<button class="btn btn-sm btn-s" onclick="editCust(this.dataset.n)" data-n="${E(c.name)}">Edit</button>`:''}${canDelete()?`<button class="btn btn-sm btn-d" onclick="delCust(this.dataset.n)" data-n="${E(c.name)}">Delete</button>`:''}</div></div>
     <div class="rpt-card-row"><span class="rc-label">Address</span><span class="rc-val" style="max-width:65%">${E(c.address||'—')}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Contact</span><span class="rc-val">${E(c.contact||'—')}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Phone</span><span class="rc-val">${c.phone?`<a href="tel:${c.phone}" style="color:var(--ac);text-decoration:none">${E(c.phone)}</a>`:'—'}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Email</span><span class="rc-val">${c.email?`<a href="mailto:${c.email}" style="color:var(--ac);text-decoration:none">${E(c.email)}</a>`:'—'}</span></div>
     <div class="rpt-card-row"><span class="rc-label">Agent</span><span class="rc-val" style="color:var(--pu);font-weight:600">${E(c.agent||'—')}</span></div>
-    <div class="rpt-card-row"><span class="rc-label">Machines</span><span class="rc-val"><button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="viewCustMachines('${E(c.name)}')">${allSerials.length} machine${allSerials.length!==1?'s':''} →</button></span></div>
+    <div class="rpt-card-row"><span class="rc-label">Machines</span><span class="rc-val"><button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:28px;font-size:12px" onclick="viewCustMachines('${jsq(c.name)}')">${custMachines.length} machine${custMachines.length!==1?'s':''} →</button></span></div>
     <div class="rpt-card-row"><span class="rc-label">Reports</span><span class="rc-val">${reps.length}</span></div></div>`;
   }).join('')||'<div class="es"><p>No customers.</p></div>';
 }
@@ -4298,35 +4298,33 @@ function delCust(nameOrEl){
 }
 
 function viewCustMachines(custName){
-  const ms=(DB.machines||[]).filter(m=>m.customer===custName);
-  const rptMs=DB.reports.filter(r=>r.customer===custName&&r.serial).reduce((acc,r)=>{if(!acc.find(x=>x.serial===r.serial))acc.push({serial:r.serial,model:r.model});return acc;},[]);
-  // Merge
-  const allSerials=new Set();
-  const combined=[];
-  ms.forEach(m=>{allSerials.add(m.serial);combined.push({...m,_source:'registry'});});
-  rptMs.forEach(m=>{if(!allSerials.has(m.serial)){combined.push({...m,customer:custName,location:'',installDate:'',warranty:'',purchaseRental:'',serviceContract:'',_source:'report'});}});
-
+  // Source of truth = the machine registry (getAllMachinesDB): composite (serial,model)
+  // identity + reports linked via primary serial AND multi-machine machines[]. This makes
+  // the customer's machine list identical to the Machines page, and Edit/Reports open the
+  // SAME registry record (both serial + model are passed).
+  const combined=getAllMachinesDB().filter(m=>m.customer===custName)
+    .sort((a,b)=>String(a.serial||'').localeCompare(String(b.serial||''),undefined,{numeric:true,sensitivity:'base'}));
   const html=combined.length?combined.map(m=>{
-    const serialDisp=m.serial?E(m.serial):'<em style="color:var(--er);font-weight:normal">⚠ (no serial — orphan record)</em>';
-    const escSerial=E(m.serial||'').replace(/'/g,"\\'");
+    const isReg=m.id!=null;                                   // registry record vs report-derived
     const isOrphan=!m.serial||!m.serial.trim();
+    const serialDisp=m.serial?E(m.serial):'<em style="color:var(--er);font-weight:normal">⚠ (no serial — orphan record)</em>';
     return `<div style="padding:12px 0;border-bottom:1px solid var(--bdr)">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><strong style="word-break:break-word">${serialDisp}</strong>
       <div style="display:flex;gap:6px;flex-shrink:0">
-        ${m._source==='report'?`<span class="bd bd-wn" title="Only seen in reports — not in registry">📋 Report-only</span>`:''}
-        ${canEdit()&&!isOrphan?`<button class="btn btn-sm btn-s" onclick="closeModal();editMachine('${escSerial}')">Edit</button>`:''}
-        ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delMachineFromCust('${escSerial}','${E(custName).replace(/'/g,"\\'")}','${m._source}')">${isOrphan?'🗑 Remove Orphan':'Delete'}</button>`:''}
+        ${!isReg?`<span class="bd bd-wn" title="Only seen in reports — not yet in the registry">📋 Report-only</span>`:''}
+        ${(m.reports||[]).length?`<button class="btn btn-sm btn-s" onclick="closeModal();openMachineReports('${jsq(m.serial)}','${jsq(m.model)}')" title="Service reports">📋 ${(m.reports||[]).length}</button>`:''}
+        ${canEdit()&&!isOrphan?`<button class="btn btn-sm btn-s" onclick="closeModal();editMachine('${jsq(m.serial)}','${jsq(m.model)}')">Edit</button>`:''}
+        ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delMachineFromCust('${jsq(m.serial)}','${jsq(custName)}','${isReg?'registry':'report'}','${jsq(m.model)}')">${isOrphan?'🗑 Remove Orphan':'Delete'}</button>`:''}
       </div></div>
-      <div style="font-size:var(--fs-sm);color:var(--t2);margin-top:4px">${E(m.model||'(no model)')} ${m.location?'• '+E(m.location):''} ${m.installDate?'• Installed '+E(m.installDate):''}</div>
+      <div style="font-size:var(--fs-sm);color:var(--t2);margin-top:4px">${E(m.model||'(no model)')} ${m.category?'• '+E(m.category):''} ${m.location?'• '+E(m.location):''} ${m.installDate?'• Installed '+E(fmtDMY(m.installDate)):''}</div>
     </div>`;
   }).join(''):'<p style="color:var(--t3)">No machines linked to this customer.</p>';
-
-  openModal(`Machines — ${custName}`,html+`<div style="margin-top:16px"><button class="btn btn-p btn-sm" onclick="closeModal();openMachineModal({customer:'${E(custName)}'})">+ Add Machine</button></div>`,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
+  openModal(`Machines — ${E(custName)}`,html+`<div style="margin-top:16px"><button class="btn btn-p btn-sm" onclick="closeModal();openMachineModal({customer:'${jsq(custName)}'})">+ Add Machine</button></div>`,`<button class="btn btn-s" onclick="closeModal()">Close</button>`);
 }
 
 // Delete a machine record from the Customer Machines modal.
 // Handles both registry records (DB.machines) and report-only orphans (empty/missing serial).
-function delMachineFromCust(serial,custName,source){
+function delMachineFromCust(serial,custName,source,model){
   const isOrphan=!serial||!serial.trim();
   if(isOrphan){
     if(!confirm(`Remove this orphan machine record for "${custName}"?\n\nThis will clear empty model/serial fields from any reports of this customer that have no serial. The reports themselves are NOT deleted.`))return;
@@ -4356,7 +4354,11 @@ function delMachineFromCust(serial,custName,source){
     msg+=`\nLinked records are NOT deleted, but they'll lose their machine reference. Proceed?`;
   }
   if(!confirm(msg))return;
-  DB.machines=(DB.machines||[]).filter(m=>m.serial!==serial);
+  // Delete ONLY the matching serial+model entry (a same-serial/different-model sibling
+  // must survive) and block it by composite key so it doesn't reappear from reports.
+  DB.machines=(DB.machines||[]).filter(m=>!mSame(m,serial,model));
+  if(!Array.isArray(DB.deletedMachines))DB.deletedMachines=[];
+  const dk=mKeyOf(serial,model);if(!DB.deletedMachines.includes(dk))DB.deletedMachines.push(dk);
   saveDB();closeModal();renderCusts();
   if(document.getElementById('machinesContent'))renderMachines();
   toast(`Machine "${serial}" deleted.`,'success');
@@ -5943,7 +5945,7 @@ function renderPMSchedule(){
           ${pm.nextDue&&!hasOpenJob&&pm.daysUntil!=null&&pm.daysUntil<=30?`<button class="btn btn-sm btn-ok" onclick="createPMJobNow('${E(m.serial)}')">📅 Create PM Job Now</button>`:''}
           ${canEdit()?`<button class="btn btn-sm btn-s" onclick="openPMFreqModal('${E(m.serial)}')">⚙ ${pm.hasFreq?'Edit Frequency':'Set PM Frequency'}</button>`:''}
           ${canEdit()?`<button class="btn btn-sm btn-s" onclick="openManualDueModal('${E(m.serial)}')">📌 ${pm.manual?'Edit':'Set'} Due Date</button>`:''}
-          ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editMachine('${E(m.serial)}')">Edit Machine</button>`:''}
+          ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editMachine('${jsq(m.serial)}','${jsq(m.model)}')">Edit Machine</button>`:''}
         </div>
       </div>`;
     }).join(''):'<div class="es"><p>No machines match this filter.</p></div>'}
