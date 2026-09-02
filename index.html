@@ -362,6 +362,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
   <button class="ni" data-page="technicians" onclick="showPage('technicians')" id="navTech"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Technicians</button>
   <button class="ni" data-page="users" onclick="showPage('users')" id="navUsers"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>User Management</button>
   <button class="ni" data-page="pm-schedule" onclick="showPage('pm-schedule')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M8 14l2 2 4-4"/></svg>PM Schedule</button>
+  <button class="ni" data-page="pm-planner" onclick="showPage('pm-planner')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>PM Planner</button>
   <button class="ni" data-page="parts" onclick="showPage('parts')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H2a2 2 0 110-4h.09A1.65 1.65 0 004.6 8a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V2a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H22a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>Parts &amp; Trends</button>
   <button class="ni" data-page="po-import" onclick="showPage('po-import')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>PO Import</button>
   <button class="ni" data-page="outlook" onclick="showPage('outlook')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>Outlook Sync</button>
@@ -401,6 +402,7 @@ select.fc{appearance:none;-webkit-appearance:none;background-image:url("data:ima
 <div class="ct pg" id="page-technicians"><div id="techContent"></div></div>
 <div class="ct pg" id="page-users"><div id="usersContent"></div></div>
 <div class="ct pg" id="page-pm-schedule"><div id="pmScheduleContent"></div></div>
+<div class="ct pg" id="page-pm-planner"><div id="pmPlannerContent"></div></div>
 <div class="ct pg" id="page-parts"><div id="partsContent"></div></div>
 <div class="ct pg" id="page-po-import"><div id="poImportContent"></div></div>
 <div class="ct pg" id="page-outlook"><div id="outlookContent"></div></div>
@@ -1037,7 +1039,7 @@ function showPage(p){
   document.querySelectorAll('.ni').forEach(e=>e.classList.remove('active'));
   const pg=document.getElementById('page-'+p);if(pg)pg.classList.add('active');
   const nv=document.querySelector(`.ni[data-page="${p}"]`);if(nv)nv.classList.add('active');
-  const t={dashboard:'Dashboard',jobs:'Job Board',reports:'Service Reports','create-report':'Create Report',machines:'Machines',customers:'Customers',calendar:'Calendar',scan:'Scan Report',technicians:'Technicians',users:'User Management',outlook:'Outlook Sync','data-mgmt':'Data Import/Export',agents:'Agents / Companies',parts:'Parts & Breakdown Trends','po-import':'PO Import','pm-schedule':'PM Schedule'};
+  const t={dashboard:'Dashboard',jobs:'Job Board',reports:'Service Reports','create-report':'Create Report',machines:'Machines',customers:'Customers',calendar:'Calendar',scan:'Scan Report',technicians:'Technicians',users:'User Management',outlook:'Outlook Sync','data-mgmt':'Data Import/Export',agents:'Agents / Companies',parts:'Parts & Breakdown Trends','po-import':'PO Import','pm-schedule':'PM Schedule','pm-planner':'PM Planner — by Machine Type'};
   document.getElementById('pageTitle').textContent=t[p]||p;
   closePnl();closeSidebar();
   document.querySelectorAll('.mob-tab').forEach(t=>t.classList.toggle('active',t.dataset.mp===p));
@@ -1058,6 +1060,7 @@ function showPage(p){
   else if(p==='parts')renderParts();
   else if(p==='po-import')renderPOImport();
   else if(p==='pm-schedule')renderPMSchedule();
+  else if(p==='pm-planner')renderPMPlanner();
 }
 
 let _pendingRefresh=false;
@@ -5901,7 +5904,7 @@ function savePMFreq(serial){
   const m=(DB.machines||[]).find(x=>x.serial===serial);if(!m)return;
   m.maintFrequency=document.getElementById('pmFq').value;
   m.serviceContract=document.getElementById('pmSC').value.trim()||'Nil';
-  saveDB();closeModal();renderPMSchedule();toast('PM schedule updated.','success');
+  saveDB();closeModal();refreshPage();toast('PM schedule updated.','success');
 }
 
 // Manually set (or clear) the next PM due date for a machine, overriding the
@@ -5943,12 +5946,12 @@ function saveManualDue(serial){
   if(!m){toast('Machine not found.','error');return;}
   const v=document.getElementById('pmMD').value;
   if(v)m.manualNextDue=v;else delete m.manualNextDue;
-  saveDB();closeModal();renderPMSchedule();toast(v?'Next due date set.':'Reverted to auto-calculation.','success');
+  saveDB();closeModal();refreshPage();toast(v?'Next due date set.':'Reverted to auto-calculation.','success');
 }
 function clearManualDue(serial){
   const m=(DB.machines||[]).find(x=>x.serial===serial);
   if(m)delete m.manualNextDue;
-  saveDB();closeModal();renderPMSchedule();toast('Reverted to auto-calculation.','info');
+  saveDB();closeModal();refreshPage();toast('Reverted to auto-calculation.','info');
 }
 
 function createPMJobNow(serial){
@@ -5977,6 +5980,205 @@ function createPMJobNow(serial){
     autoScheduled:false
   });
   saveDB();renderPMSchedule();toast('PM job created.','success');
+}
+
+// ===== PM PLANNER (customers by machine category → bulk-assign PM) =====
+let curPlanCat=null;
+let planMode='category';   // 'category' | 'rental'
+function setPlanCat(c){curPlanCat=c;renderPMPlanner();}
+function setPlanMode(m){planMode=m;renderPMPlanner();}
+function _isRental(m){return /rent|leas/i.test(String(m.purchaseRental||''));}
+function _planToggle(){
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+    <button class="fc-chip${planMode==='category'?' active':''}" onclick="setPlanMode('category')">🏷 By Machine Type</button>
+    <button class="fc-chip${planMode==='rental'?' active':''}" onclick="setPlanMode('rental')">📦 Rental Units</button>
+  </div>`;
+}
+function _hasOpenPMJob(serial){return !!(DB.jobs||[]).find(j=>j.machine===serial&&j.type==='Preventive Maintenance'&&j.status!=='Completed'&&j.status!=='Cancelled');}
+function _planMachines(category,custName){
+  return getAllMachinesDB().filter(m=>(m.category||'Uncategorized')===category&&(!custName||m.customer===custName));
+}
+function renderPMPlanner(){
+  const machines=getAllMachinesDB();
+  if(planMode==='rental'){return _renderPlannerRental(machines);}
+  const catCount={};
+  machines.forEach(m=>{const c=m.category||'Uncategorized';catCount[c]=(catCount[c]||0)+1;});
+  const cats=Object.keys(catCount).sort((a,b)=>String(a).localeCompare(String(b)));
+  if(curPlanCat==null||catCount[curPlanCat]==null)curPlanCat=cats[0]||null;
+  const sel=curPlanCat;
+  const selMachines=sel?machines.filter(m=>(m.category||'Uncategorized')===sel):[];
+  const byCust={};
+  selMachines.forEach(m=>{const k=m.customer||'(no customer)';(byCust[k]=byCust[k]||[]).push(m);});
+  const custNames=Object.keys(byCust).sort((a,b)=>String(a).localeCompare(String(b)));
+  const chips=cats.map(c=>`<button class="fc-chip${c===sel?' active':''}" onclick="setPlanCat('${jsq(c)}')">${E(c)} (${catCount[c]})</button>`).join('');
+  const noTech=!((DB.techs||[]).length);
+  let bodyHtml;
+  if(!sel){bodyHtml='<div class="es"><p>No machines in the registry yet.</p></div>';}
+  else{
+    const totalM=selMachines.length;
+    const needing=selMachines.filter(m=>!_hasOpenPMJob(m.serial)).length;
+    bodyHtml=`
+      <div class="tw" style="margin-bottom:14px"><div class="th" style="flex-wrap:wrap;gap:8px">
+        <h3>${E(sel)} — ${totalM} machine${totalM!==1?'s':''} · ${custNames.length} customer${custNames.length!==1?'s':''}</h3>
+        ${canEdit()?`<button class="btn btn-sm btn-p" onclick="openAssignPMModal('${jsq(sel)}','')"${needing?'':' disabled'}>📅 Assign PM to all ${E(sel)} (${needing})</button>`:''}
+      </div></div>
+      ${custNames.map(cust=>{
+        const ms=byCust[cust];
+        return `<div class="tw" style="margin-bottom:12px"><div class="th" style="flex-wrap:wrap;gap:8px">
+          <h3 style="font-size:var(--fs)">${E(cust)} <span class="bd bd-ac" style="font-size:10px">${ms.length}</span></h3>
+          ${canEdit()?`<button class="btn btn-sm btn-ok" onclick="openAssignPMModal('${jsq(sel)}','${jsq(cust)}')">👷 Assign Technician</button>`:''}
+        </div>
+        <div style="padding:0 4px 8px">
+        ${ms.map(m=>{
+          const pm=getPMStatus(m);
+          const oj=(DB.jobs||[]).find(j=>j.machine===m.serial&&j.type==='Preventive Maintenance'&&j.status!=='Completed'&&j.status!=='Cancelled');
+          const techTxt=oj?((oj.techIds&&oj.techIds.length)?'· '+E(oj.techIds.map(id=>(DB.techs.find(t=>t.id===id)||{}).name).filter(Boolean).join(', ')):'· <span style="color:var(--wn)">unassigned</span>'):'';
+          return `<div class="rpt-card" style="margin:8px 0">
+            <div class="rpt-card-top"><span style="font-weight:700">${E(m.model||'(no model)')} — ${E(m.serial)}</span>
+              ${pm.statusLabel?`<span class="bd" style="background:${pm.statusColor}20;color:${pm.statusColor};border:1px solid ${pm.statusColor}">${pm.statusLabel}</span>`:''}</div>
+            ${m.location?`<div class="rpt-card-row"><span class="rc-label">Location</span><span class="rc-val" style="max-width:65%">${E(m.location)}</span></div>`:''}
+            ${pm.nextDue?`<div class="rpt-card-row"><span class="rc-label">Next PM Due</span><span class="rc-val" style="font-weight:700;color:${pm.statusColor}">${E(fmtDMY(pm.nextDue))}${pm.manual?' <span class="bd bd-pu" style="font-size:10px">manual</span>':''}</span></div>`:''}
+            ${oj?`<div class="rpt-card-row"><span class="rc-label">PM Job</span><span class="rc-val"><span class="bd bd-ac">JOB-${String(oj.id).padStart(4,'0')}</span> ${E(fmtDMY(oj.date)||'')} ${techTxt}</span></div>`:''}
+          </div>`;
+        }).join('')}
+        </div></div>`;
+      }).join('')}`;
+  }
+  document.getElementById('pmPlannerContent').innerHTML=`
+    <h2 style="font-size:var(--fs-xl);margin-bottom:6px">PM Planner</h2>
+    <p style="color:var(--t2);margin:0 0 14px">Pick a machine category to see every customer that has that machine type, then assign a technician to create Preventive-Maintenance jobs in bulk.</p>
+    ${_planToggle()}
+    ${noTech?'<div style="margin-bottom:12px;padding:8px 12px;background:var(--wns);border:1px solid var(--wn);border-radius:8px;color:var(--wn);font-size:13px">⚠ No technicians yet — add them on the Technicians page before assigning.</div>':''}
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${chips||'<span style="color:var(--t3)">No machine categories.</span>'}</div>
+    ${bodyHtml}`;
+}
+// Create ONE PM job for machine m on dateISO, optionally pre-assigned to techIds.
+function _createPMJob(m,dateISO,techIds){
+  const c=DB.custs.find(x=>x.name===m.customer)||{};
+  const pm=getPMStatus(m);
+  const lastRpt=DB.reports.filter(r=>r.serial===m.serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+  const tids=Array.isArray(techIds)?techIds.filter(x=>x!=null):[];
+  DB.jobs.push({
+    id:DB.nJ++,
+    title:`PM — ${m.model} (${m.serial})`,
+    customer:m.customer,address:c.address||m.location||'',
+    contact:c.contact||'',contactPhone:c.phone||'',
+    machine:m.serial,model:m.model,
+    chargeable:getWarrantyStatus(m.serial).foc?'FOC':'Chargeable',
+    poNo:'',techIds:tids,techId:tids[0]!=null?tids[0]:null,
+    type:'Preventive Maintenance',priority:(pm.daysUntil!=null&&pm.daysUntil<0)?'High':'Medium',
+    date:dateISO||new Date().toISOString().split('T')[0],time:'',
+    desc:`Preventive Maintenance.\nLast PM: ${lastRpt?lastRpt.date:'(install date)'}${pm.hasFreq?`\nFrequency: ${m.maintFrequency}/year (every ${pm.intervalMonths} months)`:''}`,
+    status:tids.length?'Assigned':'Open',
+    createdAt:new Date().toISOString(),
+    waSent:false,startTime:null,endTime:null,followUp:'',autoScheduled:false
+  });
+}
+// Modal: pick technician(s) + date, then bulk-create PM jobs for a category
+// (optionally scoped to one customer). Machines with an open PM job are skipped.
+function openAssignPMModal(category,custName){
+  const all=_planMachines(category,custName||'');
+  const targets=all.filter(m=>!_hasOpenPMJob(m.serial));
+  if(!all.length){toast('No machines in this category.','info');return;}
+  const techs=DB.techs||[];
+  const today=new Date().toISOString().split('T')[0];
+  const custCount=new Set(all.map(m=>m.customer||'(no customer)')).size;
+  openModal(`Assign PM — ${E(category)}${custName?' · '+E(custName):''}`,`
+    <p style="color:var(--t2);margin-bottom:12px">Create Preventive-Maintenance jobs for <b>${targets.length}</b> ${E(category)} machine(s)${custName?' at <b>'+E(custName)+'</b>':' across <b>'+custCount+'</b> customer(s)'} and assign technician(s).</p>
+    ${all.length-targets.length?`<p style="color:var(--wn);font-size:12px;margin-bottom:12px">${all.length-targets.length} machine(s) already have an open PM job and will be skipped.</p>`:''}
+    <div class="fg"><label>Service Date</label><input class="fc" type="date" id="apmDate" value="${today}"></div>
+    <div class="fg"><label>Technician(s) — leave empty to create unassigned jobs</label>
+      <div style="display:flex;flex-direction:column;gap:6px;max-height:220px;overflow:auto;border:1px solid var(--bdr);border-radius:8px;padding:8px">
+        ${techs.length?techs.map(t=>`<label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" class="apmTech" value="${t.id}"> ${E(t.name)}${t.spec?' <span style="color:var(--t3);font-size:12px">· '+E(t.spec)+'</span>':''}</label>`).join(''):'<span style="color:var(--t3)">No technicians — add them on the Technicians page first.</span>'}
+      </div>
+    </div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p"${targets.length?'':' disabled'} onclick="confirmAssignPM('${jsq(category)}','${jsq(custName||'')}')">Create ${targets.length} PM Job${targets.length!==1?'s':''}</button>`);
+}
+function confirmAssignPM(category,custName){
+  const date=document.getElementById('apmDate').value;
+  if(!date){toast('Pick a service date.','error');return;}
+  const techIds=[...document.querySelectorAll('.apmTech:checked')].map(c=>parseInt(c.value));
+  const targets=_planMachines(category,custName||'').filter(m=>!_hasOpenPMJob(m.serial));
+  if(!targets.length){toast('Nothing to schedule — all already have open PM jobs.','info');closeModal();return;}
+  targets.forEach(m=>_createPMJob(m,date,techIds));
+  saveDB();
+  const techNames=techIds.map(id=>(DB.techs.find(t=>t.id===id)||{}).name).filter(Boolean);
+  closeModal();renderPMPlanner();
+  toast(`Created ${targets.length} PM job(s)${techNames.length?' assigned to '+techNames.join(', '):' (unassigned)'}.`,'success');
+}
+
+// Rental-units view: every rental machine grouped by type; per-unit set frequency + plan a maintenance day.
+function _renderPlannerRental(machines){
+  const rentals=machines.filter(_isRental);
+  const byCat={};
+  rentals.forEach(m=>{const c=m.category||'Uncategorized';(byCat[c]=byCat[c]||[]).push(m);});
+  const cats=Object.keys(byCat).sort((a,b)=>String(a).localeCompare(String(b)));
+  const noTech=!((DB.techs||[]).length);
+  let body;
+  if(!rentals.length){body='<div class="es"><p>No rental units found. (These are machines whose Purchase/Rental field is “Rental”.)</p></div>';}
+  else{
+    body=cats.map(cat=>{
+      const ms=byCat[cat];
+      return `<div class="tw" style="margin-bottom:12px"><div class="th"><h3 style="font-size:var(--fs)">${E(cat)} <span class="bd bd-ac" style="font-size:10px">${ms.length}</span></h3></div>
+      <div style="padding:0 4px 8px">
+      ${ms.map(m=>{
+        const pm=getPMStatus(m);
+        const oj=(DB.jobs||[]).find(j=>j.machine===m.serial&&j.type==='Preventive Maintenance'&&j.status!=='Completed'&&j.status!=='Cancelled');
+        const period=[m.startDate,m.endDate].filter(Boolean).map(fmtDMY).join(' – ');
+        return `<div class="rpt-card" style="margin:8px 0">
+          <div class="rpt-card-top"><span style="font-weight:700">${E(m.model||'(no model)')} — ${E(m.serial)}</span>
+            ${pm.statusLabel?`<span class="bd" style="background:${pm.statusColor}20;color:${pm.statusColor};border:1px solid ${pm.statusColor}">${pm.statusLabel}</span>`:''}</div>
+          <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(m.customer||'')}</span></div>
+          ${m.location?`<div class="rpt-card-row"><span class="rc-label">Location</span><span class="rc-val" style="max-width:60%">${E(m.location)}</span></div>`:''}
+          ${period?`<div class="rpt-card-row"><span class="rc-label">Rental Period</span><span class="rc-val">${E(period)}</span></div>`:''}
+          <div class="rpt-card-row"><span class="rc-label">PM Frequency</span><span class="rc-val">${m.maintFrequency?E(m.maintFrequency)+' / year (every '+pm.intervalMonths+' mo)':'<span style="color:var(--t3)">not set</span>'}</span></div>
+          ${pm.nextDue?`<div class="rpt-card-row"><span class="rc-label">Next PM Due</span><span class="rc-val" style="font-weight:700;color:${pm.statusColor}">${E(fmtDMY(pm.nextDue))}${pm.manual?' <span class="bd bd-pu" style="font-size:10px">manual</span>':''}</span></div>`:''}
+          ${oj?`<div class="rpt-card-row"><span class="rc-label">PM Job</span><span class="rc-val"><span class="bd bd-ac">JOB-${String(oj.id).padStart(4,'0')}</span> ${E(fmtDMY(oj.date)||'')}</span></div>`:''}
+          ${canEdit()?`<div class="rpt-card-actions">
+            <button class="btn btn-sm btn-s" onclick="openPMFreqModal('${jsq(m.serial)}')">⚙ ${m.maintFrequency?'Edit':'Set'} Frequency</button>
+            <button class="btn btn-sm btn-p" onclick="openPlanPMModal('${jsq(m.serial)}')">📅 Plan PM Day</button>
+          </div>`:''}
+        </div>`;
+      }).join('')}
+      </div></div>`;
+    }).join('');
+  }
+  document.getElementById('pmPlannerContent').innerHTML=`
+    <h2 style="font-size:var(--fs-xl);margin-bottom:6px">PM Planner</h2>
+    <p style="color:var(--t2);margin:0 0 14px">All rental units grouped by machine type. Set each unit's PM frequency, then plan the day to perform the maintenance.</p>
+    ${_planToggle()}
+    ${noTech?'<div style="margin-bottom:12px;padding:8px 12px;background:var(--wns);border:1px solid var(--wn);border-radius:8px;color:var(--wn);font-size:13px">⚠ No technicians yet — add them on the Technicians page before assigning.</div>':''}
+    <div class="tw" style="margin-bottom:14px"><div class="th"><h3>Rental Units (${rentals.length})</h3></div></div>
+    ${body}`;
+}
+// Plan a single machine's PM: pick the maintenance day + technician(s) → one PM job.
+function openPlanPMModal(serial){
+  const m=(DB.machines||[]).find(x=>x.serial===serial)||getAllMachinesDB().find(x=>x.serial===serial);
+  if(!m){toast('Machine not found.','error');return;}
+  const techs=DB.techs||[];
+  const pm=getPMStatus(m);
+  const dflt=(pm.nextDue&&/^\d{4}-\d{2}-\d{2}/.test(pm.nextDue))?pm.nextDue.slice(0,10):new Date().toISOString().split('T')[0];
+  const openJob=_hasOpenPMJob(serial);
+  openModal('Plan PM Day — '+E(m.model||'')+' ('+E(serial)+')',`
+    ${openJob?'<p style="color:var(--wn);font-size:12px;margin-bottom:10px">⚠ This unit already has an open PM job — creating another adds a second one.</p>':''}
+    <div class="fg"><label>Maintenance Date</label><input class="fc" type="date" id="planDate" value="${E(dflt)}"></div>
+    <div class="fg"><label>Technician(s) — optional</label>
+      <div style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow:auto;border:1px solid var(--bdr);border-radius:8px;padding:8px">
+        ${techs.length?techs.map(t=>`<label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" class="apmTech" value="${t.id}"> ${E(t.name)}${t.spec?' <span style="color:var(--t3);font-size:12px">· '+E(t.spec)+'</span>':''}</label>`).join(''):'<span style="color:var(--t3)">No technicians yet.</span>'}
+      </div>
+    </div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="confirmPlanPM('${jsq(serial)}')">Create PM Job</button>`);
+}
+function confirmPlanPM(serial){
+  const date=document.getElementById('planDate').value;
+  if(!date){toast('Pick a maintenance date.','error');return;}
+  const m=(DB.machines||[]).find(x=>x.serial===serial)||getAllMachinesDB().find(x=>x.serial===serial);
+  if(!m){toast('Machine not found.','error');return;}
+  const techIds=[...document.querySelectorAll('.apmTech:checked')].map(c=>parseInt(c.value));
+  _createPMJob(m,date,techIds);
+  saveDB();closeModal();refreshPage();
+  const names=techIds.map(id=>(DB.techs.find(t=>t.id===id)||{}).name).filter(Boolean);
+  toast(`PM planned for ${fmtDMY(date)}${names.length?' — '+names.join(', '):''}.`,'success');
 }
 
 // ===== DATA IMPORT/EXPORT =====
