@@ -1892,8 +1892,8 @@ function renderRptCards(reps){
     const pc=(x.photos||[]).length;const co=CO[x.company]||CO.octopack;
     return`<div class="rpt-card">
       <div class="rpt-card-top"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span class="rpt-card-jobno">${E(x.jobNo)}</span><span class="bd" style="background:${co.color}10;color:${co.color};font-size:11px">${E(x.company)}</span>${x.signed?'<span class="bd bd-ok" style="font-size:10px">✓ Signed</span>':''}${pc?`<span class="bd bd-ac" style="font-size:10px">📷 ${pc}</span>`:''}</div><span style="font-size:var(--fs-xs);color:var(--t3)">${E(x.date)}</span></div>
-      <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(x.customer)}</span></div>
-      <div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val">${E(x.model)} / ${E(x.serial)}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${x.customer?`<button class="btn btn-sm btn-s" style="padding:2px 10px;min-height:26px;font-size:12px" onclick="editCust('${jsq(x.customer)}')" title="Customer details / edit">${E(x.customer)} ✎</button>`:'—'}</span></div>
+      <div class="rpt-card-row"><span class="rc-label">Machine</span><span class="rc-val" style="text-align:right;max-width:70%">${(()=>{const ml=(Array.isArray(x.machines)&&x.machines.length)?x.machines:((x.serial||x.model)?[{model:x.model,serial:x.serial}]:[]);if(!ml.length)return '—';return ml.map(mm=>`<button class="btn btn-sm btn-s" style="padding:2px 8px;min-height:26px;font-size:12px;margin:1px 0 1px 4px" onclick="editMachine('${jsq(mm.serial)}','${jsq(mm.model)}')" title="Machine details / edit">${E(mm.model||'')} / ${E(mm.serial||'')} ✎</button>`).join('');})()}</span></div>
       <div class="rpt-card-row"><span class="rc-label">Type</span><span class="rc-val">${tyBd(x.type)}</span></div>
       <div class="rpt-card-row"><span class="rc-label">Engineer</span><span class="rc-val">${E(x.engineer||'—')}</span></div>
       <div class="rpt-card-row" style="align-items:center"><span class="rc-label">Status</span><span class="rc-val">${statusSelect(x.id,x.status,'rpt')}</span></div>
@@ -4018,7 +4018,7 @@ function openMachineModal(data){
     ${d.serial?(()=>{const lp=_lastPMDate(d.serial);const ls=_lastServiceDate(d.serial);return `<div style="font-size:11px;color:var(--t3);margin:-4px 0 4px">From reports — Last PM: <b>${lp?E(fmtDMY(lp)):'none'}</b> · Last Service: <b>${ls?E(fmtDMY(ls)):'none'}</b>${lp?' (a PM report exists, so the manual date above is ignored)':''}</div>`;})():''}
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveMachine()">Save</button>`);
   // Category custom toggle
-  setTimeout(()=>{document.getElementById('mCat').onchange=function(){if(this.value==='__other__'){document.getElementById('mCatCustom').style.display='';document.getElementById('mCatCustom').focus();}else{document.getElementById('mCatCustom').style.display='none';}};},50);
+  setTimeout(()=>{const cs=document.getElementById('mCat');if(!cs)return;cs.onchange=function(){const ci=document.getElementById('mCatCustom');if(!ci)return;if(this.value==='__other__'){ci.style.display='';ci.focus();}else{ci.style.display='none';}};},50);
 }
 
 // Auto-fill the machine's Location/Address from the selected customer (only if empty).
