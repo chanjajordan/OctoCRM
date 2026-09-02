@@ -1202,7 +1202,7 @@ function renderDash(){
   (DB.machines||[]).forEach(m=>{
     const pm=getPMStatus(m);
     if(!pm.hasFreq||pm.daysUntil==null||pm.daysUntil>=0)return;
-    const openJob=DB.jobs.find(j=>j.machine===m.serial&&j.type==='Preventive Maintenance'&&j.status!=='Completed');
+    const openJob=DB.jobs.find(j=>jobCoversSerial(j,m.serial)&&j.type==='Preventive Maintenance'&&j.status!=='Completed');
     if(openJob)return; // already has a job
     overduePM.push({m,pm});
   });
@@ -1257,6 +1257,14 @@ function showJobById(id){
   },150);
 }
 
+// A job can cover MULTIPLE machines (same-type PM batches from the PM Planner, or
+// manual multi-unit jobs). j.machine/j.model stay the PRIMARY (first) for existing
+// linking; j.machines[] holds all of them.
+function jobCoversSerial(j,serial){return !!j&&(j.machine===serial||(Array.isArray(j.machines)&&j.machines.some(mm=>mm&&mm.serial===serial)));}
+function jobMachineList(j){
+  const ms=(Array.isArray(j.machines)&&j.machines.length)?j.machines:((j.machine||j.model)?[{model:j.model,serial:j.machine}]:[]);
+  return ms.filter(m=>m&&(m.serial||m.model));
+}
 function renderJobs(){
   const s=(document.getElementById('jSrch')?.value||'').toLowerCase();
   let jobs=[...DB.jobs].sort((a,b)=>b.id-a.id);
@@ -1280,7 +1288,7 @@ function renderJobs(){
         <span>🏢 ${E(j.customer||'—')}</span>
         ${j.address?`<span>📍 <a href="#" onclick="event.preventDefault();openNavPicker(${j.id})" style="color:var(--ac);text-decoration:none;font-weight:500">${E(j.address)}</a></span>`:''}
         ${j.contact?`<span>👤 ${E(j.contact)}${j.contactPhone?` <a href="tel:${E(j.contactPhone)}" style="color:var(--ac);text-decoration:none">${E(j.contactPhone)}</a>`:''}</span>`:''}
-        <span>⚙️ ${E(j.model||'')} ${E(j.machine||'')}</span>
+        ${(()=>{const ml=jobMachineList(j);if(!ml.length)return'';if(ml.length===1)return `<span>⚙️ ${E(ml[0].model||'')} ${E(ml[0].serial||'')}</span>`;return `<span>⚙️ ${ml.length} machines: ${E(ml.map(m=>`${m.model||''} ${m.serial||''}`.trim()).filter(Boolean).join(', '))}</span>`;})()}
         <span>📅 ${E(j.date||'TBD')}${j.time?' '+E(j.time):''}</span>
         <span>👥 ${E(getJobTechNames(j))}</span>
         ${j.poNo?`<span>📄 PO: ${E(j.poNo)}</span>`:''}
@@ -1440,6 +1448,18 @@ function applyJobPrefill(j){
           else if(j.machine){document.getElementById('crSrCustom').style.display='';document.getElementById('crSrCustom').value=j.machine;srSel.style.display='none';}
         }
       },80);
+      // Machine Category — from the job, else the primary machine's registered category
+      const catSel=document.getElementById('crCat');
+      const cat=j.machineCategory||((DB.machines||[]).find(m=>m.serial===j.machine)||{}).category||'';
+      if(catSel&&cat){
+        if([...catSel.options].find(o=>o.value===cat)){catSel.value=cat;}
+        else{catSel.value='__other__';const ci=document.getElementById('crCatCustom');if(ci){ci.style.display='';ci.value=cat;}}
+      }
+      // Additional machines — every unit on the job beyond the primary (machines[0])
+      if(Array.isArray(j.machines)&&j.machines.length>1){
+        crExtraMachines=[];
+        j.machines.slice(1).forEach(mm=>addExtraMachine(mm.model||'',mm.serial||''));
+      }
     },150);
     // direct fields
     if(j.poNo)document.getElementById('crPO').value=j.poNo;
@@ -1488,6 +1508,10 @@ function openNewJobModal(){
         <select class="fc" id="jMa" onchange="onJobSerialChange()"><option value="">— Select model first —</option></select>
         <input class="fc" id="jMaCustom" placeholder="Type serial..." style="display:none;margin-top:6px" onblur="onJobSerialChange()">
       </div>
+    </div>
+    <div class="fg"><label>Additional Machines <span style="font-weight:400;color:var(--t3);font-size:11px">(same job, other units of the same type / customer)</span></label>
+      <div id="jExtraMachines"></div>
+      <button type="button" class="btn btn-s btn-sm" style="margin-top:6px" onclick="addJobMachine()">+ Add machine</button>
     </div>
     <div class="fg"><label>Machine Category <span style="font-weight:400;color:var(--t3);font-size:11px">(required if creating a new machine on this job)</span></label>
       <select class="fc" id="jMaCat">
@@ -1645,6 +1669,8 @@ function editJob(id){const j=DB.jobs.find(x=>x.id===id);if(!j)return;openNewJobM
   setTimeout(()=>{
     if(j.model){const mdSel=document.getElementById('jMaMd');if([...mdSel.options].find(o=>o.value===j.model))mdSel.value=j.model;else{document.getElementById('jMaMdCustom').value=j.model;document.getElementById('jMaMdCustom').style.display='';mdSel.style.display='none';}onJobModelChange();}
     setTimeout(()=>{if(j.machine){const srSel=document.getElementById('jMa');if([...srSel.options].find(o=>o.value===j.machine))srSel.value=j.machine;else{document.getElementById('jMaCustom').value=j.machine;document.getElementById('jMaCustom').style.display='';srSel.style.display='none';}onJobSerialChange();}},50);
+    // Extra machines beyond the primary → additional-machine rows
+    if(Array.isArray(j.machines)&&j.machines.length>1){j.machines.slice(1).forEach(mm=>addJobMachine(mm.model,mm.serial));}
     // Prefill machine category from job (preferred) or from matching DB.machines record
     const catSel=document.getElementById('jMaCat');
     if(catSel){
@@ -1661,6 +1687,29 @@ function editJob(id){const j=DB.jobs.find(x=>x.id===id);if(!j)return;openNewJobM
   document.querySelectorAll('.jTeChk').forEach(c=>{c.checked=ids.includes(parseInt(c.value));});
 },50);}
 
+// Add an extra machine row (model + serial) to the job form. DOM-built so values
+// with quotes are safe.
+function addJobMachine(model,serial){
+  const wrap=document.getElementById('jExtraMachines');if(!wrap)return;
+  const div=document.createElement('div');div.className='jem-row';
+  div.style.cssText='display:flex;gap:6px;margin-top:6px';
+  const mi=document.createElement('input');mi.className='fc jem-model';mi.placeholder='Model';mi.value=model||'';
+  const si=document.createElement('input');si.className='fc jem-serial';si.placeholder='Serial';si.value=serial||'';
+  const rm=document.createElement('button');rm.type='button';rm.className='btn btn-d btn-sm';rm.textContent='✕';rm.title='Remove';rm.onclick=function(){div.remove();};
+  div.append(mi,si,rm);wrap.appendChild(div);
+}
+// Primary (model/serial dropdowns) + extra rows → de-duped machines[] (serial required on extras).
+function collectJobMachines(primaryModel,primarySerial){
+  const list=[];
+  if(primarySerial||primaryModel)list.push({model:primaryModel||'',serial:primarySerial||''});
+  document.querySelectorAll('#jExtraMachines .jem-row').forEach(r=>{
+    const mo=(r.querySelector('.jem-model')?.value||'').trim();
+    const s=(r.querySelector('.jem-serial')?.value||'').trim();
+    if(s)list.push({model:mo,serial:s});
+  });
+  const seen=new Set();
+  return list.filter(m=>{const k=(m.serial||'')+'␟'+(m.model||'');if(seen.has(k))return false;seen.add(k);return true;});
+}
 function saveJob(){
   const eidEl=document.getElementById('eJId');
   const eid=eidEl?eidEl.value:'';
@@ -1669,7 +1718,9 @@ function saveJob(){
   const model=getJobFieldVal('jMaMd','jMaMdCustom');
   const serial=getJobFieldVal('jMa','jMaCustom');
   const category=getJobFieldVal('jMaCat','jMaCatCustom');
-  const d={title:document.getElementById('jTi').value.trim(),customer:customer,address:document.getElementById('jAd')?.value.trim()||'',contact:document.getElementById('jCn')?.value.trim()||'',contactPhone:document.getElementById('jCnP')?.value.trim()||'',machine:serial,model:model,machineCategory:category,chargeable:document.getElementById('jChg')?.value||'Chargeable',poNo:document.getElementById('jPO')?.value.trim()||'',techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
+  const machines=collectJobMachines(model,serial);
+  const primary=machines[0]||{model:model,serial:serial};
+  const d={title:document.getElementById('jTi').value.trim(),customer:customer,address:document.getElementById('jAd')?.value.trim()||'',contact:document.getElementById('jCn')?.value.trim()||'',contactPhone:document.getElementById('jCnP')?.value.trim()||'',machine:primary.serial,model:primary.model,machines:machines,machineCategory:category,chargeable:document.getElementById('jChg')?.value||'Chargeable',poNo:document.getElementById('jPO')?.value.trim()||'',techIds:techIds,techId:techIds[0]||null,type:document.getElementById('jTy').value,priority:document.getElementById('jPr').value,date:document.getElementById('jDt').value,time:document.getElementById('jTm').value,desc:document.getElementById('jDs').value.trim(),status:techIds.length?'Assigned':'Open'};
   if(!d.title){toast('Enter title.','error');return;}
   if(eid&&eid!==''){const i=DB.jobs.findIndex(j=>j.id===parseInt(eid));if(i>=0)DB.jobs[i]={...DB.jobs[i],...d};}
   else{d.id=DB.nJ++;d.createdAt=new Date().toISOString();d.waSent=false;d.startTime=null;d.endTime=null;d.followUp='';DB.jobs.push(d);}
@@ -1689,39 +1740,31 @@ function saveJob(){
 // If serial exists already, update missing fields (customer/model/category) but don't overwrite.
 // If serial is new, create a new machine record.
 function syncJobMachineToRegistry(d){
-  if(!d.machine)return; // no serial = nothing to register
   if(!Array.isArray(DB.machines))DB.machines=[];
-  const serial=d.machine;
-  // Identity is serial+model: a named model matches its exact entry, a new model
-  // on an existing serial creates a new machine; blank model backfills same-serial.
-  const existing=d.model
-    ? DB.machines.find(m=>m.serial===serial&&(m.model||'')===d.model)
-    : DB.machines.find(m=>m.serial===serial);
-  if(existing){
-    let changed=false;
-    if(!existing.customer&&d.customer){existing.customer=d.customer;changed=true;}
-    if(!existing.model&&d.model){existing.model=d.model;changed=true;}
-    if(!existing.category&&d.machineCategory){existing.category=d.machineCategory;changed=true;}
-    if(!existing.location&&d.address){existing.location=d.address;changed=true;}
-    return changed;
-  }
-  // Create new machine record
-  if(!DB.nM)DB.nM=200;
-  DB.machines.push({
-    id:DB.nM++,
-    serial:serial,
-    model:d.model||'',
-    category:d.machineCategory||'',
-    customer:d.customer||'',
-    location:d.address||'',
-    installDate:'',
-    warranty:'12 months',
-    purchaseRental:'Purchase',
-    serviceContract:'Nil',
-    maintFrequency:''
+  // Register EVERY machine on the job (primary + machines[]). Identity is serial+model.
+  const list=(Array.isArray(d.machines)&&d.machines.length)?d.machines:(d.machine?[{serial:d.machine,model:d.model}]:[]);
+  const seen=new Set();const added=[];
+  list.forEach(item=>{
+    const serial=(item.serial||'').trim();if(!serial)return;
+    const model=(item.model||'').trim();
+    const key=serial+'␟'+model;if(seen.has(key))return;seen.add(key);
+    const existing=model
+      ? DB.machines.find(m=>m.serial===serial&&(m.model||'')===model)
+      : DB.machines.find(m=>m.serial===serial);
+    if(existing){
+      if(!existing.customer&&d.customer)existing.customer=d.customer;
+      if(!existing.model&&model)existing.model=model;
+      if(!existing.category&&d.machineCategory)existing.category=d.machineCategory;
+      if(!existing.location&&d.address)existing.location=d.address;
+      return;
+    }
+    if(!DB.nM)DB.nM=200;
+    DB.machines.push({id:DB.nM++,serial:serial,model:model,category:d.machineCategory||'',customer:d.customer||'',location:d.address||'',installDate:'',warranty:'12 months',purchaseRental:'Purchase',serviceContract:'Nil',maintFrequency:''});
+    _unblockMachine(serial,model);
+    added.push(serial);
   });
-  _unblockMachine(serial,d.model||'');
-  toast(`New machine "${serial}" added to registry.`,'info');
+  if(added.length)toast(`New machine${added.length>1?'s':''} added to registry: ${added.join(', ')}`,'info');
+  return added.length>0;
 }
 
 // Register every machine on a report (primary + extras) into DB.machines.
@@ -1803,8 +1846,16 @@ function sendJWA(jid){
   ids.forEach(tid=>{
     const tc=DB.techs.find(t=>t.id===tid);if(!tc)return;
     let m=`🔧 *NEW JOB*\n📋 *${j.title}*\n📌 ${j.type}\n🏢 ${j.customer||''}`;
-    if(c?.address)m+=`\n📍 ${c.address}`;if(c?.phone)m+=`\n📞 ${c.contact||''} ${c.phone}`;
-    if(j.machine)m+=`\n⚙️ S/N: ${j.machine}`;m+=`\n📅 ${j.date||'TBD'}`;if(j.time)m+=` ⏰ ${j.time}`;
+    // Use the JOB's own site address/contact (a job can be at a different site than
+    // the customer's main address, e.g. PO/site jobs); fall back to the customer record.
+    const addr=j.address||c?.address||'';
+    const contact=j.contact||c?.contact||'';
+    const phone=j.contactPhone||c?.phone||'';
+    if(addr)m+=`\n📍 ${addr}`;
+    if(contact||phone)m+=`\n📞 ${(contact+' '+phone).trim()}`;
+    const _ml=jobMachineList(j);
+    if(_ml.length)m+=`\n⚙️ S/N: ${_ml.map(x=>x.serial).filter(Boolean).join(', ')}`;
+    m+=`\n📅 ${j.date||'TBD'}`;if(j.time)m+=` ⏰ ${j.time}`;
     const teamNames=ids.map(id=>{const t=DB.techs.find(x=>x.id===id);return t?t.name:'';}).filter(Boolean).join(', ');
     m+=`\n👥 Team: ${teamNames}`;
     if(j.desc)m+=`\n\n📝 ${j.desc}`;m+=`\n\n— OctoCRM`;
@@ -5724,57 +5775,75 @@ function autoSchedulePM(){
   if(!Array.isArray(DB.machines)||!DB.machines.length)return;
   const today=new Date();
   const horizonDays=14;
-  let created=0;
+  // Collect machines due within the horizon, grouped by customer + type + due date, so
+  // ONE job covers all a customer's same-type units due together (not one job per machine).
+  const groups={};
   DB.machines.forEach(m=>{
+    if(m.pmExclude)return;                     // opted out of PM
     if(!m.maintFrequency)return;
     const freq=parseFloat(m.maintFrequency);if(!freq||freq<=0)return;
     const intervalMonths=Math.round(12/freq);
-    // Find last service for this machine
-    const lastRpt=DB.reports.filter(r=>r.serial===m.serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+    const lastRpt=_lastPMReport(m.serial);
     const lastDate=lastRpt?new Date(lastRpt.date):(m.installDate?new Date(m.installDate):null);
     if(!lastDate||isNaN(lastDate))return;
     const nextDue=new Date(lastDate);nextDue.setMonth(nextDue.getMonth()+intervalMonths);
-    // If overdue, advance to next future cycle (so we always check the next upcoming due date)
     while(nextDue<today){nextDue.setMonth(nextDue.getMonth()+intervalMonths);}
     const diffDays=Math.round((nextDue-today)/(1000*60*60*24));
     if(diffDays<0||diffDays>horizonDays)return;
-    // Check if a PM job already exists for this serial in this window
     const dueISO=nextDue.toISOString().split('T')[0];
-    const existing=DB.jobs.find(j=>j.machine===m.serial&&j.type==='Preventive Maintenance'&&j.date===dueISO&&j.status!=='Completed');
-    if(existing)return;
-    // Auto-create
-    const c=DB.custs.find(x=>x.name===m.customer)||{};
+    // already covered by a PM job on that date?
+    if(DB.jobs.find(j=>jobCoversSerial(j,m.serial)&&j.type==='Preventive Maintenance'&&j.date===dueISO&&j.status!=='Completed'))return;
+    const key=(m.customer||'(no customer)')+'␟'+(m.category||'Uncategorized')+'␟'+dueISO;
+    (groups[key]=groups[key]||{customer:m.customer,category:m.category||'',dueISO,machines:[]}).machines.push(m);
+  });
+  let created=0,machinesN=0;
+  Object.values(groups).forEach(g=>{
+    if(!g.machines.length)return;
+    const primary=g.machines[0];
+    const c=DB.custs.find(x=>x.name===primary.customer)||{};
+    const mlist=g.machines.map(m=>({model:m.model||'',serial:m.serial||''}));
+    const serialsTxt=g.machines.map(m=>m.serial).filter(Boolean).join(', ');
+    const multi=g.machines.length>1;
     DB.jobs.push({
       id:DB.nJ++,
-      title:`Scheduled PM — ${m.model} (${m.serial})`,
-      customer:m.customer,
-      address:c.address||m.location||'',
+      title:multi?`Scheduled PM — ${g.category||'machines'} ×${g.machines.length} (${primary.customer})`:`Scheduled PM — ${primary.model} (${primary.serial})`,
+      customer:primary.customer,address:c.address||primary.location||'',
       contact:c.contact||'',contactPhone:c.phone||'',
-      machine:m.serial,model:m.model,
-      chargeable:getWarrantyStatus(m.serial).foc?'FOC':'Chargeable',
+      machine:primary.serial,model:primary.model,machines:mlist,
+      machineCategory:g.category||primary.category||'',
+      chargeable:getWarrantyStatus(primary.serial).foc?'FOC':'Chargeable',
       poNo:'',techIds:[],techId:null,
       type:'Preventive Maintenance',priority:'Medium',
-      date:dueISO,time:'',
-      desc:`Auto-scheduled PM. Last service: ${lastRpt?lastRpt.date:'(install date)'}. Frequency: ${freq}/year.`,
+      date:g.dueISO,time:'',
+      desc:multi?`Auto-scheduled PM — ${g.machines.length} ${g.category} unit(s).\nUnits: ${serialsTxt}`:`Auto-scheduled PM.\nUnit: ${serialsTxt}`,
       status:'Open',
       createdAt:new Date().toISOString(),
       waSent:false,startTime:null,endTime:null,followUp:'',
       autoScheduled:true
     });
-    created++;
+    created++;machinesN+=g.machines.length;
   });
-  if(created>0){saveDB();toast(`Auto-scheduled ${created} upcoming PM job(s).`,'info');}
+  if(created>0){saveDB();toast(`Auto-scheduled ${created} PM job(s) covering ${machinesN} machine(s).`,'info');}
 }
 
 // Compute PM status for a single machine. Returns {hasFreq, manual, intervalMonths, lastDate, nextDue, daysUntil, statusLabel, statusColor}
 // A manual override (m.manualNextDue) always wins over the auto-calculated date.
+// Latest PM report for a serial — matches the report's PRIMARY serial OR any of its
+// multi-machine machines[] entries (same linkage getAllMachinesDB uses). PM history
+// for a machine that only appears as a secondary machine on a report was previously
+// missed, so its Last/Next PM showed blank. Returns the report object or null.
+function _lastPMReport(serial){
+  if(!serial)return null;
+  return (DB.reports||[]).filter(r=>r&&r.type==='Preventive Maintenance'&&(r.serial===serial||(Array.isArray(r.machines)&&r.machines.some(mm=>mm&&mm.serial===serial))))
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0]||null;
+}
 function getPMStatus(m){
   const out={hasFreq:false,manual:false,intervalMonths:0,lastDate:null,nextDue:null,daysUntil:null,statusLabel:'No schedule',statusColor:'var(--t3)'};
   const freq=parseFloat(m.maintFrequency);
   if(freq&&freq>0){
     out.hasFreq=true;
     out.intervalMonths=Math.round(12/freq);
-    const lastRpt=DB.reports.filter(r=>r.serial===m.serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+    const lastRpt=_lastPMReport(m.serial);
     const lastDate=lastRpt?lastRpt.date:(m.installDate||'');
     if(lastDate){
       const ld=new Date(lastDate);
@@ -5805,7 +5874,7 @@ function getPMStatus(m){
 // ===== PM SCHEDULE PAGE =====
 let curPMFilter='all';
 function renderPMSchedule(){
-  const machines=getAllMachinesDB();
+  const machines=getAllMachinesDB().filter(m=>!m.pmExclude);   // hide PM opt-outs
   const rows=machines.map(m=>({m,pm:getPMStatus(m)}));
   // Counts
   const cnt={all:rows.length,scheduled:0,overdue:0,dueSoon:0,unscheduled:0,ok:0};
@@ -5853,7 +5922,7 @@ function renderPMSchedule(){
     </div>
     <div class="tw"><div class="th"><h3>Maintenance Schedule (${filtered.length})</h3></div>
     ${filtered.length?filtered.map(({m,pm})=>{
-      const hasOpenJob=DB.jobs.find(j=>j.machine===m.serial&&j.type==='Preventive Maintenance'&&j.status!=='Completed');
+      const hasOpenJob=DB.jobs.find(j=>jobCoversSerial(j,m.serial)&&j.type==='Preventive Maintenance'&&j.status!=='Completed');
       return`<div class="rpt-card">
         <div class="rpt-card-top"><span style="font-weight:700">${E(m.model)} — ${E(m.serial)}</span>
           <span class="bd" style="background:${pm.statusColor}20;color:${pm.statusColor};border:1px solid ${pm.statusColor}">${pm.statusLabel}</span>
@@ -5896,7 +5965,7 @@ function openPMFreqModal(serial){
       </select>
     </div>
     <div class="fg"><label>Service Contract Note (optional)</label><input class="fc" id="pmSC" value="${E(m.serviceContract||'')}" placeholder="e.g. 2 yrs contract until 2027"></div>
-    <p style="font-size:var(--fs-xs);color:var(--t3)">Last PM: ${E((DB.reports.filter(r=>r.serial===serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0]||{}).date||'(none — install date will be used)')}</p>
+    <p style="font-size:var(--fs-xs);color:var(--t3)">Last PM: ${E((_lastPMReport(serial)||{}).date||'(none — install date will be used)')}</p>
   `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="savePMFreq('${E(serial)}')">Save</button>`);
 }
 
@@ -5961,7 +6030,7 @@ function createPMJobNow(serial){
   const today=new Date().toISOString().split('T')[0];
   // Overdue → schedule today. Future → use due date.
   const dueISO=(pm.daysUntil!=null&&pm.daysUntil<0)?today:(pm.nextDue||today);
-  const lastRpt=DB.reports.filter(r=>r.serial===m.serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+  const lastRpt=_lastPMReport(m.serial);
   DB.jobs.push({
     id:DB.nJ++,
     title:`PM — ${m.model} (${m.serial})`,
@@ -5985,22 +6054,40 @@ function createPMJobNow(serial){
 // ===== PM PLANNER (customers by machine category → bulk-assign PM) =====
 let curPlanCat=null;
 let planMode='category';   // 'category' | 'rental'
+let planShowExcluded=false; // units tabs: reveal machines opted out of PM
 function setPlanCat(c){curPlanCat=c;renderPMPlanner();}
 function setPlanMode(m){planMode=m;renderPMPlanner();}
+function setPlanShowExcluded(v){planShowExcluded=v;renderPMPlanner();}
+// Opt a machine in/out of PM. Excluded machines are hidden from the PM Planner + PM
+// Schedule and never auto-scheduled. Stored as `pmExclude` on the registry record.
+function toggleMachinePMExclude(serial,model,exclude){
+  const rec=ensureMachineRecord(serial,model);
+  if(!rec){toast('Machine not found.','error');return;}
+  if(exclude)rec.pmExclude=true;else delete rec.pmExclude;
+  saveDB();refreshPage();
+  toast(exclude?'Machine excluded from PM.':'Machine included in PM.','success');
+}
 function _isRental(m){return /rent|leas/i.test(String(m.purchaseRental||''));}
+// Last PM performed = date of the latest PM report for this serial ('' if none).
+// Uses _lastPMReport so multi-machine reports (serial in machines[]) count too.
+function _lastPMDate(serial){
+  return (_lastPMReport(serial)||{}).date||'';
+}
 function _planToggle(){
   return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
     <button class="fc-chip${planMode==='category'?' active':''}" onclick="setPlanMode('category')">🏷 By Machine Type</button>
     <button class="fc-chip${planMode==='rental'?' active':''}" onclick="setPlanMode('rental')">📦 Rental Units</button>
+    <button class="fc-chip${planMode==='purchase'?' active':''}" onclick="setPlanMode('purchase')">🛒 Purchased Units</button>
   </div>`;
 }
-function _hasOpenPMJob(serial){return !!(DB.jobs||[]).find(j=>j.machine===serial&&j.type==='Preventive Maintenance'&&j.status!=='Completed'&&j.status!=='Cancelled');}
-function _planMachines(category,custName){
-  return getAllMachinesDB().filter(m=>(m.category||'Uncategorized')===category&&(!custName||m.customer===custName));
+function _hasOpenPMJob(serial){return !!(DB.jobs||[]).find(j=>jobCoversSerial(j,serial)&&j.type==='Preventive Maintenance'&&j.status!=='Completed'&&j.status!=='Cancelled');}
+function _planMachines(category,custName,kind){
+  return getAllMachinesDB().filter(m=>!m.pmExclude&&(m.category||'Uncategorized')===category&&(!custName||m.customer===custName)&&(!kind||(kind==='rental'?_isRental(m):!_isRental(m))));
 }
 function renderPMPlanner(){
-  const machines=getAllMachinesDB();
-  if(planMode==='rental'){return _renderPlannerRental(machines);}
+  const allMachines=getAllMachinesDB();
+  if(planMode==='rental'||planMode==='purchase'){return _renderPlannerUnits(allMachines,planMode);}
+  const machines=allMachines.filter(m=>!m.pmExclude);   // category view hides PM opt-outs
   const catCount={};
   machines.forEach(m=>{const c=m.category||'Uncategorized';catCount[c]=(catCount[c]||0)+1;});
   const cats=Object.keys(catCount).sort((a,b)=>String(a).localeCompare(String(b)));
@@ -6031,7 +6118,7 @@ function renderPMPlanner(){
         <div style="padding:0 4px 8px">
         ${ms.map(m=>{
           const pm=getPMStatus(m);
-          const oj=(DB.jobs||[]).find(j=>j.machine===m.serial&&j.type==='Preventive Maintenance'&&j.status!=='Completed'&&j.status!=='Cancelled');
+          const oj=(DB.jobs||[]).find(j=>jobCoversSerial(j,m.serial)&&j.type==='Preventive Maintenance'&&j.status!=='Completed'&&j.status!=='Cancelled');
           const techTxt=oj?((oj.techIds&&oj.techIds.length)?'· '+E(oj.techIds.map(id=>(DB.techs.find(t=>t.id===id)||{}).name).filter(Boolean).join(', ')):'· <span style="color:var(--wn)">unassigned</span>'):'';
           return `<div class="rpt-card" style="margin:8px 0">
             <div class="rpt-card-top"><span style="font-weight:700">${E(m.model||'(no model)')} — ${E(m.serial)}</span>
@@ -6056,7 +6143,7 @@ function renderPMPlanner(){
 function _createPMJob(m,dateISO,techIds){
   const c=DB.custs.find(x=>x.name===m.customer)||{};
   const pm=getPMStatus(m);
-  const lastRpt=DB.reports.filter(r=>r.serial===m.serial&&r.type==='Preventive Maintenance').sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+  const lastRpt=_lastPMReport(m.serial);
   const tids=Array.isArray(techIds)?techIds.filter(x=>x!=null):[];
   DB.jobs.push({
     id:DB.nJ++,
@@ -6076,8 +6163,8 @@ function _createPMJob(m,dateISO,techIds){
 }
 // Modal: pick technician(s) + date, then bulk-create PM jobs for a category
 // (optionally scoped to one customer). Machines with an open PM job are skipped.
-function openAssignPMModal(category,custName){
-  const all=_planMachines(category,custName||'');
+function openAssignPMModal(category,custName,kind){
+  const all=_planMachines(category,custName||'',kind||undefined);
   const targets=all.filter(m=>!_hasOpenPMJob(m.serial));
   if(!all.length){toast('No machines in this category.','info');return;}
   const techs=DB.techs||[];
@@ -6092,52 +6179,121 @@ function openAssignPMModal(category,custName){
         ${techs.length?techs.map(t=>`<label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" class="apmTech" value="${t.id}"> ${E(t.name)}${t.spec?' <span style="color:var(--t3);font-size:12px">· '+E(t.spec)+'</span>':''}</label>`).join(''):'<span style="color:var(--t3)">No technicians — add them on the Technicians page first.</span>'}
       </div>
     </div>
-  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p"${targets.length?'':' disabled'} onclick="confirmAssignPM('${jsq(category)}','${jsq(custName||'')}')">Create ${targets.length} PM Job${targets.length!==1?'s':''}</button>`);
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p"${targets.length?'':' disabled'} onclick="confirmAssignPM('${jsq(category)}','${jsq(custName||'')}','${jsq(kind||'')}')">Create ${targets.length} PM Job${targets.length!==1?'s':''}</button>`);
 }
-function confirmAssignPM(category,custName){
+function confirmAssignPM(category,custName,kind){
   const date=document.getElementById('apmDate').value;
   if(!date){toast('Pick a service date.','error');return;}
   const techIds=[...document.querySelectorAll('.apmTech:checked')].map(c=>parseInt(c.value));
-  const targets=_planMachines(category,custName||'').filter(m=>!_hasOpenPMJob(m.serial));
+  const targets=_planMachines(category,custName||'',kind||undefined).filter(m=>!_hasOpenPMJob(m.serial));
   if(!targets.length){toast('Nothing to schedule — all already have open PM jobs.','info');closeModal();return;}
-  targets.forEach(m=>_createPMJob(m,date,techIds));
+  // ONE job per customer, covering ALL that customer's machines of this type.
+  const byCust={};targets.forEach(m=>{const c=m.customer||'(no customer)';(byCust[c]=byCust[c]||[]).push(m);});
+  let jobs=0;
+  Object.keys(byCust).forEach(cu=>{_createPMJobMulti(byCust[cu],date,techIds,category);jobs++;});
   saveDB();
   const techNames=techIds.map(id=>(DB.techs.find(t=>t.id===id)||{}).name).filter(Boolean);
   closeModal();renderPMPlanner();
-  toast(`Created ${targets.length} PM job(s)${techNames.length?' assigned to '+techNames.join(', '):' (unassigned)'}.`,'success');
+  toast(`Created ${jobs} PM job(s) covering ${targets.length} machine(s)${techNames.length?' — '+techNames.join(', '):''}.`,'success');
+}
+// One PM job covering MANY machines (same customer + type) on one date/tech set.
+function _createPMJobMulti(machines,dateISO,techIds,category){
+  if(!machines||!machines.length)return;
+  const primary=machines[0];
+  const c=DB.custs.find(x=>x.name===primary.customer)||{};
+  const pm=getPMStatus(primary);
+  const tids=Array.isArray(techIds)?techIds.filter(x=>x!=null):[];
+  const mlist=machines.map(m=>({model:m.model||'',serial:m.serial||''}));
+  const serialsTxt=machines.map(m=>m.serial).filter(Boolean).join(', ');
+  DB.jobs.push({
+    id:DB.nJ++,
+    title:machines.length>1?`PM — ${category} ×${machines.length} (${primary.customer})`:`PM — ${primary.model} (${primary.serial})`,
+    customer:primary.customer,address:c.address||primary.location||'',
+    contact:c.contact||'',contactPhone:c.phone||'',
+    machine:primary.serial,model:primary.model,machines:mlist,
+    machineCategory:category||primary.category||'',
+    chargeable:getWarrantyStatus(primary.serial).foc?'FOC':'Chargeable',
+    poNo:'',techIds:tids,techId:tids[0]!=null?tids[0]:null,
+    type:'Preventive Maintenance',priority:(pm.daysUntil!=null&&pm.daysUntil<0)?'High':'Medium',
+    date:dateISO||new Date().toISOString().split('T')[0],time:'',
+    desc:machines.length>1?`Preventive Maintenance — ${machines.length} ${category} unit(s).\nUnits: ${serialsTxt}`:`Preventive Maintenance.\nUnit: ${serialsTxt}`,
+    status:tids.length?'Assigned':'Open',
+    createdAt:new Date().toISOString(),
+    waSent:false,startTime:null,endTime:null,followUp:'',autoScheduled:false
+  });
 }
 
-// Rental-units view: every rental machine grouped by type; per-unit set frequency + plan a maintenance day.
-function _renderPlannerRental(machines){
-  const rentals=machines.filter(_isRental);
-  const byCat={};
-  rentals.forEach(m=>{const c=m.category||'Uncategorized';(byCat[c]=byCat[c]||[]).push(m);});
-  const cats=Object.keys(byCat).sort((a,b)=>String(a).localeCompare(String(b)));
+// Units view (rental OR purchased): grouped by CUSTOMER → machine TYPE. Frequency and
+// PM date are set ONCE per (customer, type) group and applied to every machine in it.
+let planUnitCat='all';   // machine-type filter for the units tabs
+function setPlanUnitCat(c){planUnitCat=c;renderPMPlanner();}
+function _freqLabel(f){const n=parseFloat(f);return n>0?('every '+Math.round(12/n)+' mo'):'';}
+function _renderPlannerUnits(machines,kind){
+  const isRent=kind==='rental';
+  const kindUnits=machines.filter(m=>isRent?_isRental(m):!_isRental(m));
+  const excludedN=kindUnits.filter(m=>m.pmExclude).length;
+  const units=planShowExcluded?kindUnits:kindUnits.filter(m=>!m.pmExclude);
+  const title=isRent?'Rental Units':'Purchased Units';
+  const intro=isRent
+    ? 'Rental units grouped by customer, then machine type. Set one PM frequency and plan one PM date per machine type per customer — it applies to every unit of that type.'
+    : 'Purchased / owned units grouped by customer, then machine type. Set one PM frequency and plan one PM date per machine type per customer — it applies to every unit of that type.';
+  const emptyMsg=isRent
+    ? 'No rental units found. (Machines whose Purchase/Rental field is “Rental”.)'
+    : 'No purchased units found. (Machines whose Purchase/Rental field is not “Rental”.)';
+  // machine-type filter chips
+  const catCount={};units.forEach(m=>{const c=m.category||'Uncategorized';catCount[c]=(catCount[c]||0)+1;});
+  const allCats=Object.keys(catCount).sort((a,b)=>String(a).localeCompare(String(b)));
+  if(planUnitCat!=='all'&&catCount[planUnitCat]==null)planUnitCat='all';
+  const shown=planUnitCat==='all'?units:units.filter(m=>(m.category||'Uncategorized')===planUnitCat);
+  const typeChips=`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;align-items:center">
+    <span style="font-size:12px;color:var(--t2);margin-right:2px">Machine type:</span>
+    <button class="fc-chip${planUnitCat==='all'?' active':''}" onclick="setPlanUnitCat('all')">All (${units.length})</button>
+    ${allCats.map(c=>`<button class="fc-chip${planUnitCat===c?' active':''}" onclick="setPlanUnitCat('${jsq(c)}')">${E(c)} (${catCount[c]})</button>`).join('')}
+  </div>`;
+  // group shown machines by customer → category
+  const byCust={};
+  shown.forEach(m=>{const cu=m.customer||'(no customer)';(byCust[cu]=byCust[cu]||[]).push(m);});
+  const custNames=Object.keys(byCust).sort((a,b)=>String(a).localeCompare(String(b)));
   const noTech=!((DB.techs||[]).length);
   let body;
-  if(!rentals.length){body='<div class="es"><p>No rental units found. (These are machines whose Purchase/Rental field is “Rental”.)</p></div>';}
+  if(!units.length){body=`<div class="es"><p>${emptyMsg}</p></div>`;}
+  else if(!custNames.length){body='<div class="es"><p>No units of this machine type.</p></div>';}
   else{
-    body=cats.map(cat=>{
-      const ms=byCat[cat];
-      return `<div class="tw" style="margin-bottom:12px"><div class="th"><h3 style="font-size:var(--fs)">${E(cat)} <span class="bd bd-ac" style="font-size:10px">${ms.length}</span></h3></div>
-      <div style="padding:0 4px 8px">
-      ${ms.map(m=>{
-        const pm=getPMStatus(m);
-        const oj=(DB.jobs||[]).find(j=>j.machine===m.serial&&j.type==='Preventive Maintenance'&&j.status!=='Completed'&&j.status!=='Cancelled');
-        const period=[m.startDate,m.endDate].filter(Boolean).map(fmtDMY).join(' – ');
+    body=custNames.map(cust=>{
+      const cms=byCust[cust];
+      const byCat={};cms.forEach(m=>{const c=m.category||'Uncategorized';(byCat[c]=byCat[c]||[]).push(m);});
+      const cats=Object.keys(byCat).sort((a,b)=>String(a).localeCompare(String(b)));
+      return `<div class="tw" style="margin-bottom:14px"><div class="th"><h3 style="font-size:var(--fs)">🏢 ${E(cust)} <span class="bd bd-ac" style="font-size:10px">${cms.length} machine${cms.length!==1?'s':''}</span></h3></div>
+      <div style="padding:4px 8px 8px">
+      ${cats.map(cat=>{
+        const gms=byCat[cat];
+        const gActive=gms.filter(m=>!m.pmExclude);   // group actions only touch PM-included units
+        const freqs=[...new Set(gActive.map(m=>m.maintFrequency||''))];
+        const uniform=freqs.length<=1;
+        const freqTxt=!gActive.length?'—':uniform?(freqs[0]?freqs[0]+'/yr ('+_freqLabel(freqs[0])+')':'not set'):'⚠ mixed';
         return `<div class="rpt-card" style="margin:8px 0">
-          <div class="rpt-card-top"><span style="font-weight:700">${E(m.model||'(no model)')} — ${E(m.serial)}</span>
-            ${pm.statusLabel?`<span class="bd" style="background:${pm.statusColor}20;color:${pm.statusColor};border:1px solid ${pm.statusColor}">${pm.statusLabel}</span>`:''}</div>
-          <div class="rpt-card-row"><span class="rc-label">Customer</span><span class="rc-val">${E(m.customer||'')}</span></div>
-          ${m.location?`<div class="rpt-card-row"><span class="rc-label">Location</span><span class="rc-val" style="max-width:60%">${E(m.location)}</span></div>`:''}
-          ${period?`<div class="rpt-card-row"><span class="rc-label">Rental Period</span><span class="rc-val">${E(period)}</span></div>`:''}
-          <div class="rpt-card-row"><span class="rc-label">PM Frequency</span><span class="rc-val">${m.maintFrequency?E(m.maintFrequency)+' / year (every '+pm.intervalMonths+' mo)':'<span style="color:var(--t3)">not set</span>'}</span></div>
-          ${pm.nextDue?`<div class="rpt-card-row"><span class="rc-label">Next PM Due</span><span class="rc-val" style="font-weight:700;color:${pm.statusColor}">${E(fmtDMY(pm.nextDue))}${pm.manual?' <span class="bd bd-pu" style="font-size:10px">manual</span>':''}</span></div>`:''}
-          ${oj?`<div class="rpt-card-row"><span class="rc-label">PM Job</span><span class="rc-val"><span class="bd bd-ac">JOB-${String(oj.id).padStart(4,'0')}</span> ${E(fmtDMY(oj.date)||'')}</span></div>`:''}
-          ${canEdit()?`<div class="rpt-card-actions">
-            <button class="btn btn-sm btn-s" onclick="openPMFreqModal('${jsq(m.serial)}')">⚙ ${m.maintFrequency?'Edit':'Set'} Frequency</button>
-            <button class="btn btn-sm btn-p" onclick="openPlanPMModal('${jsq(m.serial)}')">📅 Plan PM Day</button>
+          <div class="rpt-card-top" style="flex-wrap:wrap;gap:8px">
+            <span style="font-weight:700">${E(cat)} <span class="bd bd-pu" style="font-size:10px">${gActive.length} unit${gActive.length!==1?'s':''}</span></span>
+            <span class="bd ${uniform&&freqs[0]?'bd-ok':'bd-wn'}" style="font-size:10px">PM: ${freqTxt}</span>
+          </div>
+          ${canEdit()&&gActive.length?`<div class="rpt-card-actions" style="margin:8px 0 4px">
+            <button class="btn btn-sm btn-s" onclick="openGroupFreqModal('${jsq(kind)}','${jsq(cust)}','${jsq(cat)}')">⚙ Set Frequency — all ${gActive.length}</button>
+            <button class="btn btn-sm btn-p" onclick="openAssignPMModal('${jsq(cat)}','${jsq(cust)}','${jsq(kind)}')">📅 Plan PM Date — all ${gActive.length}</button>
           </div>`:''}
+          <div style="font-size:12px;color:var(--t2);border-top:1px solid var(--bdr);margin-top:6px;padding-top:8px;display:flex;flex-direction:column;gap:4px">
+          ${gms.map(m=>{
+            const pm=getPMStatus(m);const lastPM=_lastPMDate(m.serial);
+            const oj=(DB.jobs||[]).find(j=>jobCoversSerial(j,m.serial)&&j.type==='Preventive Maintenance'&&j.status!=='Completed'&&j.status!=='Cancelled');
+            const per=isRent?[m.startDate,m.endDate].filter(Boolean).map(fmtDMY).join('–'):'';
+            return `<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center${m.pmExclude?';opacity:.55':''}">
+              <span>${E(m.model||'(no model)')} — <b>${E(m.serial)}</b>${per?` <span style="color:var(--t3)">[${E(per)}]</span>`:''}${m.pmExclude?' <span class="bd bd-wn" style="font-size:9px">excluded</span>':''}</span>
+              <span style="color:var(--t3);display:flex;align-items:center;gap:8px">
+                <span>Last PM: ${lastPM?E(fmtDMY(lastPM)):'—'} · Next: ${pm.nextDue?`<span style="color:${pm.statusColor};font-weight:600">${E(fmtDMY(pm.nextDue))}</span>`:'—'}${oj?` · <span class="bd bd-ac" style="font-size:9px">JOB-${String(oj.id).padStart(4,'0')}</span>`:''}</span>
+                ${canEdit()?`<button class="btn btn-sm ${m.pmExclude?'btn-ok':'btn-d'}" style="padding:1px 7px;min-height:22px;font-size:10px" onclick="toggleMachinePMExclude('${jsq(m.serial)}','${jsq(m.model)}',${m.pmExclude?'false':'true'})">${m.pmExclude?'↺ Include':'✕ Exclude'}</button>`:''}
+              </span>
+            </div>`;
+          }).join('')}
+          </div>
         </div>`;
       }).join('')}
       </div></div>`;
@@ -6145,11 +6301,35 @@ function _renderPlannerRental(machines){
   }
   document.getElementById('pmPlannerContent').innerHTML=`
     <h2 style="font-size:var(--fs-xl);margin-bottom:6px">PM Planner</h2>
-    <p style="color:var(--t2);margin:0 0 14px">All rental units grouped by machine type. Set each unit's PM frequency, then plan the day to perform the maintenance.</p>
+    <p style="color:var(--t2);margin:0 0 14px">${intro}</p>
     ${_planToggle()}
+    ${typeChips}
     ${noTech?'<div style="margin-bottom:12px;padding:8px 12px;background:var(--wns);border:1px solid var(--wn);border-radius:8px;color:var(--wn);font-size:13px">⚠ No technicians yet — add them on the Technicians page before assigning.</div>':''}
-    <div class="tw" style="margin-bottom:14px"><div class="th"><h3>Rental Units (${rentals.length})</h3></div></div>
+    <div class="tw" style="margin-bottom:14px"><div class="th" style="flex-wrap:wrap;gap:8px"><h3>${title} — ${shown.length} of ${units.length} shown · ${custNames.length} customer${custNames.length!==1?'s':''}</h3>${excludedN?`<button class="btn btn-sm btn-s" onclick="setPlanShowExcluded(${planShowExcluded?'false':'true'})">${planShowExcluded?'Hide':'Show'} excluded from PM (${excludedN})</button>`:''}</div></div>
     ${body}`;
+}
+// Set ONE PM frequency for every machine in a (kind, customer, category) group.
+function openGroupFreqModal(kind,custName,category){
+  const ms=_planMachines(category,custName,kind);
+  if(!ms.length){toast('No machines in this group.','info');return;}
+  const cur=(ms.map(m=>m.maintFrequency).find(f=>f))||'';
+  const opt=(v,l)=>`<option value="${v}"${cur===v?' selected':''}>${l}</option>`;
+  openModal(`Set PM Frequency — ${E(category)} · ${E(custName)}`,`
+    <p style="color:var(--t2);margin-bottom:12px">Apply one PM frequency to all <b>${ms.length}</b> ${E(category)} unit(s) at <b>${E(custName)}</b>.</p>
+    <div class="fg"><label>Frequency (times per year)</label>
+      <select class="fc" id="gpmFq">
+        ${opt('','— None (no auto PM) —')}${opt('1','1 / year (every 12 months)')}${opt('2','2 / year (every 6 months)')}${opt('3','3 / year (every 4 months)')}${opt('4','4 / year (every 3 months)')}${opt('6','6 / year (every 2 months)')}${opt('12','12 / year (monthly)')}
+      </select>
+    </div>
+  `,`<button class="btn btn-s" onclick="closeModal()">Cancel</button><button class="btn btn-p" onclick="saveGroupFreq('${jsq(kind)}','${jsq(custName)}','${jsq(category)}')">Apply to ${ms.length}</button>`);
+}
+function saveGroupFreq(kind,custName,category){
+  const freq=document.getElementById('gpmFq').value;
+  const ms=_planMachines(category,custName,kind);
+  let n=0;
+  ms.forEach(m=>{const rec=ensureMachineRecord(m.serial,m.model);if(rec){rec.maintFrequency=freq;n++;}});
+  saveDB();closeModal();refreshPage();
+  toast(`Frequency ${freq?freq+'/yr':'cleared'} applied to ${n} unit(s).`,'success');
 }
 // Plan a single machine's PM: pick the maintenance day + technician(s) → one PM job.
 function openPlanPMModal(serial){
