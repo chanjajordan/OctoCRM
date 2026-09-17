@@ -1406,6 +1406,56 @@ function generateReportFromJob(id){
   setTimeout(()=>applyJobPrefill(j),120);
 }
 
+// Copy a previous report into a NEW create-report form — everything the same
+// (customer, contact, machines + serials, category, type, engineers, remarks,
+// recommendations, and the full checklists incl. items/serials) EXCEPT the report
+// number (fresh), the date (today, editable) and the times (blank). Signatures and
+// photos are NOT copied — a new visit signs/photographs fresh. Great for periodic PM.
+function copyReport(id){
+  const r=DB.reports.find(x=>x.id===id);if(!r)return;
+  showPage('create-report');
+  setTimeout(()=>applyReportCopyPrefill(r),120);
+  toast('Copied report — set the new date/time and Save (fresh report number).','info');
+}
+function applyReportCopyPrefill(r){
+  try{
+    const coSel=document.getElementById('crCo');if(coSel&&r.company)coSel.value=r.company;
+    const cuSel=document.getElementById('crCu');
+    if(cuSel&&[...cuSel.options].find(o=>o.value===r.customer)){cuSel.value=r.customer;onCustChange();}
+    else if(cuSel&&r.customer){document.getElementById('crCuCustom').style.display='';document.getElementById('crCuCustom').value=r.customer;cuSel.style.display='none';}
+    setTimeout(()=>{
+      const cnSel=document.getElementById('crCn');
+      if(cnSel){if([...cnSel.options].find(o=>o.value===r.contact))cnSel.value=r.contact;else if(r.contact){cnSel.style.display='none';document.getElementById('crCnCustom').style.display='';document.getElementById('crCnCustom').value=r.contact;}}
+      const cpSel=document.getElementById('crCp');
+      if(cpSel){if([...cpSel.options].find(o=>o.value===r.contactNum))cpSel.value=r.contactNum;else if(r.contactNum){cpSel.style.display='none';document.getElementById('crCpCustom').style.display='';document.getElementById('crCpCustom').value=r.contactNum;}}
+      const mdSel=document.getElementById('crMd');
+      if(mdSel){if([...mdSel.options].find(o=>o.value===r.model))mdSel.value=r.model;else if(r.model){document.getElementById('crMdCustom').style.display='';document.getElementById('crMdCustom').value=r.model;mdSel.style.display='none';}if(mdSel.value||r.model)onModelChange();}
+      setTimeout(()=>{
+        const srSel=document.getElementById('crSr');
+        if(srSel){if([...srSel.options].find(o=>o.value===r.serial))srSel.value=r.serial;else if(r.serial){document.getElementById('crSrCustom').style.display='';document.getElementById('crSrCustom').value=r.serial;srSel.style.display='none';}}
+      },80);
+      // Machine Category
+      const catSel=document.getElementById('crCat');
+      const cat=r.machineCategory||((DB.machines||[]).find(m=>m.serial===r.serial)||{}).category||'';
+      if(catSel&&cat){if([...catSel.options].find(o=>o.value===cat)){catSel.value=cat;}else{catSel.value='__other__';const ci=document.getElementById('crCatCustom');if(ci){ci.style.display='';ci.value=cat;}}}
+      // Additional machines (beyond the primary)
+      if(Array.isArray(r.machines)&&r.machines.length>1){crExtraMachines=[];r.machines.slice(1).forEach(mm=>addExtraMachine(mm.model||'',mm.serial||''));}
+    },150);
+    // Type (+ toggle its checklist section), remarks + recommendations copied verbatim
+    if(r.type){const ty=document.getElementById('crTy');if(ty){[...ty.options].forEach(o=>{if(o.value===r.type)ty.value=r.type;});onCRTypeChange();}}
+    if(document.getElementById('crRm'))document.getElementById('crRm').value=r.remarks||'';
+    if(document.getElementById('crRc'))document.getElementById('crRc').value=r.recommendations||'';
+    // Checklists — full deep clone (items, statuses, readings, serials)
+    const cls=(Array.isArray(r.checklists)&&r.checklists.length)?r.checklists:((r.checklist&&r.checklist.tplId)?[r.checklist]:[]);
+    crChecklists=JSON.parse(JSON.stringify(cls));
+    renderAllChecklists();
+    // Engineers matched by name
+    setTimeout(()=>{
+      const names=(Array.isArray(r.engineers)&&r.engineers.length)?r.engineers:((r.engineer||'').split(',').map(s=>s.trim()).filter(Boolean));
+      document.querySelectorAll('.crEnChk').forEach(c=>{if(names.includes(c.value))c.checked=true;});
+    },180);
+  }catch(e){console.warn('copy report prefill err',e);}
+}
 function applyJobPrefill(j){
   try{
     // Company letterhead — derive from customer's agent
@@ -1901,6 +1951,7 @@ function renderRptCards(reps){
         ${pc?`<button class="btn btn-sm btn-s" onclick="viewRptPhotos(${x.id})">📷</button>`:''}
         <button class="btn btn-sm btn-p" onclick="viewRptPreview(${x.id})">👁 View</button>
         ${canEdit()?`<button class="btn btn-sm btn-s" onclick="editReport(${x.id})">✏ Edit</button>`:''}
+        ${canEdit()?`<button class="btn btn-sm btn-s" onclick="copyReport(${x.id})" title="New report, same details (checklist + serials), fresh number/date">📑 Copy</button>`:''}
         <button class="btn btn-sm btn-s" onclick="downloadReportPDF(${x.id})">📥 PDF</button>
         <button class="btn btn-sm btn-s" onclick="emailReportPDF(${x.id})">📧</button>
         ${canDelete()?`<button class="btn btn-sm btn-d" onclick="delRpt(${x.id})">Delete</button>`:''}
